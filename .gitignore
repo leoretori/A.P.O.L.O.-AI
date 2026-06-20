@@ -1,0 +1,46 @@
+# Credenciais e configuração local
+.env
+
+# Ambientes virtuais
+venv/
+.venv/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Dados gerados em runtime (não commitar — crescem muito / dados pessoais)
+data/chroma_db/
+data/apolo.db
+data/user_profile.json
+logs/
+bk_test.json
+*_backup_*.json
+
+# Ferramentas de desenvolvimento
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

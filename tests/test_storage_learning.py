@@ -1,0 +1,104 @@
+"""Testes da lógica de aprendizado/dados em storage.py que faltava cobertura:
+anti-duplicação, dedup, timeline, toggle de agendamento.
+"""
+
+import pytest
+
+from src.storage import DatabaseManager
+
+
+@pytest.fixture
+def db(tmp_path):
+    return DatabaseManager(database_url=f"sqlite:///{tmp_path}/test.db")
+
+
+# ── is_url_studied / is_topic_studied ────────────────────────────
+def test_is_url_studied(db):
+    assert db.is_url_studied("https://x/y") is False
+    db.save_learned_topic("Tópico A", "https://x/y", "resumo")
+    assert db.is_url_studied("https://x/y") is True
+    assert db.is_url_studied("https://outra/url") is False
+
+
+def test_is_topic_studied(db):
+    assert db.is_topic_studied("Redis") is False
+    db.save_learned_topic("Redis", "https://r/1", "resumo")
+    assert db.is_topic_studied("Redis") is True
+
+
+def test_is_topic_studied_vazio_eh_falso(db):
+    assert db.is_topic_studied("") is False
+
+
+# ── count_topic_duplicates / dedup_learned_topics ────────────────
+def test_count_duplicates_zero_sem_repeticao(db):
+    db.save_learned_topic("A", "u1", "s")
+    db.save_learned_topic("B", "u2", "s")
+    assert db.count_topic_duplicates() == 0
+
+
+def test_count_e_dedup_de_reestudos(db):
+    # "A" estudado 3x (2 excedentes), "B" 1x.
+    db.save_learned_topic("A", "u1", "s")
+    db.save_learned_topic("A", "u2", "s")
+    db.save_learned_topic("A", "u3", "s")
+    db.save_learned_topic("B", "u4", "s")
+    assert db.count_topic_duplicates() == 2
+    removed = db.dedup_learned_topics()
+    assert removed == 2
+    assert db.count_topic_duplicates() == 0
+    # Sobrou um registro de cada tópico.
+    topics = {r["topic"] for r in db.get_learning_history(limit=50)}
+    assert topics == {"A", "B"}
+
+
+def test_dedup_sem_duplicatas_remove_zero(db):
+    db.save_learned_topic("Único", "u1", "s")
+    assert db.dedup_learned_topics() == 0
+
+
+def test_dedup_ignora_caixa_e_espacos(db):
+    db.save_learned_topic("Kubernetes", "u1", "s")
+    db.save_learned_topic("  kubernetes ", "u2", "s")  # mesmo tópico, caixa/espaço diferentes
+    assert db.dedup_learned_topics() == 1
+
+
+# ── get_learning_history sem repetição ───────────────────────────
+def test_history_nao_repete_topico(db):
+    db.save_learned_topic("A", "u1", "s")
+    db.save_learned_topic("A", "u2", "s")
+    hist = db.get_learning_history(limit=10)
+    assert [h["topic"] for h in hist].count("A") == 1
+
+
+# ── get_learning_timeline ────────────────────────────────────────
+def test_timeline_tem_um_ponto_por_dia(db):
+    tl = db.get_learning_timeline(days=7)
+    assert len(tl) == 7
+    assert all("date" in p and "count" in p for p in tl)
+    # Sem nada estudado → todos zero.
+    assert all(p["count"] == 0 for p in tl)
+
+
+def test_timeline_conta_topicos_unicos_de_hoje(db):
+    db.save_learned_topic("A", "u1", "s")
+    db.save_learned_topic("A", "u2", "s")   # re-estudo: não conta de novo
+    db.save_learned_topic("B", "u3", "s")
+    tl = db.get_learning_timeline(days=3)
+    hoje = tl[-1]  # o último ponto é hoje
+    assert hoje["count"] == 2  # A e B (não 3)
+
+
+# ── toggle_schedule ──────────────────────────────────────────────
+def test_toggle_schedule_alterna_enabled(db):
+    row = db.add_schedule("estudar redis", "08:00")
+    sid = row["id"]
+    assert row["enabled"] is True
+    assert db.toggle_schedule(sid) is True
+    assert db.list_schedules()[0]["enabled"] is False
+    assert db.toggle_schedule(sid) is True
+    assert db.list_schedules()[0]["enabled"] is True
+
+
+def test_toggle_schedule_inexistente(db):
+    assert db.toggle_schedule(9999) is False
