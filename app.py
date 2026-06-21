@@ -46,6 +46,7 @@ from src.prompts import (
 from src.coder import CoderWorkspace, extract_fenced, make_diff
 from src.episodic import index_session as _index_episodic
 from src.project_memory import ProjectMemory, analyze_project as _analyze_project
+from src.system_cache import get as _syscache_get, put as _syscache_put, invalidate as _syscache_inv
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
@@ -112,6 +113,9 @@ MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 400))                 # snippet
 AUTO_WEB_ON_GAP = os.getenv("AUTO_WEB_ON_GAP", "1") not in ("0", "false", "False")
 # Contexto rico (≥N memórias relevantes) → upgrade automático para 14B para síntese mais profunda.
 MEMORY_RICH_14B = int(os.getenv("MEMORY_RICH_14B", 2))
+# Mensagens curtas (sim/não/ok/continue) → modelo leve sempre, sem recall caro.
+# Número máximo de caracteres para considerar mensagem "curta".
+SHORT_MSG_CHARS = int(os.getenv("SHORT_MSG_CHARS", 40))
 # Idle learning: se o usuário ficar inativo por IDLE_TRIGGER segundos e o
 # aprendizado estiver parado, o A.P.O.L.O. o inicia automaticamente.
 # 0 = desativado. Padrão 600 (10 min). GpuGate já preempta o learner quando
@@ -289,8 +293,14 @@ async def lifespan(app: FastAPI):
     # Resolve o modelo leve do chat (rápido na CPU); 14b fica para tarefas pesadas.
     CHAT_MODEL = _pick_chat_model()
     VISION_MODEL = _pick_vision_model()
-    # Pré-carrega o modelo do chat (o que o usuário mais usa) — 1ª resposta sem cold start.
+    # Pré-carrega ambos os modelos — 1ª resposta sem cold start, mesmo quando AUTO_SMART
+    # escala para 14b. O warmup do 14b roda 10s depois para não competir com o startup.
     asyncio.create_task(warmup(CHAT_MODEL))
+    if MODEL != CHAT_MODEL:
+        async def _delayed_warmup():
+            await asyncio.sleep(10)
+            await warmup(MODEL)
+        asyncio.create_task(_delayed_warmup())
     # Agendador de estudos ("estude X toda manhã") — roda enquanto o servidor estiver no ar.
     scheduler_task = asyncio.create_task(_scheduler_loop(), name="scheduler")
     sm = f" — sumarização: {SUMMARIZE_MODEL}" if SUMMARIZE_MODEL != MODEL else ""
@@ -513,11 +523,16 @@ async def chat(req: ChatRequest):
             except asyncio.TimeoutError:
                 yield f"data: {json.dumps({'type': 'status', 'message': 'Busca expirou — continuando sem ela'})}\n\n"
 
+        # ── Fast path: mensagens curtas (sim/não/ok/continue) ───────────────────
+        # Não valem o custo de busca semântica — o modelo já tem o contexto no histórico.
+        # Usa modelo leve sempre, sem recall, sem FTS, resposta quase instantânea.
+        _is_short = len(request) <= SHORT_MSG_CHARS and not use_web and not bool(req.image)
+
         # ── Fase 2+3: memória semântica (ChromaDB) + base FTS (Supabase) EM PARALELO ──
         # Usar as duas fontes deixa a resposta mais embasada; rodar em paralelo não
         # custa latência (a busca demorada não soma com a outra).
         async def _do_recall() -> list[dict]:
-            if not rag:
+            if not rag or _is_short:   # short = sem recall
                 return []
             try:
                 # Enriquece a query com tópicos recentes da conversa para continuidade.
@@ -535,7 +550,7 @@ async def chat(req: ChatRequest):
                 return []
 
         async def _do_fts() -> str:
-            if not knowledge_db:
+            if not knowledge_db or _is_short:  # short = sem FTS
                 return ""
             try:
                 return await asyncio.wait_for(
@@ -608,18 +623,20 @@ async def chat(req: ChatRequest):
             request=request,
         )
 
-        # Memória pessoal sobre o usuário → personaliza o system prompt.
-        system_content = SYSTEM_PROMPT
-        if profile:
-            facts = profile.as_context()
-            if facts:
-                system_content += PERSONAL_SECTION.format(facts=facts)
+        # ── System prompt (com cache por sessão) ─────────────────
+        # O conteúdo do system prompt muda apenas quando o perfil ou o projeto mudam —
+        # não a cada mensagem. Cachear reduz recomputação e CPU usage.
+        profile_facts = profile.as_context() if profile else ""
+        proj_section  = project_mem.as_prompt_section() if project_mem else ""
 
-        # Contexto do projeto ativo → o A.P.O.L.O. sabe a stack sem o usuário repetir.
-        if project_mem:
-            proj_section = project_mem.as_prompt_section()
+        system_content = _syscache_get(req.session_id, profile_facts, proj_section)
+        if system_content is None:
+            system_content = SYSTEM_PROMPT
+            if profile_facts:
+                system_content += PERSONAL_SECTION.format(facts=profile_facts)
             if proj_section:
                 system_content += proj_section
+            _syscache_put(req.session_id, system_content, profile_facts, proj_section)
 
         # Memória de conversa longa: injeta o resumo das mensagens antigas (não enviadas).
         summ = session_summaries.get(req.session_id)
@@ -1946,6 +1963,8 @@ async def add_fact(req: FactRequest):
     if not profile:
         return {"ok": False, "error": "Perfil indisponível."}
     item = profile.add(req.fact)
+    if item:
+        _syscache_inv()  # perfil mudou → system prompt stale em todas as sessões
     return {"ok": bool(item), "fact": item}
 
 
@@ -2156,6 +2175,69 @@ async def perf_metrics():
 async def perf_reset():
     perf_tracker.reset()
     return {"ok": True}
+
+
+@app.get("/api/boot")
+async def boot_data():
+    """Dados de inicialização do frontend — agrega o que antes eram 6+ chamadas separadas.
+    Retorna em paralelo: modelos, estado Supabase, status do aprendizado, notificações
+    não lidas e sessões recentes. Reduz o tempo de carregamento da UI."""
+    from src.providers import get_provider
+
+    async def _models():
+        try:
+            installed = get_provider().list_models()
+            return {"chat_model": CHAT_MODEL, "heavy_model": MODEL,
+                    "vision_model": VISION_MODEL, "installed": installed}
+        except Exception:
+            return {"chat_model": CHAT_MODEL, "heavy_model": MODEL,
+                    "vision_model": VISION_MODEL, "installed": []}
+
+    async def _kb_stats():
+        if not knowledge_db:
+            return {"enabled": False, "total": 0}
+        try:
+            return {"enabled": True, **await asyncio.to_thread(knowledge_db.stats)}
+        except Exception:
+            return {"enabled": True, "total": 0}
+
+    async def _learn():
+        return learner.get_status() if learner else {"running": False}
+
+    async def _notifs():
+        try:
+            return await asyncio.to_thread(db.unread_count)
+        except Exception:
+            return 0
+
+    async def _sessions():
+        try:
+            return await asyncio.to_thread(db.list_sessions, 0, 100)
+        except Exception:
+            return []
+
+    models_r, kb_r, learn_r, notifs_r, sess_r = await asyncio.gather(
+        _models(), _kb_stats(), _learn(), _notifs(), _sessions()
+    )
+
+    proj = project_mem.get_active() if project_mem else None
+
+    from src.system_cache import stats as _sc_stats
+    from src.whisper_stt import is_available as _stt_ok
+    from src.tts import is_available as _tts_ok
+
+    return {
+        "ok": True,
+        "models": models_r,
+        "knowledge": kb_r,
+        "learner": learn_r,
+        "unread_notifications": notifs_r,
+        "sessions": sess_r,
+        "active_project": proj,
+        "stt": _stt_ok(),
+        "tts_engine": "edge-tts" if _tts_ok() else "browser",
+        "system_cache": _sc_stats(),
+    }
 
 
 @app.get("/api/health")

@@ -36,9 +36,37 @@
       --sun: #f59e0b; --sun-dark: #d97706;
       --purple: #a855f7; --purple-dark: #7c3aed; --purple-bg: #1a0f2e;
       --blue: #60a5fa;
+      /* Tema escuro (padrão) */
       --bg: #0c0c0e; --bg2: #111114; --bg3: #17171d; --border: #1e1e26;
       --text: #e0e0e0; --muted: #555; --muted2: #444;
     }
+    /* ── Tema claro ── */
+    [data-theme="light"] {
+      --bg: #f5f5f7; --bg2: #ffffff; --bg3: #ebebef; --border: #d0d0da;
+      --text: #1a1a2e; --muted: #888; --muted2: #aaa;
+      --purple-bg: #ede9fe;
+    }
+    [data-theme="light"] body { color: var(--text); background: var(--bg); }
+    [data-theme="light"] .msg-ai .bubble { background: #fff; }
+    [data-theme="light"] .md-body { color: #2a2a3e; }
+    [data-theme="light"] .md-body code:not([class]) { background: #ebebef; color: #c0392b; }
+    [data-theme="light"] .stream-text { color: #888; }
+    /* ── Tema midnight (roxo escuro) ── */
+    [data-theme="midnight"] {
+      --bg: #0d0815; --bg2: #130d1f; --bg3: #1a1228; --border: #281f3a;
+      --text: #e0d0f0; --muted: #6a5a7a; --muted2: #4a3a5a;
+      --purple-bg: #1a0f2e;
+    }
+    [data-theme="midnight"] .msg-user .bubble { background: linear-gradient(135deg, #5b21b6, #7c3aed); }
+    [data-theme="midnight"] #sidebar { background: #110d1c; }
+    [data-theme="midnight"] .code-card { background: #0d0a15; }
+    /* Botão de troca de tema */
+    #theme-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 15px; padding: 4px 6px; border-radius: 6px;
+      color: var(--muted); transition: background .15s;
+    }
+    #theme-btn:hover { background: var(--bg3); }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
 
     /* ════════════════════════════════════════════════════════
@@ -973,9 +1001,12 @@
     </div>
   </div>
 
-  <div id="sidebar-footer">
-    ☀️ A.P.O.L.O. — meu J.A.R.V.I.S.<br>
-    100% local · 7 agentes · Aprende todo dia
+  <div id="sidebar-footer" style="display:flex;align-items:center;justify-content:space-between">
+    <span>☀️ A.P.O.L.O. — meu J.A.R.V.I.S.<br>
+    100% local · Aprende todo dia</span>
+    <div style="display:flex;gap:2px;align-items:center" title="Trocar tema">
+      <button id="theme-btn" onclick="cycleTheme()" title="Trocar tema (escuro / claro / midnight)">🌙</button>
+    </div>
   </div>
 </div>
 
@@ -4308,12 +4339,79 @@
     } catch {}
   }
 
-  // ── Boot ─────────────────────────────────────────────────────
-  checkSupabase();
-  loadSessions();
+  // ── Boot consolidado ─────────────────────────────────────────
+  // bootLoad() faz uma única chamada /api/boot em vez de 5+ paralelas.
+  // restoreSession() carrega a sessão salva no localStorage.
   restoreSession();
   refreshLearnStatus();
-  loadModelInfo();
+  bootLoad();
+  // ── Temas ─────────────────────────────────────────────────────
+  const _THEMES = ['dark', 'light', 'midnight'];
+  const _THEME_ICONS = { dark: '🌙', light: '☀️', midnight: '🔮' };
+  let _currentTheme = localStorage.getItem('apolo-theme') || 'dark';
+
+  function applyTheme(t) {
+    _currentTheme = t;
+    document.documentElement.setAttribute('data-theme', t === 'dark' ? '' : t);
+    const btn = document.getElementById('theme-btn');
+    if (btn) btn.textContent = _THEME_ICONS[t] || '🌙';
+    localStorage.setItem('apolo-theme', t);
+  }
+  function cycleTheme() {
+    const next = _THEMES[(_THEMES.indexOf(_currentTheme) + 1) % _THEMES.length];
+    applyTheme(next);
+    showIngestToast(`Tema: ${next === 'dark' ? 'Escuro' : next === 'light' ? 'Claro' : 'Midnight'}`);
+  }
+  applyTheme(_currentTheme);  // aplica o tema salvo no boot
+
+  // ── Boot consolidado (/api/boot) ──────────────────────────────
+  // Uma única chamada substitui: /api/models + /api/knowledge/stats +
+  // /api/learning/status + /api/notifications + /api/sessions
+  async function bootLoad() {
+    try {
+      const d = await fetch('/api/boot').then(r => r.json());
+      // Modelos
+      if (d.models) {
+        const m = d.models;
+        document.getElementById('cap-model').textContent =
+          `${m.chat_model || m.heavy_model} · Ollama local`;
+        if (m.chat_model && m.chat_model !== m.heavy_model) {
+          const hint = document.getElementById('speed-hint');
+          if (hint) hint.style.display = 'none';
+        }
+      }
+      // Knowledge stats
+      if (d.knowledge) {
+        const kb = d.knowledge;
+        const dot = document.getElementById('dot-sb');
+        const lbl = document.getElementById('lbl-sb');
+        if (dot && lbl) {
+          if (kb.enabled || kb.total >= 0) {
+            dot.className = 'dot on';
+            lbl.textContent = `${kb.total ?? 0} artigos`;
+          }
+        }
+        const kc = document.getElementById('kb-count');
+        if (kc) kc.textContent = kb.total ?? 0;
+      }
+      // Sessions
+      if (d.sessions && d.sessions.length) {
+        renderSessions(d.sessions);
+      }
+      // Notificações
+      if (d.unread_notifications > 0) {
+        const badge = document.getElementById('bell-badge');
+        if (badge) { badge.textContent = d.unread_notifications; badge.classList.add('show'); }
+      }
+      // Projeto ativo
+      if (d.active_project) updateProjectIndicator(d.active_project);
+    } catch {
+      // Fallback: chamadas individuais se /api/boot falhar
+      loadSessions();
+      checkSupabase();
+    }
+  }
+
   startNotifications();
   loadProjectContext();   // exibe indicador de projeto ativo no rodapé do input
   // Atualiza contador da knowledge base no boot
