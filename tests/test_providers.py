@@ -87,7 +87,8 @@ class _FakeOllama:
 
 def _ollama_provider_with_fake():
     p = OllamaProvider.__new__(OllamaProvider)
-    p._ollama = _FakeOllama()
+    p._client = _FakeOllama()   # _client é o que complete/stream/list_models usam
+    p._ollama = _FakeOllama()   # mantém _ollama para compatibilidade
     p._keep_alive = "30m"
     return p
 

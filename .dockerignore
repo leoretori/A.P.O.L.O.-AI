@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Dados locais (são montados como volumes, não copiados)
+data/
+workspace/
+*.db
+
+# Extensão VS Code
+apolo-vscode/
+
+# Logs e temporários
+logs/
+*.log
+apolo_sandbox_*
+
+# Segredos
+.env
+
+# Node (se houver)
+node_modules/
+
+# Build
+dist/
+build/

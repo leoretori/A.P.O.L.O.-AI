@@ -1,20 +1,35 @@
-ollama>=0.3.3
-python-dotenv>=1.0.0
-chromadb>=0.6.0
-pydantic>=2.11.0
-sqlalchemy>=2.0.25
+# ── Core ──────────────────────────────────────────────────────────────────────
 fastapi>=0.100.0
-uvicorn>=0.18.0
-pytest>=7.4.4
-ruff>=0.2.2
+uvicorn[standard]>=0.18.0
+pydantic>=2.11.0
+python-dotenv>=1.0.0
 
-# Busca na web
+# ── Banco e memória ───────────────────────────────────────────────────────────
+sqlalchemy>=2.0.25
+chromadb>=0.6.0
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+ollama>=0.3.3
+
+# ── Busca na web ──────────────────────────────────────────────────────────────
 ddgs>=0.1.0
 httpx>=0.27.0
 beautifulsoup4>=4.12.0
 
-# Supabase (opcional — preencha .env para ativar)
+# ── Supabase (opcional) ───────────────────────────────────────────────────────
 supabase>=2.3.0
 
-# Ingestão de PDF (opcional — texto/código/markdown funcionam sem isto)
+# ── Ingestão de documentos ────────────────────────────────────────────────────
 pypdf>=4.0.0
+python-docx>=1.1.0
+
+# ── Voz ───────────────────────────────────────────────────────────────────────
+edge-tts>=6.1.0
+# faster-whisper>=1.0.0   # STT local — descomente para ativar (~500 MB extra)
+
+# ── Ícones PWA ───────────────────────────────────────────────────────────────
+Pillow>=10.0.0
+
+# ── Dev / Testes ──────────────────────────────────────────────────────────────
+pytest>=7.4.4
+ruff>=0.2.2

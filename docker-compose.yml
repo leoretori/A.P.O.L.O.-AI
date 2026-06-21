@@ -1,0 +1,87 @@
+# A.P.O.L.O. — docker-compose.yml
+# Sobe o assistente + Ollama com um único comando: docker compose up -d
+#
+# VOLUMES DOS MODELOS OLLAMA:
+#   Para reutilizar os modelos já baixados na sua máquina (recomendado!),
+#   descomente a linha "source:" na seção "ollama-models" abaixo.
+#   Isso evita baixar modelos pesados (14b = ~9 GB) novamente dentro do container.
+
+services:
+
+  # ── Ollama — motor de inferência local ──────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: apolo-ollama
+    restart: unless-stopped
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"       # expõe para o host (opcional — útil para debug)
+    networks:
+      - apolo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 12            # até 2 min para o Ollama iniciar na 1ª vez
+      start_period: 10s
+
+  # ── A.P.O.L.O. — FastAPI app ─────────────────────────────────────────────────
+  apolo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apolo-ai:latest
+    container_name: apolo-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Dados persistentes do banco SQLite + perfil do usuário
+      - ./data:/app/data
+      # Workspace do Coder (arquivos de projeto)
+      - ./workspace:/app/workspace
+      # Arquivos de exemplos do RAG
+      - ./data/examples:/app/data/examples
+    env_file:
+      - .env                 # suas credenciais Supabase ficam fora da imagem
+    environment:
+      # Aponta para o serviço Ollama dentro da rede Docker
+      - OLLAMA_HOST=http://ollama:11434
+      # Garante encoding correto no container Linux
+      - PYTHONIOENCODING=utf-8
+      - LANG=C.UTF-8
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - apolo-net
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  apolo-net:
+    driver: bridge
+
+volumes:
+  ollama-models:
+    # ── OPÇÃO A (padrão): volume Docker gerenciado ─────────────────────────
+    # Os modelos são baixados dentro do container na 1ª vez.
+    # Use: docker compose run --rm ollama ollama pull qwen2.5-coder:3b
+    #      docker compose run --rm ollama ollama pull qwen2.5-coder:14b
+
+    # ── OPÇÃO B (recomendado): montar modelos já baixados do host ──────────
+    # Descomente as 4 linhas abaixo (e comente as de cima) para reaproveitar
+    # os modelos que você já tem na sua máquina Windows:
+    #
+    # driver: local
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: C:/Users/leore/.ollama

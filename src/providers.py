@@ -33,8 +33,14 @@ class OllamaProvider:
 
     def __init__(self, default_keep_alive="30m"):
         import ollama
+        # Usa OLLAMA_HOST se definido (ex.: http://ollama:11434 em Docker),
+        # caso contrário usa o padrão da lib (http://localhost:11434).
+        host = os.getenv("OLLAMA_HOST", "").strip()
+        self._client = ollama.Client(host=host) if host else ollama.Client()
         self._ollama = ollama
         self._keep_alive = default_keep_alive
+        if host:
+            logger.info(f"[ollama] usando host: {host}")
 
     def _opts(self, options):
         # Mescla as opções do perfil de hardware (threads/contexto); o chamador vence.
@@ -42,7 +48,7 @@ class OllamaProvider:
         return {**inference_options(), **(options or {})}
 
     def complete(self, model, messages, options=None, keep_alive=None) -> str:
-        resp = self._ollama.chat(
+        resp = self._client.chat(
             model=model, messages=messages,
             keep_alive=self._keep_alive if keep_alive is None else keep_alive,
             options=self._opts(options),
@@ -50,7 +56,7 @@ class OllamaProvider:
         return resp.message.content
 
     def stream(self, model, messages, options=None, keep_alive=None):
-        for chunk in self._ollama.chat(
+        for chunk in self._client.chat(
             model=model, messages=messages, stream=True,
             keep_alive=self._keep_alive if keep_alive is None else keep_alive,
             options=self._opts(options),
@@ -59,7 +65,7 @@ class OllamaProvider:
 
     def list_models(self) -> list[str]:
         try:
-            listed = self._ollama.list()
+            listed = self._client.list()
             return sorted({m.get("model") or m.get("name") for m in (listed.get("models") or [])})
         except Exception as e:
             logger.warning(f"Ollama list_models: {e}")
