@@ -102,10 +102,15 @@ RAG_CTX_CHARS = int(os.getenv("RAG_CTX_CHARS", 1200))
 # Auto-roteamento: perguntas complexas usam o 14b sozinhas (sem o usuário ligar o toggle).
 AUTO_SMART = os.getenv("AUTO_SMART", "1") not in ("0", "false", "False", "")
 # Recall semântico no chat: quantas memórias buscar, quantas usar, corte de relevância e tamanho.
-MEMORY_RECALL_N = int(os.getenv("MEMORY_RECALL_N", 5))
+MEMORY_RECALL_N = int(os.getenv("MEMORY_RECALL_N", 6))   # busca mais candidatos para rerank
 MEMORY_TOP = int(os.getenv("MEMORY_TOP", 3))
-MEMORY_MIN_RELEVANCE = float(os.getenv("MEMORY_MIN_RELEVANCE", 0.2))
-MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 320))
+MEMORY_MIN_RELEVANCE = float(os.getenv("MEMORY_MIN_RELEVANCE", 0.18))  # limiar levemente menor
+MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 400))                 # snippets mais longos
+# Auto-pesquisa na web quando não há memória relevante (lacuna de conhecimento).
+# Evita resposta vaga — busca informação real antes de responder.
+AUTO_WEB_ON_GAP = os.getenv("AUTO_WEB_ON_GAP", "1") not in ("0", "false", "False")
+# Contexto rico (≥N memórias relevantes) → upgrade automático para 14B para síntese mais profunda.
+MEMORY_RICH_14B = int(os.getenv("MEMORY_RICH_14B", 2))
 # Idle learning: se o usuário ficar inativo por IDLE_TRIGGER segundos e o
 # aprendizado estiver parado, o A.P.O.L.O. o inicia automaticamente.
 # 0 = desativado. Padrão 600 (10 min). GpuGate já preempta o learner quando
@@ -512,7 +517,13 @@ async def chat(req: ChatRequest):
             if not rag:
                 return []
             try:
-                recalled = await asyncio.to_thread(rag.recall, request, MEMORY_RECALL_N)
+                # Enriquece a query com tópicos recentes da conversa para continuidade.
+                # Se o usuário perguntou sobre Docker nos últimos turnos, bias para Docker.
+                recent = [m.get("content", "")[:80] for m in history[-4:]
+                          if m.get("role") == "user"]
+                topic_bias = " ".join(recent[:-1]).strip()  # exclui a mensagem atual
+                enriched = (request + " " + topic_bias)[:450] if topic_bias else request
+                recalled = await asyncio.to_thread(rag.recall, enriched, MEMORY_RECALL_N)
                 return [
                     m for m in recalled if (m.get("relevance") or 0) >= MEMORY_MIN_RELEVANCE
                 ][:MEMORY_TOP]
@@ -536,7 +547,7 @@ async def chat(req: ChatRequest):
 
         memories, knowledge_context = await asyncio.gather(_do_recall(), _do_fts())
 
-        # Lacuna de conhecimento: nenhuma memória semântica relevante → estuda com prioridade.
+        # Lacuna de conhecimento: nenhuma memória semântica relevante.
         is_gap = not memories
         if is_gap and learner:
             learner.note_gap(request)
@@ -544,6 +555,34 @@ async def chat(req: ChatRequest):
                 db.add_notification(f"🔍 Lacuna detectada — vou estudar: {request[:80]}", kind="gap")
             except Exception:
                 pass
+            # Auto-pesquisa na web: em vez de responder no vácuo, busca informação
+            # real antes de gerar a resposta. Desativa se o usuário já habilitou web
+            # ou se há imagem (visão não precisa de web search).
+            if AUTO_WEB_ON_GAP and not use_web and not bool(req.image):
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Sem memória sobre isso — pesquisando na web...'})}\n\n"
+                try:
+                    _gap_web, _gap_srcs = await asyncio.wait_for(
+                        web_research(request, max_results=2),
+                        timeout=12.0,
+                    )
+                    if _gap_srcs:
+                        web_context = _gap_web
+                        web_sources = _gap_srcs
+                        is_gap = False  # agora tem contexto
+                        yield f"data: {json.dumps({'type': 'status', 'message': f'{len(_gap_srcs)} fonte(s) encontrada(s) — integrando...'})}\n\n"
+                        # Persiste o aprendizado em background
+                        if knowledge_db and web_context:
+                            asyncio.create_task(asyncio.to_thread(
+                                knowledge_db.save,
+                                f"Auto-pesquisa: {request[:100]}",
+                                _gap_srcs[0]["url"],
+                                web_context,
+                                "web_search",
+                            ))
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'type': 'status', 'message': 'Busca expirou — respondendo com o que sei...'})}\n\n"
+                except Exception as _we:
+                    logger.debug(f"auto-web on gap: {_we}")
 
         # Monta a seção de memória numerada (para o modelo citar [n]) + fontes p/ o front.
         memory_block = ""
@@ -592,15 +631,24 @@ async def chat(req: ChatRequest):
         messages.append(user_msg)
 
         # Seleção de modelo: visão > inteligente (14b) > leve (chat do dia a dia).
-        auto_smart = AUTO_SMART and not req.smart and not has_image and _is_complex(request)
+        # Upgrade automático para 14b quando:
+        #   (a) pergunta complexa (is_complex) — já existia
+        #   (b) contexto rico (≥ MEMORY_RICH_14B memórias relevantes) — síntese profunda
+        rich_context = len(memories) >= MEMORY_RICH_14B
+        auto_smart = AUTO_SMART and not req.smart and not has_image and (
+            _is_complex(request) or rich_context
+        )
         smart = (req.smart or auto_smart) and MODEL != CHAT_MODEL
         if has_image:
             active_model, keep = VISION_MODEL, KEEP_ALIVE_HEAVY
             yield f"data: {json.dumps({'type': 'status', 'message': f'👁️ Analisando a imagem com {VISION_MODEL}...'})}\n\n"
         elif smart:
             active_model, keep = MODEL, KEEP_ALIVE_HEAVY
-            why = "pergunta complexa detectada" if auto_smart else "modo inteligente"
-            yield f"data: {json.dumps({'type': 'status', 'message': f'{why} — usando {MODEL} p/ raciocínio mais profundo...'})}\n\n"
+            if rich_context and not _is_complex(request):
+                why = f"contexto rico ({len(memories)} memórias) — síntese profunda"
+            else:
+                why = "pergunta complexa detectada" if auto_smart else "modo inteligente"
+            yield f"data: {json.dumps({'type': 'status', 'message': f'{why} — usando {MODEL}...'})}\n\n"
         else:
             active_model, keep = CHAT_MODEL, KEEP_ALIVE
 
