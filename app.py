@@ -1528,14 +1528,12 @@ async def orchestrate_endpoint(req: ChatRequest):
 
 @app.post("/api/benchmark/run")
 async def benchmark_run():
-    """Executa o benchmark de qualidade e salva o resultado no histórico.
-    Retorna métricas agregadas + por pergunta."""
+    """Executa o benchmark de qualidade, persiste no banco e retorna métricas."""
     from src.benchmark import run_benchmark
-    result = await run_benchmark(
-        chat_model=CHAT_MODEL,
-        keep_alive=KEEP_ALIVE,
-    )
+    result = await run_benchmark(chat_model=CHAT_MODEL, keep_alive=KEEP_ALIVE)
     result["timestamp"] = datetime.now().isoformat()
+    # Persiste no banco (sobrevive ao restart) + memória (acesso rápido)
+    await asyncio.to_thread(db.save_benchmark_run, result)
     _benchmark_history.append(result)
     if len(_benchmark_history) > _BENCHMARK_HISTORY_MAX:
         _benchmark_history.pop(0)
@@ -1544,8 +1542,30 @@ async def benchmark_run():
 
 @app.get("/api/benchmark/history")
 async def benchmark_history():
-    """Histórico dos últimos N runs de benchmark."""
-    return {"runs": len(_benchmark_history), "history": _benchmark_history}
+    """Histórico de benchmark — banco (persistente) + memória desta sessão."""
+    saved = await asyncio.to_thread(db.get_benchmark_history, 20)
+    return {"runs": len(saved), "history": saved}
+
+
+@app.get("/api/analytics")
+async def analytics():
+    """Painel de analytics: uso, perguntas mais frequentes, tópicos, benchmark."""
+    summary, by_day, by_hour, top_topics, top_words, bench = await asyncio.gather(
+        asyncio.to_thread(db.analytics_usage_summary),
+        asyncio.to_thread(db.analytics_messages_by_day, 30),
+        asyncio.to_thread(db.analytics_messages_by_hour),
+        asyncio.to_thread(db.analytics_top_topics, 20),
+        asyncio.to_thread(db.analytics_top_words, 15),
+        asyncio.to_thread(db.get_benchmark_history, 10),
+    )
+    return {
+        "summary": summary,
+        "messages_by_day": by_day,
+        "messages_by_hour": by_hour,
+        "top_topics": top_topics,
+        "top_words": top_words,
+        "benchmark_history": bench,
+    }
 
 
 @app.get("/api/benchmark/diff")
