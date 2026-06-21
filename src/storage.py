@@ -93,6 +93,17 @@ class LearnedTopic(Base):
     studied_at = Column(DateTime, default=_now)
 
 
+class Reaction(Base):
+    """Feedback do usuário sobre respostas (👍/👎) — alimenta métricas de qualidade."""
+    __tablename__ = "reactions"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    message_hash = Column(String(32), index=True, nullable=False)
+    reaction     = Column(String(4), nullable=False)   # "up" ou "down"
+    session_id   = Column(String(36))
+    sources      = Column(Text, default="[]")           # JSON: URLs citadas
+    created_at   = Column(DateTime, default=_now)
+
+
 class BenchmarkRun(Base):
     """Histórico persistente de runs do benchmark de qualidade."""
     __tablename__ = "benchmark_runs"
@@ -712,3 +723,43 @@ class DatabaseManager:
                 "results": _json.loads(r.results_json or "[]"),
             })
         return out
+
+    # ── Reações (👍👎) ────────────────────────────────────────────
+
+    def save_reaction(self, message_hash: str, reaction: str,
+                      session_id: str = "", sources: list | None = None) -> None:
+        import json as _json
+        with Session(self.engine) as s:
+            # Upsert: atualiza se já existe para o mesmo hash
+            existing = (s.query(Reaction)
+                        .filter(Reaction.message_hash == message_hash).first())
+            if existing:
+                existing.reaction = reaction
+                existing.sources = _json.dumps(sources or [])
+            else:
+                s.add(Reaction(
+                    message_hash=message_hash,
+                    reaction=reaction,
+                    session_id=session_id or "",
+                    sources=_json.dumps(sources or []),
+                ))
+            s.commit()
+
+    def reaction_stats(self) -> dict:
+        """Contagem de 👍/👎 e fontes mais polarizadas (para o painel Analytics)."""
+        import json as _json
+        with Session(self.engine) as s:
+            rows = s.query(Reaction).all()
+        ups   = sum(1 for r in rows if r.reaction == "up")
+        downs = sum(1 for r in rows if r.reaction == "down")
+        # Fontes mais negativamente avaliadas
+        url_neg: dict[str, int] = {}
+        for r in rows:
+            if r.reaction == "down":
+                for url in (_json.loads(r.sources or "[]") or []):
+                    url_neg[url] = url_neg.get(url, 0) + 1
+        top_neg = sorted(url_neg.items(), key=lambda x: -x[1])[:5]
+        return {
+            "total": len(rows), "up": ups, "down": downs,
+            "top_negative_sources": [{"url": u, "count": c} for u, c in top_neg],
+        }

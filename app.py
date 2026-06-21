@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware   # #3
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
@@ -122,6 +122,15 @@ MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 400))                 # snippet
 AUTO_WEB_ON_GAP = os.getenv("AUTO_WEB_ON_GAP", "1") not in ("0", "false", "False")
 # Contexto rico (≥N memórias relevantes) → upgrade automático para 14B para síntese mais profunda.
 MEMORY_RICH_14B = int(os.getenv("MEMORY_RICH_14B", 2))
+# Self-eval no chat: após responder, o A.P.O.L.O. critica e refina a própria resposta.
+# Só ativo quando já usando 14b (evita dobrar latência no modelo leve).
+# Desative com CHAT_SELF_EVAL=0.
+CHAT_SELF_EVAL = os.getenv("CHAT_SELF_EVAL", "1") not in ("0", "false", "False")
+# Rate limiting: máximo de requisições por endpoint por janela de 60s.
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT", "1") not in ("0", "false", "False")
+_rate_windows: dict[str, list] = defaultdict(list)
+_RATE_LIMITS = {"/api/chat": 40, "/api/research": 15, "/api/agent": 20,
+                "/api/orchestrate": 10, "default": 80}
 # Mensagens curtas (sim/não/ok/continue) → modelo leve sempre, sem recall caro.
 # Número máximo de caracteres para considerar mensagem "curta".
 SHORT_MSG_CHARS = int(os.getenv("SHORT_MSG_CHARS", 40))
@@ -375,6 +384,26 @@ app.add_middleware(
 
 from src.telemetry import tracker as perf_tracker
 import time as _time
+
+
+@app.middleware("http")
+async def _rate_limit_middleware(request: Request, call_next):
+    """#8 Rate limiting — protege contra rajadas acidentais ou loops no browser.
+    Janela deslizante de 60s por endpoint. Responde 429 se exceder o limite."""
+    if RATE_LIMIT_ENABLED and request.url.path.startswith("/api/"):
+        path = request.url.path
+        limit = _RATE_LIMITS.get(path, _RATE_LIMITS["default"])
+        now = _time.perf_counter()
+        window = _rate_windows[path]
+        _rate_windows[path] = [t for t in window if now - t < 60]
+        if len(_rate_windows[path]) >= limit:
+            return JSONResponse(
+                {"error": "rate limit exceeded", "retry_after": 60},
+                status_code=429,
+                headers={"Retry-After": "60"},
+            )
+        _rate_windows[path].append(now)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -736,6 +765,28 @@ async def chat(req: ChatRequest):
             async for token in stream_chat(active_model, messages, keep_alive=keep):
                 full_response += token
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+
+            # #6 Self-eval no chat: só quando usando 14b e resposta longa de texto.
+            # Critica e refina — mesma lógica do agente, mas aplicada ao chat normal.
+            if (CHAT_SELF_EVAL and smart and not has_image
+                    and len(full_response) > 380 and "```" not in full_response[:200]):
+                try:
+                    verdict = await asyncio.to_thread(
+                        chat_resilient, active_model,
+                        [{"role": "user", "content":
+                            AGENT_SELFEVAL_PROMPT.format(question=request, answer=full_response)}],
+                        keep_alive=keep, options={"num_predict": 400},
+                    )
+                    verdict = (verdict or "").strip()
+                    if verdict and verdict.upper() != "OK" and not verdict.upper().startswith("OK") \
+                            and len(verdict) > 30:
+                        # Envia o refinamento como tokens adicionais
+                        delta = "\n\n---\n*Refinado:* " + verdict.lstrip()
+                        for ch in delta:
+                            full_response += ch
+                            yield f"data: {json.dumps({'type': 'token', 'content': ch})}\n\n"
+                except Exception as _se:
+                    logger.debug(f"chat self-eval: {_se}")
 
             # Persiste mensagens no banco E no cache em memória
             is_first_message = len(sessions[req.session_id]) == 0
@@ -1176,6 +1227,46 @@ async def coder_files():
 
 class CoderExecRequest(BaseModel):
     cmd: str
+
+
+@app.websocket("/ws/coder/exec")
+async def coder_exec_ws(ws: WebSocket):
+    """#9 WebSocket para o terminal do Coder — bidirecional real.
+    Recebe {cmd} → transmite linhas de saída → envia {type: done, ok: bool}.
+    Vantagem sobre SSE: permite enviar Ctrl+C para interromper processos."""
+    await ws.accept()
+    try:
+        data = await ws.receive_json()
+        cmd = (data.get("cmd") or "").strip()
+        if not cmd:
+            await ws.send_json({"type": "done", "ok": False, "error": "cmd vazio"})
+            return
+
+        q: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
+
+        def _worker():
+            for kind, val in coder_ws.run_cmd_stream(cmd):
+                loop.call_soon_threadsafe(q.put_nowait, (kind, val))
+
+        fut = loop.run_in_executor(None, _worker)
+        ok = False
+        while True:
+            kind, val = await q.get()
+            if kind == "line":
+                await ws.send_json({"type": "line", "content": val[:500]})
+            else:
+                ok = val
+                break
+        await fut
+        await ws.send_json({"type": "done", "ok": ok})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        try:
+            await ws.send_json({"type": "error", "message": str(e)[:200]})
+        except Exception:
+            pass
 
 
 @app.post("/api/coder/exec")
@@ -1769,6 +1860,28 @@ async def analytics():
         "top_words": top_words,
         "benchmark_history": bench,
     }
+
+
+class ReactionRequest(BaseModel):
+    message_hash: str
+    reaction: str           # "up" ou "down"
+    session_id: str = ""
+    sources: list[str] = []
+
+
+@app.post("/api/reactions")
+async def save_reaction(req: ReactionRequest):
+    """#7 Salva feedback 👍/👎 no banco. Alimenta métricas de qualidade."""
+    await asyncio.to_thread(
+        db.save_reaction, req.message_hash, req.reaction, req.session_id, req.sources
+    )
+    return {"ok": True}
+
+
+@app.get("/api/reactions/stats")
+async def reaction_stats():
+    """Estatísticas de reações — total, taxa positiva, fontes mais negativas."""
+    return await asyncio.to_thread(db.reaction_stats)
 
 
 @app.get("/api/benchmark/diff")

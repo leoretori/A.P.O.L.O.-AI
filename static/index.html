@@ -343,6 +343,19 @@
     .smart-tag { display: inline-block; margin-left: 8px; font-size: 10px; color: var(--sun); background: #1a1405; border: 1px solid #3a2f0a; border-radius: 99px; padding: 2px 9px; vertical-align: middle; }
     #input-hint { max-width: 820px; margin: 5px auto 0; font-size: 11px; color: #2a2a2a; text-align: center; }
 
+    /* ════ MÚLTIPLAS ABAS ════ */
+    #tab-bar { display:flex; align-items:center; gap:2px; padding:4px 8px 0; background:var(--bg2); border-bottom:1px solid var(--border); overflow-x:auto; flex-shrink:0; min-height:34px; }
+    #tab-bar::-webkit-scrollbar { height:3px; }
+    .tab-item { display:flex; align-items:center; gap:5px; padding:4px 10px 5px; border-radius:7px 7px 0 0; font-size:11px; cursor:pointer; white-space:nowrap; max-width:140px; border:1px solid transparent; border-bottom:none; transition:background .12s,color .12s; color:var(--muted); background:none; position:relative; top:1px; }
+    .tab-item:hover { background:var(--bg3); color:#aaa; }
+    .tab-item.active { background:var(--bg); border-color:var(--border); color:var(--text); }
+    .tab-item.active::after { content:''; position:absolute; bottom:-1px; left:0; right:0; height:1px; background:var(--bg); }
+    .tab-label { overflow:hidden; text-overflow:ellipsis; flex:1; }
+    .tab-close { font-size:10px; color:#555; padding:0 2px; border-radius:3px; flex-shrink:0; }
+    .tab-close:hover { color:#f87171; background:#2a1212; }
+    #tab-add { padding:3px 7px; border-radius:6px; font-size:13px; color:#555; cursor:pointer; flex-shrink:0; }
+    #tab-add:hover { color:var(--sun); background:var(--bg3); }
+
     /* Empty state */
     #empty-state { position: relative; max-width: 640px; margin: auto; text-align: center; padding: 40px 24px; }
     .hero-glow { position: absolute; top: -40px; left: 50%; transform: translateX(-50%); width: 360px; height: 360px; border-radius: 50%; background: radial-gradient(circle, #f59e0b22 0%, transparent 65%); pointer-events: none; z-index: 0; animation: glow-breathe 5s ease-in-out infinite; }
@@ -1323,6 +1336,11 @@
 
 <!-- ════ MAIN ════ -->
 <div id="main">
+  <!-- #10 Barra de abas de chat -->
+  <div id="tab-bar">
+    <!-- abas renderizadas via JS -->
+    <span id="tab-add" onclick="addTab()" title="Nova aba (até 4)">＋</span>
+  </div>
   <div id="messages">
     <div id="empty-state">
       <div class="hero-glow"></div>
@@ -1912,6 +1930,7 @@
     const cmd = document.getElementById('coder-cmd').value.trim();
     if (!cmd) return;
     _saveCmdHistory(cmd);
+    document.getElementById('coder-cmd').value = '';
     const trace = document.getElementById('coder-trace');
     const head = document.createElement('div');
     head.style.cssText = 'padding:4px 0;color:#5eead4;font-family:monospace;font-size:11px';
@@ -1920,8 +1939,33 @@
     const out = document.createElement('pre');
     out.style.cssText = 'margin:2px 0 8px;padding:8px 10px;background:#08080b;border:1px solid #1c1c24;border-left:2px solid #5eead4;border-radius:6px;font-size:10.5px;line-height:1.35;max-height:240px;overflow:auto;white-space:pre-wrap;color:#9aa';
     trace.appendChild(out); trace.scrollTop = trace.scrollHeight;
+
+    // #9 WebSocket bidirecional — permite Ctrl+C futuro; fallback SSE se WS falhar
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsOk = false;
     try {
-      const resp = await fetch('/api/coder/exec', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({cmd})});
+      await new Promise((resolve, reject) => {
+        const ws = new WebSocket(`${wsProto}//${location.host}/ws/coder/exec`);
+        ws.onopen = () => { wsOk = true; ws.send(JSON.stringify({cmd})); };
+        ws.onmessage = (e) => {
+          const d = JSON.parse(e.data);
+          if (d.type === 'line') {
+            out.textContent += (out.textContent?'\n':'') + d.content;
+            trace.scrollTop = trace.scrollHeight;
+          } else if (d.type === 'done') {
+            if (!d.ok) out.style.borderLeftColor = '#f87171';
+            ws.close(); resolve();
+          } else if (d.type === 'error') {
+            out.textContent += '\n✗ ' + (d.message||'erro'); ws.close(); resolve();
+          }
+        };
+        ws.onerror = () => { if (!wsOk) reject(new Error('ws_failed')); else resolve(); };
+        ws.onclose = () => resolve();
+      });
+    } catch {
+      // Fallback SSE (compatibilidade com proxies que bloqueiam WS)
+      const resp = await fetch('/api/coder/exec', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({cmd})});
       const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf='';
       while (true) {
         const {done, value} = await reader.read(); if (done) break;
@@ -1930,12 +1974,12 @@
         for (const p of parts) {
           if (!p.startsWith('data: ')) continue;
           const d = JSON.parse(p.slice(6));
-          if (d.type === 'cmd_line') { out.textContent += (out.textContent?'\n':'') + d.content; trace.scrollTop = trace.scrollHeight; }
-          else if (d.type === 'step' && d.icon === '✗') out.style.borderLeftColor = '#f87171';
+          if (d.type==='cmd_line') { out.textContent+=(out.textContent?'\n':'')+d.content; trace.scrollTop=trace.scrollHeight; }
+          else if (d.type==='step'&&d.icon==='✗') out.style.borderLeftColor='#f87171';
         }
       }
-      refreshCoderTree();
-    } catch (e) { out.textContent += '\n(falha ao executar)'; }
+    }
+    refreshCoderTree();
   }
 
   async function renameCoderFile(path) {
@@ -3025,6 +3069,7 @@
       { const sb = buildSpeakButton(data.code || ''); if (sb) content.appendChild(sb); }
       if (data.smart) content.appendChild(buildSmartBadge(data.auto_smart));
       scrollBottom(); loadSessions();
+      _saveTabs(); // #10 snapshot da aba após cada resposta
       return;
     }
 
@@ -4583,8 +4628,7 @@
   }
 
   // ── Boot consolidado ─────────────────────────────────────────
-  // bootLoad() faz uma única chamada /api/boot em vez de 5+ paralelas.
-  // restoreSession() carrega a sessão salva no localStorage.
+  _initTabs();      // #10 inicializa/restaura as abas antes do boot
   restoreSession();
   bootLoad();
   // #6 SSE push substitui o polling de refreshLearnStatus a cada 3s
@@ -4674,8 +4718,8 @@ function createTypingIndicator() {
   d.innerHTML = '<span></span><span></span><span></span>'; return d;
 }
 
-// #3 Reações nas respostas
-function buildReactionBar(text) {
+// #3 + #7 Reações nas respostas (localStorage + API para métricas)
+function buildReactionBar(text, memorySources) {
   const bar = document.createElement('div'); bar.className = 'reaction-bar';
   const key = 'rxn_' + Math.abs([...text.slice(0,60)].reduce((h,c)=>Math.imul(31,h)+c.charCodeAt(0)|0,0)).toString(36);
   const stored = localStorage.getItem(key);
@@ -4684,7 +4728,19 @@ function buildReactionBar(text) {
     btn.className = 'reaction-btn' + (stored===emoji ? (idx===0?' active':' active down') : '');
     btn.textContent = emoji;
     btn.title = idx===0 ? 'Boa resposta' : 'Resposta ruim';
-    btn.onclick = () => { localStorage.setItem(key, stored===emoji ? '' : emoji); bar.replaceWith(buildReactionBar(text)); };
+    btn.onclick = () => {
+      const r = stored===emoji ? '' : emoji;
+      localStorage.setItem(key, r);
+      if (r) {
+        // #7 Persiste no servidor para métricas de qualidade
+        const reaction = r === '👍' ? 'up' : 'down';
+        const srcs = (memorySources||[]).map(s=>s.url).filter(Boolean);
+        fetch('/api/reactions', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({message_hash: key, reaction, session_id: sessionId, sources: srcs})
+        }).catch(()=>{});
+      }
+      bar.replaceWith(buildReactionBar(text, memorySources));
+    };
     bar.appendChild(btn);
   });
   return bar;
@@ -4748,6 +4804,109 @@ function _enrichAiMessage(contentEl, fullText) {
   addInlineCopyButtons(contentEl);
   contentEl.querySelectorAll('.typing-dots').forEach(d=>d.remove());
   if (fullText && fullText.length > 20) contentEl.appendChild(buildReactionBar(fullText));
+}
+
+// ── #10 Múltiplas abas de chat ────────────────────────────────────────────────
+const _MAX_TABS = 4;
+let _tabs = [];       // [{id, session_id, label, snapshot}]
+let _activeTabIdx = 0;
+
+function _tabId() { return 'tab_' + Date.now().toString(36); }
+function _newSessionId() { return crypto.randomUUID ? crypto.randomUUID() : _tabId(); }
+
+function _snapshotMessages() {
+  return document.getElementById('messages').innerHTML;
+}
+function _restoreMessages(html) {
+  const box = document.getElementById('messages');
+  box.innerHTML = html || '';
+  box.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+}
+
+function _renderTabs() {
+  const bar = document.getElementById('tab-bar');
+  // Remove itens antigos mantendo o botão +
+  bar.querySelectorAll('.tab-item').forEach(t => t.remove());
+  const addBtn = document.getElementById('tab-add');
+  _tabs.forEach((tab, i) => {
+    const item = document.createElement('div');
+    item.className = 'tab-item' + (i === _activeTabIdx ? ' active' : '');
+    item.innerHTML = `<span class="tab-label" title="${escHtml(tab.label)}">${escHtml(tab.label.slice(0,18))}</span>`;
+    if (_tabs.length > 1) {
+      const x = document.createElement('span');
+      x.className = 'tab-close'; x.textContent = '×';
+      x.onclick = (e) => { e.stopPropagation(); closeTab(i); };
+      item.appendChild(x);
+    }
+    item.onclick = () => switchTab(i);
+    bar.insertBefore(item, addBtn);
+  });
+  addBtn.style.display = _tabs.length >= _MAX_TABS ? 'none' : '';
+}
+
+function _saveTabs() {
+  localStorage.setItem('apolo-tabs', JSON.stringify(
+    _tabs.map((t, i) => ({...t, snapshot: i === _activeTabIdx ? _snapshotMessages() : t.snapshot}))
+  ));
+}
+
+function addTab() {
+  if (_tabs.length >= _MAX_TABS) return;
+  // Salva snapshot da aba atual
+  if (_tabs[_activeTabIdx]) _tabs[_activeTabIdx].snapshot = _snapshotMessages();
+  const tab = { id: _tabId(), session_id: _newSessionId(), label: 'Chat ' + (_tabs.length + 1), snapshot: '' };
+  _tabs.push(tab);
+  _activeTabIdx = _tabs.length - 1;
+  sessionId = tab.session_id;
+  _restoreMessages('');
+  showEmpty();
+  _renderTabs();
+  _saveTabs();
+  document.getElementById('input').focus();
+}
+
+function switchTab(idx) {
+  if (idx === _activeTabIdx) return;
+  _tabs[_activeTabIdx].snapshot = _snapshotMessages();
+  _tabs[_activeTabIdx].session_id = sessionId;
+  _activeTabIdx = idx;
+  sessionId = _tabs[idx].session_id;
+  _restoreMessages(_tabs[idx].snapshot);
+  if (!_tabs[idx].snapshot) showEmpty();
+  _renderTabs();
+  _saveTabs();
+  scrollBottom();
+}
+
+function closeTab(idx) {
+  if (_tabs.length <= 1) return;
+  _tabs.splice(idx, 1);
+  if (_activeTabIdx >= _tabs.length) _activeTabIdx = _tabs.length - 1;
+  sessionId = _tabs[_activeTabIdx].session_id;
+  _restoreMessages(_tabs[_activeTabIdx].snapshot);
+  if (!_tabs[_activeTabIdx].snapshot) showEmpty();
+  _renderTabs();
+  _saveTabs();
+}
+
+function _updateTabLabel(label) {
+  if (_tabs[_activeTabIdx]) {
+    _tabs[_activeTabIdx].label = label.slice(0, 30) || 'Chat';
+    _renderTabs();
+    _saveTabs();
+  }
+}
+
+function _initTabs() {
+  // Restaura abas do localStorage ou cria a primeira aba
+  try {
+    const saved = JSON.parse(localStorage.getItem('apolo-tabs') || 'null');
+    if (saved && saved.length) { _tabs = saved; _activeTabIdx = 0; }
+  } catch {}
+  if (!_tabs.length) _tabs = [{ id: _tabId(), session_id: sessionId, label: 'Chat 1', snapshot: '' }];
+  else sessionId = _tabs[_activeTabIdx].session_id;
+  _renderTabs();
+  if (_tabs[_activeTabIdx].snapshot) _restoreMessages(_tabs[_activeTabIdx].snapshot);
 }
 
 // ── Modo Mãos Livres ─────────────────────────────────────────────────────────
