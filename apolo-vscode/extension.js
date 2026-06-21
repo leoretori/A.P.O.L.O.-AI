@@ -57,7 +57,7 @@ class ApoloChatViewProvider {
         const cfg = vscode.workspace.getConfiguration('apolo');
         this._view.webview.postMessage({
             type: 'config',
-            serverUrl: cfg.get('serverUrl', 'http://localhost:8000'),
+            serverUrl: cfg.get('serverUrl', 'http://192.168.15.17:8000'),
             smart: cfg.get('smartMode', false),
         });
     }

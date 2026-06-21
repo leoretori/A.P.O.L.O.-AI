@@ -15,7 +15,7 @@ Conecta o VS Code ao seu servidor A.P.O.L.O. local para chat, revisão de códig
 
 ## Instalação (modo desenvolvimento)
 
-**Pré-requisito:** o servidor A.P.O.L.O. rodando em `http://localhost:8000`
+**Pré-requisito:** o servidor A.P.O.L.O. rodando em `http://192.168.15.17:8000`
 
 ```bash
 # 1. Abra a pasta da extensão no VS Code
@@ -43,7 +43,7 @@ code --install-extension apolo-assistant-0.1.0.vsix
 
 | Chave | Padrão | Descrição |
 |---|---|---|
-| `apolo.serverUrl` | `http://localhost:8000` | URL do servidor |
+| `apolo.serverUrl` | `http://192.168.15.17:8000` | URL do servidor |
 | `apolo.smartMode` | `false` | Usar modelo 14b por padrão |
 | `apolo.maxFileLines` | `300` | Máximo de linhas ao enviar arquivo como contexto |
 

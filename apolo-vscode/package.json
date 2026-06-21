@@ -87,8 +87,8 @@
       "properties": {
         "apolo.serverUrl": {
           "type": "string",
-          "default": "http://localhost:8000",
-          "description": "URL do servidor A.P.O.L.O. (padrão: http://localhost:8000)"
+          "default": "http://192.168.15.17:8000",
+          "description": "URL do servidor A.P.O.L.O. (padrão: http://192.168.15.17:8000)"
         },
         "apolo.smartMode": {
           "type": "boolean",

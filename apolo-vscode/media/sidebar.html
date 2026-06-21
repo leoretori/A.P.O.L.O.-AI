@@ -261,7 +261,7 @@
 
 <script>
 const vscode = acquireVsCodeApi();
-let SERVER = 'http://localhost:8000';
+let SERVER = 'http://192.168.15.17:8000';
 let SMART = false;
 let USE_WEB = false;
 let busy = false;
@@ -271,7 +271,7 @@ let sessionId = 'vscode-' + Math.random().toString(36).slice(2, 10);
 window.addEventListener('message', e => {
   const msg = e.data;
   if (msg.type === 'config') {
-    SERVER = msg.serverUrl || 'http://localhost:8000';
+    SERVER = msg.serverUrl || 'http://192.168.15.17:8000';
     SMART = !!msg.smart;
     document.getElementById('smart-indicator').textContent = SMART ? '🧠 14b' : '';
     checkConnection();
