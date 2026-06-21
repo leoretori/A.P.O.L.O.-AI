@@ -130,6 +130,12 @@ CODER_TREE_SECTION = """
 Estado atual do workspace:
 {tree}"""
 
+CODER_PLAN_PROMPT = """Antes de agir, escreva um PLANO NUMERADO de no máximo 8 passos para esta tarefa.
+Cada passo deve ser uma ação concreta: LISTAR / LER / BUSCAR / EDITAR / ESCREVER / RODAR / CONCLUIR.
+Escreva APENAS a lista numerada. Nenhuma explicação, nenhuma ação ainda.
+
+Tarefa: {task}"""
+
 CONVERSATION_SUMMARY_SECTION = """
 
 Resumo da conversa até aqui (contexto das mensagens anteriores — não repita, use como memória):

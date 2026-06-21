@@ -462,8 +462,13 @@ pytest tests/ -v
 - [x] **RAG melhorado com chunking + overlap** — `add_chunked()` divide documentos grandes em chunks de 1200 chars com overlap de 200; rerank híbrido (semântico + lexical + recência) ✅
 - [x] **Memória episódica** — `src/episodic.py` indexa conversas no ChromaDB; o chat recupera automaticamente contexto de sessões antigas por semântica; botão "💬 Reindexar" no painel Mente reindexar o histórico completo (`POST /api/sessions/reindex`) ✅
 
+### ✅ Fase 2 — Autonomia e Planejamento (Jun 2026)
+- [x] **Planejamento explícito no Coder** — antes de tocar qualquer arquivo, o A.P.O.L.O. Coder escreve um `📋 Plano de execução` numerado (via `CODER_PLAN_PROMPT`); o modelo se compromete com o plano antes de agir, reduzindo saltos precipitados e alterações erradas ✅
+- [x] **Idle auto-learning** — `IDLE_TRIGGER` (padrão 600s): após N segundos sem requisição do usuário, o aprendizado autônomo inicia sozinho; GpuGate preempta o learner quando o usuário volta ✅
+- [x] **Grafo de conhecimento** — `/api/knowledge/graph` + painel 🗺️ Mapa (setores → tópicos, SVG radial interativo) ✅
+- [x] **Multi-step tool use** — loop ReAct com MAX_AGENT_STEPS, ferramentas encadeadas (código + web + base) ✅
+
 ### Próximas Fases
-- [ ] **Fase 2 — Autonomia e Planejamento** — Coder planeja antes de agir (multi-step), autoaprendizado agendado em idle, grafo de conhecimento, multi-step tool use
 - [ ] **Fase 3 — Percepção e Voz** — Whisper.cpp (STT), Piper/Coqui (TTS), ingestão de PDF/DOCX, contexto de desktop
 - [ ] **Fase 4 — Soberania Total** — PostgreSQL local (sem Supabase), embeddings próprios, fine-tuning LoRA
 - [ ] **Fase 5 — Multi-agente** — sub-agentes especializados orquestrados pelo A.P.O.L.O., API LAN, benchmark contínuo

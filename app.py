@@ -40,7 +40,7 @@ from src.prompts import (
     FIX_PROMPT, SESSION_TITLE_PROMPT, FACT_EXTRACT_PROMPT,
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
     AGENT_INSTRUCTION, AGENT_MEMORY_SECTION, AGENT_SELFEVAL_PROMPT,
-    CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION,
+    CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION, CODER_PLAN_PROMPT,
 )
 from src.coder import CoderWorkspace, extract_fenced, make_diff
 from src.episodic import index_session as _index_episodic
@@ -105,6 +105,11 @@ MEMORY_RECALL_N = int(os.getenv("MEMORY_RECALL_N", 5))
 MEMORY_TOP = int(os.getenv("MEMORY_TOP", 3))
 MEMORY_MIN_RELEVANCE = float(os.getenv("MEMORY_MIN_RELEVANCE", 0.2))
 MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 320))
+# Idle learning: se o usuário ficar inativo por IDLE_TRIGGER segundos e o
+# aprendizado estiver parado, o A.P.O.L.O. o inicia automaticamente.
+# 0 = desativado. Padrão 600 (10 min). GpuGate já preempta o learner quando
+# o usuário mandar uma mensagem — não há conflito.
+IDLE_TRIGGER = int(os.getenv("IDLE_TRIGGER", 600))
 
 db: DatabaseManager = None
 rag: RAGManager = None
@@ -124,6 +129,8 @@ VISION_MODEL = ""  # modelo de visão instalado (llava etc.) — resolvido no st
 sessions: dict[str, list] = defaultdict(list)
 # Resumo rolante de conversas longas: {session_id: {"text": str, "upto": int}}
 session_summaries: dict[str, dict] = {}
+# Timestamp da última requisição do usuário (chat/agente) — usado pelo idle learning.
+_last_request_at: float = 0.0
 
 
 def _clean_topic(t: str) -> str:
@@ -181,8 +188,13 @@ def _init_supabase():
 
 
 async def _scheduler_loop():
-    """Dispara estudos agendados. Roda a cada 60s; se o horário 'HH:MM' já chegou
-    hoje e ainda não rodou hoje, estuda o tópico (catch-up se o app ligou depois)."""
+    """Dispara estudos agendados e ativa aprendizado idle.
+
+    Roda a cada 60s:
+    - Se houver estudo agendado para agora, dispara.
+    - Se o usuário estiver ocioso há mais de IDLE_TRIGGER segundos e o
+      aprendizado estiver parado, inicia automaticamente (idle learning).
+      O GpuGate já preempta o learner quando o usuário volta."""
     await asyncio.sleep(20)  # deixa o startup assentar
     while True:
         try:
@@ -201,6 +213,13 @@ async def _scheduler_loop():
                     except Exception as e:
                         logger.warning(f"[scheduler] erro ao estudar {sch['topic'][:40]}: {e}")
                         db.add_notification(f"❌ Falha no estudo agendado: {sch['topic'][:60]}", kind="study")
+
+            # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
+            if IDLE_TRIGGER > 0 and learner and not learner.running:
+                idle = _time.perf_counter() - _last_request_at if _last_request_at > 0 else 0
+                if idle > IDLE_TRIGGER:
+                    logger.info(f"[idle] {idle:.0f}s sem requisição → iniciando aprendizado autônomo")
+                    await learner.start()
         except Exception as e:
             logger.debug(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)
@@ -405,6 +424,8 @@ async def _generate_session_title(session_id: str, first_message: str) -> None:
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    global _last_request_at
+    _last_request_at = _time.perf_counter()
     request = sanitize_request(req.message)
     history = _get_session(req.session_id)
 
@@ -607,6 +628,8 @@ async def chat(req: ChatRequest):
 @app.post("/api/research")
 async def research(req: ChatRequest):
     """Modo Pesquisa Profunda — raciocínio multi-etapas com memória + web, citado."""
+    global _last_request_at
+    _last_request_at = _time.perf_counter()
     question = sanitize_request(req.message)
     if learner:
         learner.add_user_topic(question)
@@ -753,10 +776,35 @@ async def coder(req: ChatRequest):
         answer = ""
         try:
             system_content = CODER_SYSTEM + CODER_DOCTRINE + CODER_TREE_SECTION.format(tree=coder_ws.tree())
+            mlabel = "14b (inteligente)" if req.smart else "leve (rápido)"
+            yield _ev({"type": "step", "icon": "💻", "message": f"Planejando a tarefa... [modelo {mlabel}]"})
+
+            # ── Fase de planejamento: o modelo descreve seu plano ANTES de agir ──
+            # Isso força o modelo a entender a tarefa por inteiro antes de tocar
+            # qualquer arquivo — reduz saltos precipitados e mudanças erradas.
+            plan_text = ""
+            try:
+                plan_prompt = CODER_PLAN_PROMPT.format(task=task)
+                plan_raw = await asyncio.to_thread(
+                    chat_resilient, model,
+                    [{"role": "system", "content": system_content},
+                     {"role": "user", "content": plan_prompt}],
+                    keep_alive=keep,
+                ) or ""
+                plan_text = plan_raw.strip()
+            except Exception as _pe:
+                logger.debug(f"plan: {_pe}")
+            if plan_text:
+                yield _ev({"type": "plan", "text": plan_text})
+
+            # Monta o histórico com o plano já comprometido (o modelo sabe o que prometeu).
             messages = [{"role": "system", "content": system_content},
                         {"role": "user", "content": f"Tarefa: {task}"}]
-            mlabel = "14b (inteligente)" if req.smart else "leve (rápido)"
-            yield _ev({"type": "step", "icon": "💻", "message": f"Analisando a tarefa e o workspace... [modelo {mlabel}]"})
+            if plan_text:
+                messages.append({"role": "assistant", "content": f"Plano:\n{plan_text}"})
+                messages.append({"role": "user", "content":
+                    "Bom. Execute o PRIMEIRO passo do plano. Apenas UMA ação (sem lista, sem explicação):"})
+            yield _ev({"type": "step", "icon": "🚀", "message": "Iniciando execução..."})
 
             # Guarda de regressão: se o workspace tem suíte de testes, captura o estado
             # base (verde/vermelho). Ao final, se as alterações deixarem a suíte vermelha
@@ -1239,6 +1287,8 @@ async def _agent_recall(query: str, limit: int = 3) -> str:
 async def agent(req: ChatRequest):
     """Modo Agente (ReAct-lite): o A.P.O.L.O. escreve código Python, EXECUTA de
     verdade e usa o resultado real para responder — cálculos/lógica ficam exatos."""
+    global _last_request_at
+    _last_request_at = _time.perf_counter()
     question = sanitize_request(req.message)
     if learner:
         learner.add_user_topic(question)
