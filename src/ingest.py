@@ -27,6 +27,24 @@ def extract_pdf_text(data: bytes) -> str:
     return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
+def extract_docx_text(data: bytes) -> str:
+    """Extrai texto de um .docx. Requer `python-docx` (import preguiçoso)."""
+    from docx import Document  # noqa: PLC0415 — opcional, só carrega se houver DOCX
+    doc = Document(io.BytesIO(data))
+    lines: list[str] = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if text:
+            lines.append(text)
+    # Tabelas também
+    for table in doc.tables:
+        for row in table.rows:
+            row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+            if row_text:
+                lines.append(row_text)
+    return "\n".join(lines)
+
+
 def chunk_text(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP) -> list[str]:
     text = re.sub(r"\n{3,}", "\n\n", (text or "")).strip()
     chunks: list[str] = []

@@ -1470,6 +1470,12 @@ async def ingest_document(req: IngestRequest):
                     text = await asyncio.to_thread(extract_pdf_text, data)
                 except ModuleNotFoundError:
                     return {"ok": False, "error": "Suporte a PDF requer: pip install pypdf"}
+            elif filename.lower().endswith(".docx"):
+                try:
+                    from src.ingest import extract_docx_text
+                    text = await asyncio.to_thread(extract_docx_text, data)
+                except ModuleNotFoundError:
+                    return {"ok": False, "error": "Suporte a DOCX requer: pip install python-docx"}
             else:
                 text = data.decode("utf-8", errors="ignore")
         else:
@@ -1508,6 +1514,26 @@ async def ingest_url(req: IngestUrlRequest):
     result = await asyncio.to_thread(ingestor.ingest_text, name, text, url)
     result["source_url"] = url
     return result
+
+
+@app.post("/api/stt")
+async def stt_transcribe(request: Request):
+    """Transcrição de voz local via faster-whisper.
+    Recebe o áudio bruto (WebM/WAV) como body da requisição.
+    Se faster-whisper não estiver instalado, retorna {ok:false} e o frontend
+    usa o fallback Web Speech API do navegador."""
+    from src.whisper_stt import transcribe, is_available
+    if not is_available():
+        return {"ok": False, "error": "faster-whisper não instalado",
+                "hint": "pip install faster-whisper"}
+    audio = await request.body()
+    if len(audio) < 100:
+        return {"ok": False, "error": "Áudio muito curto ou vazio"}
+    size = os.getenv("WHISPER_MODEL", "base")
+    text = await asyncio.to_thread(transcribe, audio, size)
+    if text:
+        return {"ok": True, "text": text}
+    return {"ok": False, "error": "Não foi possível transcrever o áudio"}
 
 
 @app.get("/api/curate/scan")
@@ -1819,6 +1845,16 @@ async def health():
         }
     else:
         out["learner"] = {"running": False}
+
+    # STT local (Whisper) e ingestão de documentos
+    from src.whisper_stt import is_available as _stt_available
+    out["stt"] = _stt_available()
+    out["features"] = {
+        "docx": True,   # extract_docx_text disponível (requer python-docx na hora do uso)
+        "pdf": True,    # extract_pdf_text disponível (requer pypdf na hora do uso)
+        "whisper": out["stt"],
+        "drag_drop": True,
+    }
 
     return out
 

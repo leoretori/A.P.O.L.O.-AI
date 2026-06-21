@@ -469,7 +469,14 @@ pytest tests/ -v
 - [x] **Multi-step tool use** — loop ReAct com MAX_AGENT_STEPS, ferramentas encadeadas (código + web + base) ✅
 
 ### Próximas Fases
-- [ ] **Fase 3 — Percepção e Voz** — Whisper.cpp (STT), Piper/Coqui (TTS), ingestão de PDF/DOCX, contexto de desktop
+### ✅ Fase 3 — Percepção e Voz (Jun 2026)
+- [x] **Whisper STT local** — `src/whisper_stt.py` + `POST /api/stt`; o botão 🎤 usa Whisper local (faster-whisper) se instalado, Web Speech API como fallback. `/api/health` expõe `stt: true/false` para o frontend detectar. Instalar: `pip install faster-whisper` (modelos: tiny/base/small, via `WHISPER_MODEL`) ✅
+- [x] **DOCX support** — `extract_docx_text()` em `src/ingest.py`; parses parágrafos + tabelas (requer `pip install python-docx`). Tratado em `/api/ingest` como base64 binário igual ao PDF ✅
+- [x] **Drag-and-drop** — soltar arquivos (docs ou imagens) diretamente no campo de entrada; `#input-wrap` fica verde ao arrastar; imagens vão para visão, documentos para ingestão ✅
+- [x] **Multi-arquivo** — botão 📎 aceita múltiplos arquivos de uma vez; ingere sequencialmente e exibe contagem final ✅
+- [x] **TTS** — `speechSynthesis` do navegador (Web Speech API, PT-BR) já presente; botão 🔊 em cada resposta ✅
+- [x] **Visão** — análise de imagens via modelo llava local (Ollama) já presente ✅
+- [ ] **Fase 4 — Soberania Total** — PostgreSQL local, embeddings próprios, fine-tuning LoRA
 - [ ] **Fase 4 — Soberania Total** — PostgreSQL local (sem Supabase), embeddings próprios, fine-tuning LoRA
 - [ ] **Fase 5 — Multi-agente** — sub-agentes especializados orquestrados pelo A.P.O.L.O., API LAN, benchmark contínuo
 
