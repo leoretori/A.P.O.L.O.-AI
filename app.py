@@ -1003,6 +1003,9 @@ async def coder(req: ChatRequest):
                                    "message": f"EDITAR {arg} (+{diff['added']} -{diff['removed']})"})
                         if diff["text"]:
                             yield _ev({"type": "diff", "path": arg, "diff": diff["text"]})
+                        _related = await asyncio.to_thread(coder_ws.find_related_tests, arg)
+                        if _related:
+                            yield _ev({"type": "test_hint", "path": arg, "tests": _related})
                     else:
                         yield _ev({"type": "step", "icon": "✗", "message": f"EDITAR {arg} — {out[:80]}"})
                     obs = out + "\n\nPróxima ação (verifique com RODAR antes de CONCLUIR)."
@@ -1020,6 +1023,10 @@ async def coder(req: ChatRequest):
                                    "message": f"ESCREVER {arg} — {verb} (+{diff['added']} -{diff['removed']})"})
                         if diff["text"]:
                             yield _ev({"type": "diff", "path": arg, "diff": diff["text"]})
+                        # Testes inteligentes: detecta arquivos de teste relacionados ao arquivo escrito.
+                        _related = await asyncio.to_thread(coder_ws.find_related_tests, arg)
+                        if _related:
+                            yield _ev({"type": "test_hint", "path": arg, "tests": _related})
                         obs = out
                 elif action == "run":
                     did_run = True
@@ -1357,6 +1364,22 @@ async def coder_sandbox_discard():
         coder_sandbox_path = None
     await asyncio.to_thread(coder_ws.set_root, os.path.join(PROJECT_ROOT, "workspace"))
     return {"ok": True}
+
+
+@app.post("/api/coder/test-for")
+async def coder_test_for(req: CoderPathRequest):
+    """Detecta e roda testes relacionados a um arquivo do workspace.
+    Retorna {ok, tests_found, total, passed, failed, skipped, results, output}."""
+    path = (req.path or "").strip()
+    if not path:
+        return {"ok": False, "error": "path obrigatório"}
+    related = await asyncio.to_thread(coder_ws.find_related_tests, path)
+    if not related:
+        return {"ok": True, "tests_found": [], "total": 0, "passed": 0,
+                "failed": 0, "skipped": 0, "results": [], "output": ""}
+    result = await asyncio.to_thread(coder_ws.run_tests_for, related)
+    result["tests_found"] = related
+    return result
 
 
 @app.post("/api/coder/vscode")

@@ -14,6 +14,28 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _parse_pytest_output(output: str) -> dict:
+    """Parseia saída do pytest -v e extrai resultados por teste."""
+    import re as _re
+    results: list[dict] = []
+    _STATUS = {"PASSED": "passed", "FAILED": "failed", "ERROR": "error",
+               "SKIPPED": "skipped", "XFAILED": "skipped", "XPASSED": "passed"}
+    for line in output.splitlines():
+        # "tests/test_foo.py::test_bar PASSED" ou "tests/test_foo.py::Class::test_bar FAILED"
+        m = _re.match(r"([^\s]+\.py)::([^\s]+)\s+(PASSED|FAILED|ERROR|SKIPPED|XFAILED|XPASSED)", line)
+        if m:
+            results.append({
+                "file": m.group(1),
+                "test": m.group(2).replace("::", "."),
+                "status": _STATUS.get(m.group(3), m.group(3).lower()),
+            })
+    passed  = sum(1 for r in results if r["status"] == "passed")
+    failed  = sum(1 for r in results if r["status"] in ("failed", "error"))
+    skipped = sum(1 for r in results if r["status"] == "skipped")
+    return {"total": len(results), "passed": passed, "failed": failed,
+            "skipped": skipped, "results": results}
+
+
 def make_diff(old: str, new: str, path: str, max_lines: int = 120) -> dict:
     """Diff unificado entre conteúdo antigo e novo de um arquivo.
     Retorna {text, added, removed, is_new} — base do preview estilo Claude Code."""
@@ -500,6 +522,37 @@ class CoderWorkspace:
             if len(out) >= max_files:
                 break
         return sorted(out)
+
+    def find_related_tests(self, rel_path: str) -> list[str]:
+        """Retorna caminhos relativos de arquivos de teste relacionados ao arquivo fonte.
+
+        Heurística: test_{stem}.py, test_{stem}*.py em qualquer pasta tests/.
+        Ex.: src/providers.py → tests/test_providers.py
+        """
+        stem = Path(rel_path).stem  # "providers"
+        # Candidatos por nome exato e por prefixo
+        patterns = [
+            f"**/test_{stem}.py",
+            f"**/test_{stem}_*.py",
+            f"**/{stem}_test.py",
+        ]
+        found: list[str] = []
+        for pat in patterns:
+            for p in sorted(self.root.glob(pat)):
+                rel = p.relative_to(self.root).as_posix()
+                if rel not in found:
+                    found.append(rel)
+        return found
+
+    def run_tests_for(self, rel_paths: list[str], timeout: int = 120) -> dict:
+        """Roda pytest só para os arquivos de teste especificados.
+        Retorna {ok, total, passed, failed, skipped, results, output}.
+        """
+        if not rel_paths:
+            return {"ok": False, "error": "Nenhum teste para rodar", "results": []}
+        cmd = f"python -m pytest -v --tb=short {' '.join(rel_paths)}"
+        ok, output = self.run_cmd(cmd, timeout=timeout)
+        return {**_parse_pytest_output(output), "ok": ok, "output": output}
 
     def tree(self, max_entries: int = 60) -> str:
         """Visão rápida da árvore do workspace (para dar contexto inicial ao agente)."""

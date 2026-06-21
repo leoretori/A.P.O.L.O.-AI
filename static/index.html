@@ -2172,6 +2172,84 @@
       liveOut.textContent += (liveOut.textContent ? '\n' : '') + line;
       trace.scrollTop = trace.scrollHeight;
     };
+    // ── Testes inteligentes: chip clicável após escrever arquivo ─────────────
+    const addTestHint = (srcPath, tests, trace) => {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'margin:4px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+      const label = document.createElement('span');
+      label.style.cssText = 'font-size:10.5px;color:#555';
+      label.textContent = `🧪 ${tests.length} teste(s) detectado(s):`;
+      chip.appendChild(label);
+      tests.forEach(t => {
+        const btn = document.createElement('button');
+        btn.style.cssText = 'background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:2px 9px;border-radius:5px;cursor:pointer;font-size:10.5px;font-family:monospace';
+        btn.textContent = t.split('/').pop();
+        btn.title = `Rodar ${t}`;
+        btn.onclick = () => runTestsFor(srcPath, tests, chip, trace);
+        chip.appendChild(btn);
+      });
+      const runAll = document.createElement('button');
+      runAll.style.cssText = 'background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:2px 10px;border-radius:5px;cursor:pointer;font-size:10.5px;font-weight:600';
+      runAll.textContent = '▶ Rodar todos';
+      runAll.onclick = () => runTestsFor(srcPath, tests, chip, trace);
+      chip.appendChild(runAll);
+      trace.appendChild(chip);
+      trace.scrollTop = trace.scrollHeight;
+    };
+
+    const runTestsFor = async (srcPath, tests, chip, trace) => {
+      chip.innerHTML = '<span style="font-size:10.5px;color:#888">⏳ Rodando testes...</span>';
+      try {
+        const d = await fetch('/api/coder/test-for', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({path: srcPath}),
+        }).then(r => r.json());
+
+        // Resultado compacto
+        const total = d.total || 0;
+        const passed = d.passed || 0;
+        const failed = d.failed || 0;
+        const skipped = d.skipped || 0;
+        const allPass = failed === 0 && total > 0;
+
+        const res = document.createElement('div');
+        res.style.cssText = 'margin:4px 0 8px;padding:8px 10px;border-radius:8px;border:1px solid ' + (allPass ? '#1a3a1a' : '#3a1a1a') + ';background:' + (allPass ? '#0a1a0a' : '#1a0a0a');
+
+        // Sumário
+        const sumEl = document.createElement('div');
+        sumEl.style.cssText = 'font-size:11px;font-weight:600;margin-bottom:6px';
+        if (total === 0) {
+          sumEl.style.color = '#888';
+          sumEl.textContent = `🧪 ${(d.tests_found||[]).join(', ')} — sem resultados`;
+        } else {
+          sumEl.style.color = allPass ? '#4ade80' : '#f87171';
+          sumEl.textContent = `${allPass ? '✅' : '❌'} ${passed}/${total} passou${failed ? ` · ${failed} falhou` : ''}${skipped ? ` · ${skipped} pulou` : ''}`;
+        }
+        res.appendChild(sumEl);
+
+        // Lista de testes (máx 20)
+        const results = (d.results || []).slice(0, 20);
+        results.forEach(r => {
+          const row = document.createElement('div');
+          row.style.cssText = 'font-size:10px;font-family:monospace;padding:1px 0;color:' +
+            (r.status==='passed' ? '#4ade80' : r.status==='skipped' ? '#888' : '#f87171');
+          const icon = r.status==='passed' ? '✓' : r.status==='skipped' ? '−' : '✗';
+          row.textContent = `${icon} ${r.test}`;
+          res.appendChild(row);
+        });
+        if ((d.results||[]).length > 20) {
+          const more = document.createElement('div');
+          more.style.cssText = 'font-size:10px;color:#555;margin-top:3px';
+          more.textContent = `… +${d.results.length - 20} testes`;
+          res.appendChild(more);
+        }
+        chip.replaceWith(res);
+        trace.scrollTop = trace.scrollHeight;
+      } catch(e) {
+        chip.innerHTML = `<span style="font-size:10.5px;color:#f87171">✗ Falha: ${escHtml(e.message)}</span>`;
+      }
+    };
+
     const addPlan = (text) => {
       const card = document.createElement('div');
       card.style.cssText = 'margin:4px 0 10px;padding:10px 12px;background:#0d1a14;border:1px solid #1a3a28;border-left:3px solid #4ade80;border-radius:8px;';
@@ -2210,6 +2288,7 @@
           if (d.type === 'plan') addPlan(d.text);
           else if (d.type === 'step') { addStep(d.icon, d.message); liveOut = null; }
           else if (d.type === 'diff') addDiff(d.path, d.diff);
+          else if (d.type === 'test_hint') addTestHint(d.path, d.tests, trace);
           else if (d.type === 'cmd_line') addCmdLine(d.content);
           else if (d.type === 'token') answer += d.content;
           else if (d.type === 'done') answer = d.answer || answer;
