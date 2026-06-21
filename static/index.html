@@ -1050,8 +1050,8 @@
     </div>
     <div class="coder-bar">
       <span class="coder-label" style="color:#5eead4;font-family:ui-monospace,monospace">$</span>
-      <input id="coder-cmd" type="text" class="coder-field mono" placeholder="comando direto no workspace (ex.: python -m pytest -q, ls, git status)"
-        onkeydown="if(event.key==='Enter')runCoderCmd()" autocomplete="off">
+      <input id="coder-cmd" type="text" class="coder-field mono" placeholder="comando direto — ↑↓ navega histórico (ex.: python -m pytest -q)"
+        onkeydown="_onCmdKey(event)" autocomplete="off">
       <button class="coder-btn" onclick="runCoderCmd()">▶ Rodar</button>
     </div>
     <div class="coder-bar">
@@ -1810,9 +1810,45 @@
     refreshCoderTree();
   }
 
+  // ── Histórico de comandos do terminal (seta ↑↓) ───────────────────────────
+  const _CMD_HISTORY_KEY = 'apolo-cmd-history';
+  let _cmdHistory = JSON.parse(localStorage.getItem(_CMD_HISTORY_KEY) || '[]');
+  let _cmdHistIdx = -1;  // -1 = posição atual (digitando novo cmd)
+
+  function _saveCmdHistory(cmd) {
+    _cmdHistory = [cmd, ..._cmdHistory.filter(c => c !== cmd)].slice(0, 60);
+    localStorage.setItem(_CMD_HISTORY_KEY, JSON.stringify(_cmdHistory));
+    _cmdHistIdx = -1;
+  }
+
+  function _onCmdKey(e) {
+    const input = document.getElementById('coder-cmd');
+    if (e.key === 'Enter') { runCoderCmd(); return; }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (_cmdHistIdx < _cmdHistory.length - 1) {
+        _cmdHistIdx++;
+        input.value = _cmdHistory[_cmdHistIdx];
+        requestAnimationFrame(() => input.setSelectionRange(input.value.length, input.value.length));
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (_cmdHistIdx > 0) {
+        _cmdHistIdx--;
+        input.value = _cmdHistory[_cmdHistIdx];
+      } else {
+        _cmdHistIdx = -1;
+        input.value = '';
+      }
+    } else {
+      _cmdHistIdx = -1;  // qualquer outra tecla reseta o índice
+    }
+  }
+
   async function runCoderCmd() {
     const cmd = document.getElementById('coder-cmd').value.trim();
     if (!cmd) return;
+    _saveCmdHistory(cmd);
     const trace = document.getElementById('coder-trace');
     const head = document.createElement('div');
     head.style.cssText = 'padding:4px 0;color:#5eead4;font-family:monospace;font-size:11px';
@@ -1875,31 +1911,89 @@
     } catch { alert('Falha na substituição'); }
   }
 
+  // ── Coder V2: viewer com syntax highlighting e preview HTML ao vivo ──────────
+  const _LANG_EXT = {
+    '.py':'python','.js':'javascript','.mjs':'javascript','.ts':'typescript',
+    '.tsx':'typescript','.jsx':'javascript','.html':'html','.htm':'html',
+    '.css':'css','.scss':'scss','.json':'json','.yaml':'yaml','.yml':'yaml',
+    '.toml':'toml','.sql':'sql','.sh':'bash','.bash':'bash','.zsh':'bash',
+    '.go':'go','.rs':'rust','.java':'java','.kt':'kotlin',
+    '.c':'c','.cpp':'cpp','.h':'c','.cs':'csharp','.rb':'ruby',
+    '.php':'php','.md':'markdown','.tf':'hcl','.dockerfile':'dockerfile',
+  };
+  function _detectLang(path) {
+    const base = (path||'').toLowerCase().split('/').pop();
+    if (base === 'dockerfile') return 'dockerfile';
+    if (base === 'makefile') return 'makefile';
+    const dot = base.lastIndexOf('.');
+    return dot >= 0 ? (_LANG_EXT[base.slice(dot)] || '') : '';
+  }
+
   async function viewCoderFile(path) {
     try {
       const d = await fetch('/api/coder/read?path=' + encodeURIComponent(path)).then(r=>r.json());
+      const content = d.content || '';
+      const lang = _detectLang(path);
+      const isHtml = lang === 'html';
+      const lines = content.split('\n').length;
+      const kb = (new TextEncoder().encode(content).length / 1024).toFixed(1);
+
       let ov = document.getElementById('coder-fileview');
       if (!ov) {
-        ov = document.createElement('div');
-        ov.id = 'coder-fileview';
-        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:210;display:flex;align-items:center;justify-content:center';
-        ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+        ov = document.createElement('div'); ov.id = 'coder-fileview';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:210;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)';
+        ov.onclick = e => { if (e.target === ov) ov.remove(); };
         document.body.appendChild(ov);
       }
-      ov.innerHTML = `<div style="background:#0b0b0f;border:1px solid #23232c;border-radius:12px;width:min(800px,94vw);height:min(620px,88vh);display:flex;flex-direction:column;padding:14px 16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="color:#5eead4;font-size:13px">📄 ${escHtml(path)}</span>
-          <span style="display:flex;gap:8px">
-            <button onclick="openInVSCode('${escHtml(path)}')" title="Abrir no VS Code" style="background:#0e1c2e;border:1px solid #1e3a5b;color:#4ea1ea;border-radius:6px;padding:3px 9px;cursor:pointer">⧉</button>
-            <button onclick="renameCoderFile('${escHtml(path)}')" title="Renomear/mover" style="background:#1a1a22;border:1px solid #2a2a33;color:#9aa;border-radius:6px;padding:3px 9px;cursor:pointer">✏️</button>
-            <button onclick="deleteCoderFile('${escHtml(path)}')" title="Apagar (reversível)" style="background:#2a1414;border:1px solid #5a2a2a;color:#f87171;border-radius:6px;padding:3px 9px;cursor:pointer">🗑️</button>
-            <button onclick="document.getElementById('coder-fileview').remove()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:6px;padding:3px 9px;cursor:pointer">✕</button>
-          </span>
-        </div>
-        <pre style="flex:1;overflow:auto;margin:0;background:#08080b;border:1px solid #1c1c24;border-radius:8px;padding:12px;font-size:11.5px;color:#cdd;white-space:pre"></pre>
-      </div>`;
-      ov.querySelector('pre').textContent = d.content || '(vazio)';
-    } catch { alert('Falha ao ler arquivo'); }
+
+      const w = isHtml ? 'min(1140px,97vw)' : 'min(880px,95vw)';
+      ov.innerHTML = `
+        <div style="background:#0b0b0f;border:1px solid #23232c;border-radius:12px;width:${w};height:min(700px,90vh);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px #000c">
+          <div style="display:flex;align-items:center;gap:7px;padding:9px 14px;border-bottom:1px solid #16161c;flex-shrink:0;background:#0e0e13">
+            <span style="color:#5eead4;font-size:12px;font-family:monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📄 ${escHtml(path)}</span>
+            ${lang ? `<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:#0a1a10;color:#4ade80;border:1px solid #1a3a1a;flex-shrink:0">${lang}</span>` : ''}
+            <span style="font-size:10px;color:#444;flex-shrink:0">${lines} linhas · ${kb} KB</span>
+            <button id="cfv-copy" onclick="_cfvCopy()" title="Copiar conteúdo" style="background:#16161d;border:1px solid #2a2a33;color:#9aa;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;flex-shrink:0">📋</button>
+            <button onclick="openInVSCode('${escHtml(path)}')" title="Abrir no VS Code" style="background:#0e1c2e;border:1px solid #1e3a5b;color:#4ea1ea;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:11px;flex-shrink:0">⧉</button>
+            <button onclick="renameCoderFile('${escHtml(path)}')" title="Renomear" style="background:#16161d;border:1px solid #2a2a33;color:#9aa;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;flex-shrink:0">✏️</button>
+            <button onclick="deleteCoderFile('${escHtml(path)}')" title="Apagar" style="background:#2a1414;border:1px solid #5a2a2a;color:#f87171;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;flex-shrink:0">🗑️</button>
+            <button onclick="document.getElementById('coder-fileview').remove()" style="background:#16161d;border:1px solid #2a2a33;color:#888;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:11px;flex-shrink:0">✕</button>
+          </div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="flex:1;overflow:auto;min-width:0;background:#08080b">
+              <pre style="margin:0;padding:14px 12px;"><code id="cfv-code" class="${lang ? 'language-'+lang : ''}" style="font-family:ui-monospace,SFMono-Regular,monospace;font-size:11.5px;line-height:1.55;white-space:pre;background:transparent"></code></pre>
+            </div>
+            ${isHtml ? `<div style="flex:1;border-left:2px solid #1a3a1a;display:flex;flex-direction:column;min-width:0">
+              <div style="padding:5px 12px;font-size:10px;color:#4ade80;background:#0a150a;border-bottom:1px solid #1a3a1a;flex-shrink:0;font-weight:600;letter-spacing:.5px">⚡ PREVIEW AO VIVO</div>
+              <iframe id="cfv-iframe" sandbox="allow-scripts allow-same-origin" style="flex:1;border:none;background:#fff;width:100%"></iframe>
+            </div>` : ''}
+          </div>
+        </div>`;
+
+      // Syntax highlight
+      const codeEl = document.getElementById('cfv-code');
+      codeEl.textContent = content;
+      if (lang && hljs.getLanguage && hljs.getLanguage(lang)) {
+        hljs.highlightElement(codeEl);
+      }
+
+      // Preview HTML ao vivo
+      if (isHtml) {
+        document.getElementById('cfv-iframe').srcdoc = content;
+      }
+
+      // Copy handler
+      window._cfvContent = content;
+      window._cfvCopy = () => {
+        navigator.clipboard.writeText(window._cfvContent).catch(()=>{});
+        const btn = document.getElementById('cfv-copy');
+        if (!btn) return;
+        const orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(() => btn.textContent = orig, 1500);
+      };
+
+    } catch(e) { alert('Falha ao ler arquivo: ' + e.message); }
   }
 
   async function openInVSCode(path) {
