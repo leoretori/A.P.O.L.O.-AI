@@ -1712,6 +1712,60 @@ async def ingest_folder(req: IngestFolderRequest):
     }
 
 
+class RepoRequest(BaseModel):
+    url: str
+
+
+@app.post("/api/repo/analyze")
+async def repo_analyze(req: RepoRequest):
+    """Clona um repositório GitHub público, percorre todos os arquivos de texto
+    e indexa no RAG com metadados (repo, file_path, owner). Streaming SSE com
+    progresso em tempo real. Após concluir, o A.P.O.L.O. responde perguntas
+    sobre qualquer arquivo do repositório."""
+    from src.repo_indexer import analyze_repo as _analyze_repo
+
+    def _ev(d: dict) -> str:
+        return f"data: {json.dumps(d)}\n\n"
+
+    async def stream():
+        try:
+            async for ev in _analyze_repo(req.url.strip(), rag):
+                yield _ev(ev)
+                if ev.get("type") == "done" and learner:
+                    learner.add_user_topic(f"repositório GitHub: {ev.get('repo_name','')}")
+        except Exception as e:
+            logger.error(f"repo_analyze: {e}", exc_info=True)
+            yield _ev({"type": "error", "message": str(e)})
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/api/repo/list")
+async def repo_list():
+    """Lista os repositórios indexados no RAG (doc_ids que começam com 'repo_')."""
+    if not rag:
+        return {"repos": []}
+    try:
+        data = rag.collection.get(where={"type": {"$eq": "repo_file"}},
+                                  include=["metadatas"], limit=1000)
+        repos: dict[str, dict] = {}
+        for meta in (data.get("metadatas") or []):
+            if meta and meta.get("repo"):
+                name = meta["repo"]
+                if name not in repos:
+                    repos[name] = {"name": name, "url": meta.get("repo_url", ""),
+                                   "files": 0}
+                repos[name]["files"] += 1
+        return {"repos": list(repos.values())}
+    except Exception as e:
+        logger.warning(f"repo_list: {e}")
+        return {"repos": []}
+
+
 @app.post("/api/stt")
 async def stt_transcribe(request: Request):
     """Transcrição de voz local via faster-whisper.

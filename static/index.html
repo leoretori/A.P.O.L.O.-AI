@@ -908,6 +908,10 @@
     📒 <span>Importar Obsidian / Pasta</span>
   </button>
 
+  <button id="repo-btn" onclick="openRepoModal()" style="width:100%;padding:9px 13px;border:none;background:none;cursor:pointer;display:flex;align-items:center;gap:9px;color:#555;font-size:11.5px;transition:all .15s;text-align:left;border-top:1px solid var(--border);" onmouseover="this.style.color='#4ade80'" onmouseout="this.style.color='#555'">
+    🐙 <span>Analisar Repositório</span>
+  </button>
+
   <input id="import-file" type="file" accept="application/json" style="display:none" onchange="importBackup(event)">
 
   <!-- Modal importar pasta Obsidian -->
@@ -928,6 +932,44 @@
         <span id="obs-status" style="font-size:12px;color:#888;flex:1;text-align:right"></span>
       </div>
       <div id="obs-result" style="margin-top:14px;font-size:12px;color:#aaa;line-height:1.7;display:none"></div>
+    </div>
+  </div>
+
+  <!-- Modal analisar repositório -->
+  <div id="repo-modal" style="display:none;position:fixed;inset:0;background:#000b;z-index:300;align-items:center;justify-content:center" onclick="if(event.target===this)closeRepoModal()">
+    <div style="background:#111116;border:1px solid #22222e;border-radius:14px;width:min(560px,94vw);padding:24px;box-shadow:0 20px 60px #000c">
+      <h2 style="font-size:16px;color:#fff;margin-bottom:6px">🐙 Analisar Repositório GitHub</h2>
+      <p style="font-size:12px;color:#666;margin-bottom:18px;line-height:1.6">Cole a URL de um repositório público. O A.P.O.L.O. vai clonar, indexar todos os arquivos de código e você poderá fazer perguntas sobre o codebase no chat.</p>
+
+      <label style="font-size:11px;color:#888;display:block;margin-bottom:5px">URL do repositório</label>
+      <input id="repo-url-input" type="text" placeholder="https://github.com/usuario/projeto"
+             style="width:100%;background:#0c0c0e;border:1px solid #22222e;color:#cdd;font-size:13px;padding:9px 12px;border-radius:8px;outline:none;margin-bottom:14px;box-sizing:border-box;font-family:monospace"
+             onkeydown="if(event.key==='Enter')startRepoAnalysis()"/>
+
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+        <button onclick="startRepoAnalysis()" id="repo-analyze-btn"
+                style="background:#0a1f0a;border:1px solid #16a34a;color:#4ade80;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600">
+          🐙 Analisar
+        </button>
+        <button onclick="closeRepoModal()" id="repo-cancel-btn"
+                style="background:none;border:1px solid #2a2a35;color:#666;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px">
+          Cancelar
+        </button>
+      </div>
+
+      <!-- Progresso -->
+      <div id="repo-progress" style="display:none">
+        <div style="height:4px;background:#1a1a22;border-radius:2px;margin-bottom:12px;overflow:hidden">
+          <div id="repo-progress-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#16a34a,#4ade80);border-radius:2px;transition:width .3s"></div>
+        </div>
+        <div id="repo-steps" style="font-size:12px;color:#aaa;display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Repos indexados -->
+      <div id="repo-indexed-list" style="display:none;margin-top:14px;border-top:1px solid #1e1e26;padding-top:12px">
+        <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Repositórios indexados</div>
+        <div id="repo-indexed-items" style="display:flex;flex-direction:column;gap:5px"></div>
+      </div>
     </div>
   </div>
 
@@ -3593,6 +3635,144 @@
     } catch(e) {
       btn.textContent = orig;
       btn.disabled = false;
+    }
+  }
+
+  // ── Analisar Repositório GitHub ───────────────────────────────
+  async function openRepoModal() {
+    document.getElementById('repo-modal').style.display = 'flex';
+    document.getElementById('repo-progress').style.display = 'none';
+    document.getElementById('repo-steps').innerHTML = '';
+    document.getElementById('repo-progress-bar').style.width = '0%';
+    document.getElementById('repo-indexed-list').style.display = 'none';
+    // Carrega repos já indexados
+    try {
+      const d = await fetch('/api/repo/list').then(r => r.json());
+      if (d.repos && d.repos.length) _renderIndexedRepos(d.repos);
+    } catch {}
+    setTimeout(() => document.getElementById('repo-url-input').focus(), 100);
+  }
+
+  function closeRepoModal() {
+    document.getElementById('repo-modal').style.display = 'none';
+  }
+
+  function _renderIndexedRepos(repos) {
+    const list = document.getElementById('repo-indexed-list');
+    const items = document.getElementById('repo-indexed-items');
+    items.innerHTML = repos.map(r => `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;background:#0a1f0a;border:1px solid #1a3a1a;border-radius:7px">
+        <span style="font-size:13px">🐙</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:#4ade80">${escHtml(r.name)}</div>
+          <div style="font-size:10px;color:#555">${r.files} arquivo(s) indexado(s)</div>
+        </div>
+        <button onclick="askAboutRepo('${escHtml(r.name)}')"
+                style="background:none;border:1px solid #1a3a1a;color:#4ade80;padding:3px 9px;border-radius:5px;cursor:pointer;font-size:10.5px;white-space:nowrap">
+          Perguntar →
+        </button>
+      </div>`).join('');
+    list.style.display = 'block';
+  }
+
+  function askAboutRepo(repoName) {
+    closeRepoModal();
+    document.getElementById('input').value = `Sobre o repositório ${repoName}: `;
+    document.getElementById('input').focus();
+  }
+
+  function _addRepoStep(icon, msg, color) {
+    const el = document.createElement('div');
+    el.style.cssText = `display:flex;gap:7px;align-items:flex-start;color:${color||'#aaa'}`;
+    el.innerHTML = `<span style="flex-shrink:0">${escHtml(icon)}</span><span>${escHtml(msg)}</span>`;
+    const steps = document.getElementById('repo-steps');
+    steps.appendChild(el);
+    steps.scrollTop = steps.scrollHeight;
+  }
+
+  async function startRepoAnalysis() {
+    const url = document.getElementById('repo-url-input').value.trim();
+    if (!url) return;
+    const btn = document.getElementById('repo-analyze-btn');
+    const cancelBtn = document.getElementById('repo-cancel-btn');
+    btn.disabled = true; btn.textContent = '⏳ Analisando...';
+    cancelBtn.textContent = 'Fechar';
+
+    const progress = document.getElementById('repo-progress');
+    const progressBar = document.getElementById('repo-progress-bar');
+    const steps = document.getElementById('repo-steps');
+    progress.style.display = 'block';
+    steps.innerHTML = '';
+    progressBar.style.width = '0%';
+
+    try {
+      const resp = await fetch('/api/repo/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url}),
+      });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, {stream: true});
+        const parts = buf.split('\n\n'); buf = parts.pop();
+
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue;
+          const ev = JSON.parse(part.slice(6));
+
+          if (ev.type === 'step') {
+            _addRepoStep(ev.icon || '•', ev.message, '#aaa');
+          } else if (ev.type === 'progress') {
+            const pct = Math.round((ev.current / ev.total) * 100);
+            progressBar.style.width = pct + '%';
+            // Atualiza última linha de progresso (não adiciona nova a cada arquivo)
+            const existing = steps.querySelector('.prog-line');
+            const msg = `${ev.current}/${ev.total} — ${ev.file}`;
+            if (existing) { existing.querySelector('span:last-child').textContent = msg; }
+            else {
+              const el = document.createElement('div');
+              el.className = 'prog-line';
+              el.style.cssText = 'display:flex;gap:7px;align-items:flex-start;color:#888';
+              el.innerHTML = `<span style="flex-shrink:0">📄</span><span>${escHtml(msg)}</span>`;
+              steps.appendChild(el);
+              steps.scrollTop = steps.scrollHeight;
+            }
+          } else if (ev.type === 'done') {
+            progressBar.style.width = '100%';
+            progressBar.style.background = '#4ade80';
+            _addRepoStep('✅',
+              `Concluído! ${ev.files_indexed} arquivo(s), ${ev.chunks_total} chunk(s) indexados.`,
+              '#4ade80');
+            // Recarrega lista de repos
+            try {
+              const d = await fetch('/api/repo/list').then(r => r.json());
+              if (d.repos && d.repos.length) _renderIndexedRepos(d.repos);
+            } catch {}
+            // Sugere uma pergunta
+            setTimeout(() => {
+              if (ev.repo_name) {
+                const hint = `O que esse repositório faz? Me dê um resumo do ${escHtml(ev.repo_name)}`;
+                document.getElementById('input').value = hint;
+              }
+              closeRepoModal();
+            }, 2000);
+          } else if (ev.type === 'error') {
+            progressBar.style.background = '#f87171';
+            _addRepoStep('❌', ev.message, '#f87171');
+          }
+        }
+      }
+    } catch(e) {
+      _addRepoStep('❌', 'Erro: ' + e.message, '#f87171');
+    } finally {
+      btn.disabled = false; btn.textContent = '🐙 Analisar';
     }
   }
 
