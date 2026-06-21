@@ -368,6 +368,69 @@
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #222228; border-radius: 3px; }
 
+    /* ════ MELHORIAS VISUAIS ════ */
+
+    /* #1 Animações suaves */
+    #sidebar { transition: transform 0.22s ease; }
+    #knowledge-panel, #mind-panel, #review-panel, #profile-panel, #analytics-panel {
+      animation: panel-slide-in 0.18s ease;
+    }
+    @keyframes panel-slide-in {
+      from { opacity: 0; transform: translateY(-10px) scale(.98); }
+      to   { opacity: 1; transform: none; }
+    }
+    .message-wrap { animation: msg-in 0.22s ease; }
+    .session-item { transition: background 0.1s, color 0.1s; }
+    .mode-chip, .cap, #kb-btn, .kp-item-header { transition: all 0.12s; }
+
+    /* #2 Indicador de digitação (3 pontos pulsantes) */
+    .typing-dots { display: inline-flex; gap: 3px; align-items: center; padding: 2px 0; }
+    .typing-dots span {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--sun); opacity: .4;
+      animation: typing-bounce 1.2s infinite ease-in-out;
+    }
+    .typing-dots span:nth-child(1) { animation-delay: 0s; }
+    .typing-dots span:nth-child(2) { animation-delay: 0.18s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes typing-bounce {
+      0%,60%,100% { transform: translateY(0); opacity: .4; }
+      30% { transform: translateY(-5px); opacity: 1; }
+    }
+
+    /* #3 Reações nas respostas */
+    .reaction-bar { display: flex; gap: 5px; margin-top: 8px; align-items: center; }
+    .reaction-btn {
+      background: none; border: 1px solid #22222e; color: #555;
+      border-radius: 6px; padding: 2px 9px; cursor: pointer;
+      font-size: 12px; transition: all .15s;
+    }
+    .reaction-btn:hover { border-color: #3a3a48; color: #aaa; }
+    .reaction-btn.active { background: #0a1a0a; border-color: #1a3a1a; color: #4ade80; }
+    .reaction-btn.active.down { background: #1a0a0a; border-color: #3a1a1a; color: #f87171; }
+
+    /* #4 Copy hover em blocos de código do chat */
+    .md-body pre { position: relative; }
+    .inline-copy {
+      position: absolute; top: 6px; right: 8px;
+      background: #1e1e28; border: 1px solid #2a2a38; color: #888;
+      border-radius: 4px; padding: 2px 7px; cursor: pointer; font-size: 10.5px;
+      opacity: 0; transition: opacity .15s;
+    }
+    .md-body pre:hover .inline-copy { opacity: 1; }
+    .inline-copy:hover { color: var(--sun); border-color: var(--sun); }
+
+    /* #7 Lazy load: spinner ao abrir painéis pela primeira vez */
+    .lazy-spinner { text-align: center; padding: 40px; color: #444; font-size: 13px; }
+
+    /* #8 Load more */
+    #load-more-btn {
+      display: block; width: 100%; margin: 0 auto 12px; padding: 7px;
+      background: none; border: 1px solid #22222e; color: #555;
+      border-radius: 8px; cursor: pointer; font-size: 12px; transition: all .15s;
+    }
+    #load-more-btn:hover { border-color: #3a3a48; color: #aaa; }
+
     /* ════ PWA / MOBILE ════ */
     /* Botão de instalar PWA — aparece apenas quando o browser oferece a instalação */
     #pwa-install-btn {
@@ -1976,6 +2039,8 @@
       if (lang && hljs.getLanguage && hljs.getLanguage(lang)) {
         hljs.highlightElement(codeEl);
       }
+      // #5 Números de linha após highlight
+      addLineNumbers(document.getElementById('cfv-pre'));
 
       // Preview HTML ao vivo
       if (isHtml) {
@@ -2578,7 +2643,7 @@
   // ── Painel Analytics ─────────────────────────────────────────
   function openAnalytics() {
     document.getElementById('analytics-overlay').classList.add('open');
-    loadAnalytics();
+    lazyLoad('analytics', loadAnalytics);  // #7 só carrega na 1ª abertura
   }
   function closeAnalytics() {
     document.getElementById('analytics-overlay').classList.remove('open');
@@ -2930,9 +2995,12 @@
   function createAiMessage() {
     const wrap = document.createElement('div');
     wrap.className = 'message-wrap';
+    // #2: indicador de digitação (dots) antes do primeiro token
+    const dots = createTypingIndicator();
     wrap.innerHTML = `<div class="msg-ai"><div class="avatar">☀️</div><div class="content">
       <div class="status-line" id="sl"><div class="spinner"></div><span id="st">Pensando...</span></div>
       <div class="stream-text"></div></div></div>`;
+    wrap.querySelector('.content').insertBefore(dots, wrap.querySelector('#sl'));
     document.getElementById('messages').appendChild(wrap);
     scrollBottom();
     return wrap;
@@ -2949,6 +3017,7 @@
       div.innerHTML = renderMd(data.code || '');
       content.appendChild(div);
       div.querySelectorAll('pre code').forEach(el=>hljs.highlightElement(el));
+      _enrichAiMessage(content, data.code || '');  // #2 typing cleanup, #3 reactions, #4 copy buttons
       if (data.memory_sources?.length) content.appendChild(buildKbSources(data.memory_sources));
       else if (data.gap) content.appendChild(buildGapNote());
       if (data.web_sources?.length) content.appendChild(buildSources(data.web_sources));
@@ -2977,6 +3046,7 @@
       </div>`;
     content.appendChild(card);
     card.querySelectorAll('pre code').forEach(el=>hljs.highlightElement(el));
+    _enrichAiMessage(content, data.explanation || data.code || ''); // #3 reações, #4 copy
     if (data.memory_sources?.length) content.appendChild(buildKbSources(data.memory_sources));
     else if (data.gap) content.appendChild(buildGapNote());
     if (data.web_sources?.length) content.appendChild(buildSources(data.web_sources));
@@ -3721,7 +3791,7 @@
 
   async function openKnowledge() {
     document.getElementById('knowledge-overlay').classList.add('open');
-    await loadKnowledgeItems();
+    lazyLoad('knowledge', loadKnowledgeItems);  // #7
   }
 
   function closeKnowledge() {
@@ -3735,7 +3805,7 @@
   // ── Mente do A.P.O.L.O. (auto-percepção) ─────────────────────
   async function openMind() {
     document.getElementById('mind-overlay').classList.add('open');
-    await loadMind();
+    lazyLoad('mind', loadMind);  // #7
   }
   function closeMind() { document.getElementById('mind-overlay').classList.remove('open'); }
   function closeMindIfBg(e) { if (e.target === document.getElementById('mind-overlay')) closeMind(); }
@@ -4516,8 +4586,9 @@
   // bootLoad() faz uma única chamada /api/boot em vez de 5+ paralelas.
   // restoreSession() carrega a sessão salva no localStorage.
   restoreSession();
-  refreshLearnStatus();
   bootLoad();
+  // #6 SSE push substitui o polling de refreshLearnStatus a cada 3s
+  startLearnSSE();
   // ── Temas ─────────────────────────────────────────────────────
   const _THEMES = ['dark', 'light', 'midnight'];
   const _THEME_ICONS = { dark: '🌙', light: '☀️', midnight: '🔮' };
@@ -4594,6 +4665,91 @@
 </script>
 
 <script>
+// ════ MELHORIAS VISUAIS E DE DESEMPENHO (#1–#10) ═════════════════════════════
+
+// #2 Indicador de digitação
+function createTypingIndicator() {
+  const d = document.createElement('div');
+  d.className = 'typing-dots'; d.style.cssText = 'padding:4px 0';
+  d.innerHTML = '<span></span><span></span><span></span>'; return d;
+}
+
+// #3 Reações nas respostas
+function buildReactionBar(text) {
+  const bar = document.createElement('div'); bar.className = 'reaction-bar';
+  const key = 'rxn_' + Math.abs([...text.slice(0,60)].reduce((h,c)=>Math.imul(31,h)+c.charCodeAt(0)|0,0)).toString(36);
+  const stored = localStorage.getItem(key);
+  ['👍','👎'].forEach((emoji, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'reaction-btn' + (stored===emoji ? (idx===0?' active':' active down') : '');
+    btn.textContent = emoji;
+    btn.title = idx===0 ? 'Boa resposta' : 'Resposta ruim';
+    btn.onclick = () => { localStorage.setItem(key, stored===emoji ? '' : emoji); bar.replaceWith(buildReactionBar(text)); };
+    bar.appendChild(btn);
+  });
+  return bar;
+}
+
+// #4 Copy on hover em qualquer bloco de código
+function addInlineCopyButtons(container) {
+  container.querySelectorAll('pre').forEach(pre => {
+    if (pre.querySelector('.inline-copy')) return;
+    const code = pre.querySelector('code'); if (!code) return;
+    const btn = document.createElement('button'); btn.className = 'inline-copy'; btn.textContent = 'Copiar';
+    btn.onclick = e => { e.stopPropagation(); navigator.clipboard.writeText(code.textContent||'').catch(()=>{}); btn.textContent='✓'; setTimeout(()=>btn.textContent='Copiar',1400); };
+    pre.appendChild(btn);
+  });
+}
+
+// #5 Números de linha no viewer do Coder
+function addLineNumbers(preEl) {
+  const code = preEl.querySelector('code');
+  if (!code || preEl.querySelector('.ln-nums')) return;
+  const lines = code.innerHTML.split('\n'); if (lines.length < 3) return;
+  const gutter = document.createElement('div'); gutter.className = 'ln-nums';
+  gutter.style.cssText = 'float:left;min-width:2.5ch;text-align:right;padding:14px 10px 14px 12px;color:#333;font-size:11.5px;line-height:1.55;user-select:none;font-family:ui-monospace,monospace;border-right:1px solid #1e1e26;margin-right:12px';
+  gutter.innerHTML = lines.map((_,i)=>`<div>${i+1}</div>`).join('');
+  preEl.style.cssText += ';display:flex;padding:0';
+  preEl.insertBefore(gutter, code);
+  code.style.cssText += ';padding:14px 12px 14px 0;flex:1';
+}
+
+// #6 SSE push para status de aprendizado
+let _learnSSE = null;
+function startLearnSSE() {
+  if (_learnSSE) return;
+  try {
+    _learnSSE = new EventSource('/api/learning/stream');
+    _learnSSE.onmessage = e => { try { applyLearnStatus(JSON.parse(e.data)); } catch {} };
+    _learnSSE.onerror = () => { _learnSSE.close(); _learnSSE = null; setTimeout(startLearnSSE, 8000); };
+  } catch { _learnSSE = null; }
+}
+
+// #7 Lazy load: painéis só carregam na primeira abertura
+const _panelLoaded = {};
+function lazyLoad(id, fn) { if (!_panelLoaded[id]) { _panelLoaded[id] = true; fn(); } }
+
+// #8 Load more messages
+let _msgRenderLimit = 60;
+const _MSG_PAGE = 40;
+
+// #9 Request dedup por URL
+const _inflight = new Map();
+async function dedupFetch(url, opts={}) {
+  const key = (opts.method||'GET')+'|'+url;
+  if (_inflight.has(key)) { try { _inflight.get(key).abort(); } catch {} }
+  const ctrl = new AbortController(); _inflight.set(key, ctrl);
+  try { return await fetch(url, {...opts, signal: ctrl.signal}); }
+  finally { if (_inflight.get(key)===ctrl) _inflight.delete(key); }
+}
+
+// Wrapper: adiciona #2 #3 #4 em respostas AI
+function _enrichAiMessage(contentEl, fullText) {
+  addInlineCopyButtons(contentEl);
+  contentEl.querySelectorAll('.typing-dots').forEach(d=>d.remove());
+  if (fullText && fullText.length > 20) contentEl.appendChild(buildReactionBar(fullText));
+}
+
 // ── Modo Mãos Livres ─────────────────────────────────────────────────────────
 // Máquina de estados: idle → listening → processing → thinking → speaking → listening
 const HF = {

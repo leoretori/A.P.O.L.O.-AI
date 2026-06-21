@@ -692,6 +692,13 @@ async def chat(req: ChatRequest):
             db.save_message(req.session_id, "user", request)
             db.save_message(req.session_id, "assistant", full_response)
 
+            # #10 Trim de sessão: evita crescimento ilimitado de RAM.
+            # Mantém 2×MAX_HISTORY mensagens mais recentes — as antigas foram sumarizadas.
+            _sess = sessions[req.session_id]
+            _keep = 2 * MAX_HISTORY + 4
+            if len(_sess) > _keep:
+                sessions[req.session_id] = _sess[-_keep:]
+
             # Gera título da sessão na primeira mensagem (em background)
             if is_first_message:
                 asyncio.create_task(_generate_session_title(req.session_id, request))
@@ -2530,6 +2537,32 @@ async def stop_learning():
 @app.get("/api/learning/status")
 async def learning_status():
     return learner.get_status() if learner else {"running": False}
+
+
+@app.get("/api/learning/stream")
+async def learning_stream():
+    """SSE push do status do aprendizado — substitui o polling de 3 s/3 s do frontend.
+    O cliente conecta uma vez e recebe updates quando algo muda, sem polling."""
+    async def _events():
+        last_hash = None
+        while True:
+            try:
+                st = learner.get_status() if learner else {"running": False}
+                # Serializa e compara hash — só envia quando o estado mudou
+                payload = json.dumps(st, sort_keys=True)
+                h = hash(payload)
+                if h != last_hash:
+                    last_hash = h
+                    yield f"data: {payload}\n\n"
+                await asyncio.sleep(2)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(5)
+    return StreamingResponse(
+        _events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/learning/study-now")
