@@ -1792,6 +1792,23 @@ async def reindex_sessions():
             "total": len(sessions_list)}
 
 
+@app.get("/api/export/obsidian")
+async def export_obsidian():
+    """Exporta todo o conhecimento acumulado como vault Obsidian (ZIP de .md).
+
+    Gera um arquivo por setor com todos os tópicos aprendidos, links internos
+    entre tópicos relacionados e um índice geral. Abra o ZIP descompactado
+    como vault no Obsidian para navegar pelo conhecimento do A.P.O.L.O."""
+    from src.obsidian import generate_vault
+    zip_bytes = await asyncio.to_thread(generate_vault, db, knowledge_db)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M")
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="APOLO_Obsidian_{stamp}.zip"'},
+    )
+
+
 @app.get("/api/export")
 async def export_all():
     """Backup completo: conhecimento (Supabase) + sessões e tópicos (SQLite) em JSON."""

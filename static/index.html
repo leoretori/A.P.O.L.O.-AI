@@ -524,8 +524,8 @@
     #mind-sub { font-size:11px; color:#555; flex:1; }
     #mind-close { background:none; border:1px solid #2a2a35; color:#666; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
     #mind-close:hover { border-color:#555; color:#aaa; }
-    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
-    #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover, #mind-reindex:hover { border-color:var(--sun); color:var(--sun); }
+    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex, #mind-obsidian { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+    #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover, #mind-reindex:hover, #mind-obsidian:hover { border-color:var(--sun); color:var(--sun); }
     .dg-sector { margin-bottom:14px; }
     .dg-sector-head { font-size:13px; color:#ddd; margin-bottom:6px; }
     .dg-sector-head .count { color:var(--sun); font-weight:700; margin-left:4px; }
@@ -1126,6 +1126,7 @@
       <button id="mind-schedule" onclick="openSchedules()" title="Agendar estudos diários">⏰ Agendar</button>
       <button id="mind-map" onclick="openGraph()" title="Mapa visual do conhecimento">🗺️ Mapa</button>
       <button id="mind-reindex" onclick="reindexEpisodic()" title="Indexar conversas antigas na memória semântica">💬 Reindexar</button>
+      <button id="mind-obsidian" onclick="exportObsidian()" title="Exportar todo o conhecimento como vault Obsidian (.zip)">📒 Obsidian</button>
       <button id="mind-close" onclick="closeMind()">✕ Fechar</button>
     </div>
     <div id="mind-body">
@@ -3561,6 +3562,35 @@
     } catch(e) {
       btn.textContent = orig;
       btn.disabled = false;
+    }
+  }
+
+  // ── Exportação para Obsidian ──────────────────────────────────
+  async function exportObsidian() {
+    const btn = document.getElementById('mind-obsidian');
+    const orig = btn.textContent;
+    btn.textContent = '⏳ Gerando...';
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/export/obsidian');
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      // Extrai nome do arquivo do header Content-Disposition
+      const cd = resp.headers.get('Content-Disposition') || '';
+      const match = cd.match(/filename="([^"]+)"/);
+      const filename = match ? match[1] : 'APOLO_Obsidian.zip';
+      // Download automático
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      btn.textContent = '✓ Baixado!';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+    } catch(e) {
+      btn.textContent = '✗ Erro';
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     }
   }
 
