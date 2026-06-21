@@ -687,9 +687,54 @@
     .mind-recent-date { color:#555; font-size:10.5px; flex-shrink:0; }
     .mind-empty { color:#555; font-size:12px; padding:8px 0; }
     @media (max-width:720px){ .mind-hero{grid-template-columns:repeat(2,1fr);} .mind-bar-label{width:90px;} }
+    /* ════ MODO MÃOS LIVRES ════ */
+    #hf-overlay {
+      display:none; position:fixed; inset:0; z-index:400;
+      background:#080810; flex-direction:column; align-items:center;
+      justify-content:center; gap:0;
+    }
+    #hf-overlay.active { display:flex; }
+    #hf-exit { position:absolute; top:18px; right:20px; background:none; border:1px solid #2a2a35; color:#666; padding:6px 14px; border-radius:8px; cursor:pointer; font-size:13px; }
+    #hf-exit:hover { border-color:#555; color:#ccc; }
+    #hf-voice-btn { position:absolute; top:18px; left:20px; background:none; border:1px solid #2a2a35; color:#666; padding:6px 12px; border-radius:8px; cursor:pointer; font-size:12px; }
+    #hf-voice-btn:hover { border-color:#555; color:#ccc; }
+    /* Sun animado */
+    #hf-sun { width:120px; height:120px; border-radius:50%; background:radial-gradient(circle at 40% 38%, #fef3c7, #fbbf24 45%, #d97706); display:flex; align-items:center; justify-content:center; font-size:56px; transition:transform .3s, box-shadow .3s; box-shadow:0 0 40px #f59e0b33; margin-bottom:16px; }
+    #hf-overlay[data-state="listening"] #hf-sun { animation:hf-pulse 1.2s ease-in-out infinite; }
+    #hf-overlay[data-state="speaking"] #hf-sun { animation:hf-speak 0.5s ease-in-out infinite alternate; }
+    @keyframes hf-pulse { 0%,100%{transform:scale(1);box-shadow:0 0 40px #f59e0b55;} 50%{transform:scale(1.08);box-shadow:0 0 70px #f59e0b99;} }
+    @keyframes hf-speak { from{transform:scale(1);} to{transform:scale(1.06);} }
+    /* Canvas waveform */
+    #hf-wave { display:block; width:320px; height:60px; margin-bottom:20px; opacity:.9; }
+    /* Status */
+    #hf-status { font-size:18px; font-weight:600; color:#e0e0e0; letter-spacing:.5px; min-height:28px; text-align:center; }
+    #hf-status-sub { font-size:13px; color:#555; margin-top:6px; min-height:20px; text-align:center; }
+    /* Transcript */
+    #hf-transcript { max-width:600px; width:90%; margin-top:28px; display:flex; flex-direction:column; gap:10px; max-height:240px; overflow-y:auto; }
+    .hf-bubble { padding:10px 15px; border-radius:12px; font-size:13.5px; line-height:1.55; animation:msg-in .25s ease; }
+    .hf-bubble.user { background:#1a1510; border:1px solid #3a2f0a; color:#e0c88a; align-self:flex-end; max-width:85%; }
+    .hf-bubble.ai { background:#0d1a10; border:1px solid #1a3a1a; color:#a0d8b0; align-self:flex-start; max-width:85%; }
+    /* VAD meter */
+    #hf-meter { width:320px; height:4px; background:#111; border-radius:2px; margin-bottom:10px; overflow:hidden; }
+    #hf-meter-fill { height:100%; width:0%; background:linear-gradient(90deg,#4ade80,#f59e0b); border-radius:2px; transition:width 0.05s linear; }
+    /* Estado de silêncio: anel que mostra quanto falta para enviar */
+    #hf-countdown { width:80px; height:80px; position:absolute; pointer-events:none; display:none; }
+    #hf-countdown circle { fill:none; stroke:#f59e0b; stroke-width:3; stroke-dasharray:226; stroke-dashoffset:226; stroke-linecap:round; transition:stroke-dashoffset linear; }
   </style>
 </head>
 <body>
+
+<!-- Modo mãos livres -->
+<div id="hf-overlay" data-state="idle">
+  <button id="hf-exit" onclick="stopHandsFree()">✕ Sair do modo voz</button>
+  <button id="hf-voice-btn" onclick="cycleHfVoice()" title="Trocar voz TTS" id="hf-voice-btn">🔊 —</button>
+  <div id="hf-sun">☀️</div>
+  <canvas id="hf-wave" width="640" height="120"></canvas>
+  <div id="hf-meter"><div id="hf-meter-fill"></div></div>
+  <div id="hf-status">Iniciando...</div>
+  <div id="hf-status-sub"></div>
+  <div id="hf-transcript"></div>
+</div>
 
 <!-- PWA: barra offline -->
 <div id="offline-bar">⚡ Sem conexão com o servidor — respostas indisponíveis até reconectar</div>
@@ -1154,6 +1199,7 @@
       <button id="research-btn" class="mode-chip" onclick="toggleResearch()" title="Pesquisa Profunda: decompõe, investiga memória + web e sintetiza com fontes">🔬 <span>Profundo</span></button>
       <button id="multi-btn" class="mode-chip" onclick="toggleMulti()" title="Multi-agente: orquestra Researcher, Analyst e Coder para tarefas complexas">🤝 <span>Multi</span></button>
       <button id="web-btn" class="mode-chip" onclick="toggleWeb()" title="Buscar na internet antes de responder">🌐 <span>Web</span></button>
+      <button id="hf-btn" class="mode-chip" onclick="startHandsFree()" title="Mãos livres: fale → A.P.O.L.O. responde em voz → repete">🎙️ <span>Mãos Livres</span></button>
     </div>
     <div id="input-wrap" id="input-wrap"
          ondragover="event.preventDefault();this.classList.add('drag-over')"
@@ -3932,6 +3978,296 @@
 </script>
 
 <script>
+// ── Modo Mãos Livres ─────────────────────────────────────────────────────────
+// Máquina de estados: idle → listening → processing → thinking → speaking → listening
+const HF = {
+  state: 'idle',
+  audioCtx: null, analyser: null, sourceNode: null, stream: null,
+  recorder: null, chunks: [], vadTimer: null,
+  waveRaf: null, waveCanvas: null, waveCtx2d: null,
+  waveData: null, isRecording: false,
+  useEdgeTts: false, hfVoice: 'feminino',
+  VOICES: { feminino: 'pt-BR-FranciscaNeural', masculino: 'pt-BR-AntonioNeural' },
+  ENERGY_THRESHOLD: 18,   // energia mínima para considerar fala (0–255)
+  SILENCE_MS: 1600,        // ms de silêncio para encerrar gravação
+  MIN_AUDIO_MS: 400,       // áudio mínimo para enviar (evita clips vazios)
+  _recStart: 0,
+};
+
+function _hfSetState(s) {
+  HF.state = s;
+  document.getElementById('hf-overlay').dataset.state = s;
+  const labels = {
+    idle:'',listening:'Ouvindo...',processing:'Transcrevendo...',
+    thinking:'Pensando...', speaking:'Falando...'
+  };
+  const subs = {
+    idle:'',listening:'Fale normalmente — silêncio por 1,6s envia automaticamente',
+    processing:'Aguarde...', thinking:'Gerando resposta...',
+    speaking:'A.P.O.L.O. está respondendo'
+  };
+  document.getElementById('hf-status').textContent = labels[s] ?? s;
+  document.getElementById('hf-status-sub').textContent = subs[s] ?? '';
+}
+
+function _hfEnergy() {
+  if (!HF.analyser || !HF.waveData) return 0;
+  HF.analyser.getByteFrequencyData(HF.waveData);
+  return HF.waveData.reduce((a,b)=>a+b,0) / HF.waveData.length;
+}
+
+function _hfDrawWave() {
+  if (HF.state === 'idle') return;
+  const canvas = HF.waveCanvas, ctx = HF.waveCtx2d;
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  if (HF.analyser && HF.waveData) {
+    HF.analyser.getByteFrequencyData(HF.waveData);
+    const bars = 48, bw = W/bars;
+    for (let i=0;i<bars;i++) {
+      const val = HF.waveData[Math.floor(i*HF.waveData.length/bars)];
+      const h = (val/255) * H * 0.9;
+      const alpha = HF.state==='listening' ? 0.3+val/255*0.7 : 0.15+val/255*0.3;
+      const color = HF.state==='speaking' ? `rgba(251,191,36,${alpha})`
+                  : HF.state==='listening' ? `rgba(74,222,128,${alpha})`
+                  : `rgba(148,163,184,${alpha})`;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(i*bw+1, H-h, bw-2, h, 2);
+      ctx.fill();
+    }
+    const energy = HF.waveData.reduce((a,b)=>a+b,0)/HF.waveData.length;
+    document.getElementById('hf-meter-fill').style.width =
+      Math.min(100, energy/HF.ENERGY_THRESHOLD*50) + '%';
+  }
+  HF.waveRaf = requestAnimationFrame(_hfDrawWave);
+}
+
+function _hfAddBubble(role, text) {
+  const el = document.createElement('div');
+  el.className = 'hf-bubble ' + role;
+  el.textContent = (role==='user' ? '🎙️ ' : '☀️ ') + text.slice(0,300);
+  const box = document.getElementById('hf-transcript');
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+async function _hfStartListening() {
+  if (HF.state === 'idle') return;
+  _hfSetState('listening');
+  HF.chunks = []; HF.isRecording = false;
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus' : 'audio/webm';
+  HF.recorder = new MediaRecorder(HF.stream, {mimeType});
+  HF.recorder.ondataavailable = e => { if (e.data.size > 0) HF.chunks.push(e.data); };
+  HF.recorder.start(100); // timeslice = pega dados a cada 100ms
+
+  // VAD loop
+  function vadTick() {
+    if (HF.state !== 'listening') return;
+    const e = _hfEnergy();
+    if (e > HF.ENERGY_THRESHOLD) {
+      if (!HF.isRecording) { HF.isRecording = true; HF._recStart = Date.now(); }
+      clearTimeout(HF.vadTimer); HF.vadTimer = null;
+    } else if (HF.isRecording && !HF.vadTimer) {
+      HF.vadTimer = setTimeout(() => _hfSendAudio(), HF.SILENCE_MS);
+    }
+    requestAnimationFrame(vadTick);
+  }
+  requestAnimationFrame(vadTick);
+}
+
+async function _hfSendAudio() {
+  if (HF.state !== 'listening') return;
+  const duration = Date.now() - HF._recStart;
+  HF.recorder.stop();
+  clearTimeout(HF.vadTimer); HF.vadTimer = null;
+
+  if (!HF.isRecording || duration < HF.MIN_AUDIO_MS) {
+    // Muito curto — volta a ouvir
+    setTimeout(() => _hfStartListening(), 300);
+    return;
+  }
+
+  _hfSetState('processing');
+  await new Promise(r => HF.recorder.onstop = r);
+  const blob = new Blob(HF.chunks, {type:'audio/webm'});
+
+  let transcript = '';
+  // Tenta Whisper local; fallback para Web Speech API (que não funciona no loop assim,
+  // então apenas avisa se o servidor STT não está disponível)
+  try {
+    const res = await fetch('/api/stt', {method:'POST', body:blob});
+    const d = await res.json();
+    transcript = d.ok ? d.text : '';
+    if (!d.ok) {
+      _hfSetState('listening');
+      setTimeout(() => _hfStartListening(), 500);
+      return;
+    }
+  } catch {
+    _hfSetState('listening');
+    setTimeout(() => _hfStartListening(), 500);
+    return;
+  }
+
+  if (!transcript.trim()) {
+    _hfSetState('listening');
+    setTimeout(() => _hfStartListening(), 300);
+    return;
+  }
+
+  _hfAddBubble('user', transcript);
+  _hfSetState('thinking');
+  await _hfChat(transcript);
+}
+
+async function _hfChat(text) {
+  // Usa o mesmo streamChatResponse mas captura o texto completo para TTS
+  let full = '';
+  try {
+    const resp = await fetch('/api/chat', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({message:text, session_id:sessionId}),
+    });
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder(); let buf='';
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, {stream:true});
+      const parts = buf.split('\n\n'); buf = parts.pop();
+      for (const p of parts) {
+        if (!p.startsWith('data: ')) continue;
+        const d = JSON.parse(p.slice(6));
+        if (d.type==='token') full += d.content;
+        if (d.type==='done') break;
+      }
+    }
+  } catch(e) {
+    _hfSetState('listening');
+    setTimeout(() => _hfStartListening(), 500);
+    return;
+  }
+
+  if (!full.trim()) { _hfSetState('listening'); setTimeout(() => _hfStartListening(), 300); return; }
+
+  // Mostra no chat principal também
+  addUserMessage(text);
+  const wrap = createAiMessage(); wrap.querySelector('.content').innerHTML = renderMd(full);
+  wrap.querySelectorAll('pre code').forEach(el=>hljs.highlightElement(el));
+  scrollBottom();
+
+  // Texto para TTS: remove markdown
+  const ttsText = full
+    .replace(/```[\s\S]*?```/g,'. (código) .')
+    .replace(/`([^`]+)`/g,'$1')
+    .replace(/[#*_~>]/g,'')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')
+    .replace(/\n{2,}/g,'. ')
+    .trim().slice(0,2000);
+
+  _hfAddBubble('ai', ttsText.slice(0,200));
+  _hfSetState('speaking');
+
+  await _hfSpeak(ttsText);
+
+  if (HF.state !== 'idle') _hfStartListening();
+}
+
+async function _hfSpeak(text) {
+  if (HF.useEdgeTts) {
+    try {
+      const voiceName = HF.VOICES[HF.hfVoice] || HF.VOICES.feminino;
+      const resp = await fetch(`/api/tts?${new URLSearchParams({text:text.slice(0,2000),voice:voiceName})}`);
+      if (!resp.ok) throw new Error('edge-tts falhou');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.volume = 1.0;
+      await audio.play();
+      await new Promise((res, rej) => {
+        audio.onended = res;
+        audio.onerror = rej;
+        // Se sair do modo voz enquanto fala, para
+        const check = setInterval(() => { if (HF.state==='idle'){audio.pause();URL.revokeObjectURL(url);clearInterval(check);res();} }, 200);
+      });
+      URL.revokeObjectURL(url);
+      return;
+    } catch { /* fallback */ }
+  }
+  // Fallback: browser speechSynthesis
+  return new Promise(res => {
+    if (!('speechSynthesis' in window)) { res(); return; }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.slice(0,3000));
+    u.lang='pt-BR'; u.rate=1.05;
+    if (ptVoice) u.voice=ptVoice;
+    u.onend = () => res();
+    u.onerror = () => res();
+    speechSynthesis.speak(u);
+  });
+}
+
+async function startHandsFree() {
+  if (HF.state !== 'idle') return;
+  // Verifica se Whisper está disponível
+  try {
+    const h = await fetch('/api/health').then(r=>r.json());
+    if (!h.stt) {
+      alert('O modo Mãos Livres requer o Whisper STT local.\nInstale: pip install faster-whisper\nReinicie o servidor e tente de novo.');
+      return;
+    }
+    HF.useEdgeTts = h.tts_engine === 'edge-tts';
+    document.getElementById('hf-voice-btn').textContent =
+      '🔊 ' + (HF.useEdgeTts ? HF.hfVoice : 'browser');
+  } catch { return; }
+
+  // Inicializa AudioContext + MediaStream
+  try {
+    HF.stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+  } catch { alert('Acesso ao microfone negado.'); return; }
+
+  HF.audioCtx = new AudioContext();
+  HF.analyser = HF.audioCtx.createAnalyser();
+  HF.analyser.fftSize = 256;
+  HF.waveData = new Uint8Array(HF.analyser.frequencyBinCount);
+  HF.sourceNode = HF.audioCtx.createMediaStreamSource(HF.stream);
+  HF.sourceNode.connect(HF.analyser);
+
+  // Canvas
+  HF.waveCanvas = document.getElementById('hf-wave');
+  HF.waveCtx2d = HF.waveCanvas.getContext('2d');
+  document.getElementById('hf-transcript').innerHTML = '';
+
+  document.getElementById('hf-overlay').classList.add('active');
+  _hfSetState('listening');
+  _hfDrawWave();
+  _hfStartListening();
+}
+
+function stopHandsFree() {
+  _hfSetState('idle');
+  cancelAnimationFrame(HF.waveRaf);
+  clearTimeout(HF.vadTimer);
+  speechSynthesis.cancel();
+  try { HF.recorder?.stop(); } catch {}
+  try { HF.stream?.getTracks().forEach(t=>t.stop()); } catch {}
+  try { HF.audioCtx?.close(); } catch {}
+  HF.audioCtx=null; HF.analyser=null; HF.sourceNode=null;
+  HF.stream=null; HF.recorder=null; HF.chunks=[];
+  document.getElementById('hf-overlay').classList.remove('active');
+  document.getElementById('hf-meter-fill').style.width='0%';
+}
+
+function cycleHfVoice() {
+  const voices = Object.keys(HF.VOICES);
+  const idx = voices.indexOf(HF.hfVoice);
+  HF.hfVoice = voices[(idx+1) % voices.length];
+  document.getElementById('hf-voice-btn').textContent =
+    '🔊 ' + (HF.useEdgeTts ? HF.hfVoice : 'browser');
+}
+
 // ── PWA: Service Worker ──────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

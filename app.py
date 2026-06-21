@@ -1666,6 +1666,25 @@ async def stt_transcribe(request: Request):
     return {"ok": False, "error": "Não foi possível transcrever o áudio"}
 
 
+@app.get("/api/tts")
+async def tts_endpoint(text: str = "", voice: str = "pt-BR-FranciscaNeural"):
+    """TTS de alta qualidade via edge-tts (vozes neurais PT-BR).
+    Retorna áudio MP3 em streaming — o frontend toca via Audio API.
+    Fallback: speechSynthesis do navegador (browser) quando não instalado."""
+    from src.tts import is_available, synthesize
+    if not is_available():
+        return JSONResponse({"error": "edge-tts não instalado", "hint": "pip install edge-tts"},
+                            status_code=503)
+    clean = (text or "").strip()
+    if not clean:
+        return JSONResponse({"error": "texto vazio"}, status_code=400)
+    return StreamingResponse(
+        synthesize(clean, voice),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/curate/scan")
 async def curate_scan():
     """Relatório (só leitura) de conhecimento duplicado (base + recall + log)."""
@@ -1976,13 +1995,18 @@ async def health():
     else:
         out["learner"] = {"running": False}
 
-    # STT local (Whisper) e ingestão de documentos
+    # STT local (Whisper), TTS (edge-tts) e ingestão de documentos
     from src.whisper_stt import is_available as _stt_available
+    from src.tts import is_available as _tts_available, VOICES as _tts_voices
     out["stt"] = _stt_available()
+    out["tts_engine"] = "edge-tts" if _tts_available() else "browser"
+    out["tts_voices"] = list(_tts_voices.keys()) if _tts_available() else []
     out["features"] = {
         "docx": True,
         "pdf": True,
         "whisper": out["stt"],
+        "edge_tts": _tts_available(),
+        "hands_free": True,
         "drag_drop": True,
     }
 
