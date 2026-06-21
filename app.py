@@ -11,6 +11,7 @@ from collections import defaultdict
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware   # #3
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -47,6 +48,11 @@ from src.coder import CoderWorkspace, extract_fenced, make_diff
 from src.episodic import index_session as _index_episodic
 from src.project_memory import ProjectMemory, analyze_project as _analyze_project
 from src.system_cache import get as _syscache_get, put as _syscache_put, invalidate as _syscache_inv
+from src.query_cache import (                        # #1 #2
+    recall_get as _qcache_recall_get, recall_put as _qcache_recall_put,
+    fts_get as _qcache_fts_get, fts_put as _qcache_fts_put,
+    invalidate_all as _qcache_inv, stats as _qcache_stats,
+)
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
@@ -60,10 +66,13 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# #4 Logging otimizado: app fica em INFO, libs barulhentas em WARNING.
+# httpx/httpcore geram 1 log por requisição de rede — em produção são dezenas/min.
+# LOG_LEVEL=DEBUG restaura tudo para debug.
+_LOG_LEVEL = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+logging.basicConfig(level=_LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+for _noisy in ("httpx", "httpcore", "watchfiles", "chromadb.telemetry"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
@@ -301,6 +310,38 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(10)
             await warmup(MODEL)
         asyncio.create_task(_delayed_warmup())
+    # #6 Pre-warm ChromaDB — carrega o índice HNSW na RAM antes do usuário perguntar.
+    # Sem isso, a 1ª busca semântica leva 200–400ms extras (load do índice do disco).
+    async def _warmup_chroma():
+        await asyncio.sleep(8)
+        try:
+            await asyncio.to_thread(rag.recall, "warmup apolo inicializacao", 1)
+            logger.info("[chroma] índice HNSW pré-carregado")
+        except Exception:
+            pass
+    asyncio.create_task(_warmup_chroma())
+
+    # #7 Batch de notificações — enfileira escritas e persiste em batches de 2s.
+    # Evita abrir uma sessão SQLAlchemy por notificação no learner.
+    _notif_queue: list[dict] = []
+
+    async def _notif_flush():
+        while True:
+            await asyncio.sleep(2)
+            if _notif_queue:
+                batch, _notif_queue[:] = _notif_queue[:], []
+                for n in batch:
+                    try:
+                        db.add_notification(n["message"], kind=n.get("kind","info"),
+                                            link=n.get("link",""))
+                    except Exception:
+                        pass
+
+    # Expõe a função de enfileirar para uso no scheduler/learner
+    app.state.queue_notification = lambda msg, kind="info", link="": \
+        _notif_queue.append({"message": msg, "kind": kind, "link": link})
+    asyncio.create_task(_notif_flush())
+
     # Agendador de estudos ("estude X toda manhã") — roda enquanto o servidor estiver no ar.
     scheduler_task = asyncio.create_task(_scheduler_loop(), name="scheduler")
     sm = f" — sumarização: {SUMMARIZE_MODEL}" if SUMMARIZE_MODEL != MODEL else ""
@@ -318,6 +359,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# #3 Gzip: comprime respostas JSON >= 512 bytes (~3–5× menor em sessões longas)
+app.add_middleware(GZipMiddleware, minimum_size=512)
 
 # CORS — permite acesso de qualquer origem (necessário para acesso de celular/tablet na LAN).
 app.add_middleware(
@@ -532,33 +576,41 @@ async def chat(req: ChatRequest):
         # Usar as duas fontes deixa a resposta mais embasada; rodar em paralelo não
         # custa latência (a busca demorada não soma com a outra).
         async def _do_recall() -> list[dict]:
-            if not rag or _is_short:   # short = sem recall
+            if not rag or _is_short:
                 return []
+            # #1 Cache: mesma query recente → resultado imediato, sem re-embedding
+            recent = [m.get("content", "")[:80] for m in history[-4:]
+                      if m.get("role") == "user"]
+            topic_bias = " ".join(recent[:-1]).strip()
+            enriched = (request + " " + topic_bias)[:450] if topic_bias else request
+            cached = _qcache_recall_get(enriched)
+            if cached is not None:
+                return cached
             try:
-                # Enriquece a query com tópicos recentes da conversa para continuidade.
-                # Se o usuário perguntou sobre Docker nos últimos turnos, bias para Docker.
-                recent = [m.get("content", "")[:80] for m in history[-4:]
-                          if m.get("role") == "user"]
-                topic_bias = " ".join(recent[:-1]).strip()  # exclui a mensagem atual
-                enriched = (request + " " + topic_bias)[:450] if topic_bias else request
                 recalled = await asyncio.to_thread(rag.recall, enriched, MEMORY_RECALL_N)
-                return [
+                result = [
                     m for m in recalled if (m.get("relevance") or 0) >= MEMORY_MIN_RELEVANCE
                 ][:MEMORY_TOP]
+                return _qcache_recall_put(enriched, result)
             except Exception as e:
                 logger.debug(f"recall: {e}")
                 return []
 
         async def _do_fts() -> str:
-            if not knowledge_db or _is_short:  # short = sem FTS
+            if not knowledge_db or _is_short:
                 return ""
+            # #2 Cache: FTS do mesmo query → resultado imediato
+            cached = _qcache_fts_get(request)
+            if cached is not None:
+                return cached
             try:
-                return await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     asyncio.to_thread(knowledge_db.format_context, request),
                     timeout=KNOWLEDGE_TIMEOUT,
                 )
+                return _qcache_fts_put(request, result or "")
             except asyncio.TimeoutError:
-                logger.info("Knowledge FTS lenta — respondendo sem ela")
+                logger.debug("Knowledge FTS lenta — respondendo sem ela")
             except Exception as e:
                 logger.warning(f"Knowledge FTS error: {e}")
             return ""

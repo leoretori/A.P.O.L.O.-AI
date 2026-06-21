@@ -10,6 +10,23 @@ logger = logging.getLogger(__name__)
 MAX_CONTENT_CHARS = 2500
 FETCH_TIMEOUT = 8
 
+# #5 Pool HTTP persistente — reutiliza conexões TCP em vez de abrir/fechar a cada fetch.
+# Keep-alive reduz ~80ms de latência de TCP handshake por requisição para hosts repetidos.
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(
+            timeout=FETCH_TIMEOUT,
+            follow_redirects=True,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5,
+                                keepalive_expiry=30),
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ApoloAI/1.0; research)"},
+        )
+    return _http_client
+
 
 def _ddg_search_sync(query: str, max_results: int) -> list[dict]:
     try:
@@ -61,8 +78,8 @@ async def fetch_page_text(url: str) -> str:
     """Baixa página e extrai texto principal (sem scripts/nav/footer).
     Wikipédia é tratada via API oficial (o HTML retorna 403 para bots)."""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; ApoloAI/1.0; research)"}
-        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as client:
+        client = _get_http_client()
+        if True:  # mantém indentação do bloco original sem quebrar lógica
             wiki_api = _wikipedia_api(url)
             if wiki_api:
                 # A Wikimedia exige User-Agent com URL/contato (senão 403 por política de bots).

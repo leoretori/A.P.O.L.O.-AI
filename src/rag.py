@@ -199,6 +199,11 @@ class RAGManager:
             metadatas=[meta],
         )
         self._rq_cache.invalidate()  # índice mudou → recalcula a qualidade na próxima
+        try:
+            from src.query_cache import invalidate_all as _qinv
+            _qinv()   # #1 #2 índice mudou → queries em cache podem retornar stale
+        except Exception:
+            pass
         logger.info(f"Exemplo adicionado: {doc_id}")
 
     def add_chunked(
