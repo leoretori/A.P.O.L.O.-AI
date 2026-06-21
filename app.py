@@ -171,20 +171,32 @@ def _pick_vision_model() -> str:
     return pick_vision_model(_installed_models(), os.getenv("VISION_MODEL", "").strip())
 
 
-def _init_supabase():
+def _init_knowledge():
+    """Inicializa a base de conhecimento.
+
+    Prioridade:
+    1. Supabase (se SUPABASE_URL + SUPABASE_KEY estiverem configurados)
+    2. LocalKnowledge (SQLite FTS5) — fallback automático, zero dependências externas.
+
+    Ambos expõem a mesma interface — nenhum chamador precisa saber qual está ativo.
+    """
     global knowledge_db
     url = os.getenv("SUPABASE_URL", "").strip()
     key = os.getenv("SUPABASE_KEY", "").strip()
-    if not url or not key:
-        logger.info("Supabase não configurado")
-        return
-    try:
-        from src.knowledge import SupabaseKnowledge
-        knowledge_db = SupabaseKnowledge(url=url, key=key)
-        stats = knowledge_db.stats()
-        logger.info(f"Supabase pronto — {stats['total']} artigos")
-    except Exception as e:
-        logger.warning(f"Supabase indisponível: {e}")
+    if url and key:
+        try:
+            from src.knowledge import SupabaseKnowledge
+            knowledge_db = SupabaseKnowledge(url=url, key=key)
+            stats = knowledge_db.stats()
+            logger.info(f"Supabase pronto — {stats['total']} artigos")
+            return
+        except Exception as e:
+            logger.warning(f"Supabase indisponível: {e} — usando LocalKnowledge como fallback")
+    # Fallback local: SQLite FTS5, sem dependências externas.
+    local_path = os.getenv("LOCAL_KNOWLEDGE_PATH", "data/local_knowledge.db")
+    from src.local_knowledge import LocalKnowledge
+    knowledge_db = LocalKnowledge(path=local_path)
+    logger.info(f"LocalKnowledge ativo (SQLite FTS5) em {local_path}")
 
 
 async def _scheduler_loop():
@@ -232,9 +244,10 @@ async def lifespan(app: FastAPI):
     rag = RAGManager(
         chroma_path=os.getenv("CHROMA_PATH", "./data/chroma_db"),
         examples_path=os.getenv("EXAMPLES_PATH", "./data/examples"),
+        embed_model=os.getenv("EMBED_MODEL", "").strip() or None,
     )
     executor = CodeExecutor(timeout=int(os.getenv("EXECUTION_TIMEOUT", 30)))
-    _init_supabase()
+    _init_knowledge()
     # A GPU é serializada pelo Ollama: o usuário tem prioridade sobre o aprendizado.
     gpu_gate = GpuGate()
     learner = LearningEngine(
@@ -1850,11 +1863,18 @@ async def health():
     from src.whisper_stt import is_available as _stt_available
     out["stt"] = _stt_available()
     out["features"] = {
-        "docx": True,   # extract_docx_text disponível (requer python-docx na hora do uso)
-        "pdf": True,    # extract_pdf_text disponível (requer pypdf na hora do uso)
+        "docx": True,
+        "pdf": True,
         "whisper": out["stt"],
         "drag_drop": True,
     }
+
+    # Backend de conhecimento (Supabase ou LocalKnowledge)
+    kb_backend = "none"
+    if knowledge_db is not None:
+        from src.local_knowledge import LocalKnowledge
+        kb_backend = "local_sqlite" if isinstance(knowledge_db, LocalKnowledge) else "supabase"
+    out["knowledge_backend"] = kb_backend
 
     return out
 

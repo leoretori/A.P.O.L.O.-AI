@@ -32,18 +32,50 @@ def _recency_from_iso(value: str | None) -> float:
         return 0.0
 
 
+def _make_embed_fn(model: str | None):
+    """Cria a embedding function para o ChromaDB.
+
+    Se EMBED_MODEL estiver configurado (ex.: 'nomic-embed-text'), usa Ollama para
+    gerar embeddings locais — melhor qualidade para PT-BR. Requer:
+      ollama pull nomic-embed-text
+    Sem EMBED_MODEL, usa a default do chromadb (all-MiniLM-L6-v2).
+
+    Quando o modelo de embed muda, a coleção usa um nome diferente para evitar
+    incompatibilidade de dimensões entre embeddings antigos e novos.
+    """
+    if not model:
+        return None  # usa o default do ChromaDB
+    try:
+        from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
+        ef = OllamaEmbeddingFunction(
+            url="http://localhost:11434",
+            model_name=model,
+        )
+        logger.info(f"[rag] embeddings locais via Ollama: {model}")
+        return ef
+    except Exception as e:
+        logger.warning(f"[rag] não consegui carregar embedding Ollama ({model}): {e} — usando default")
+        return None
+
+
 class RAGManager:
     def __init__(
         self,
         chroma_path: str = "./data/chroma_db",
         examples_path: str = "./data/examples",
+        embed_model: str | None = None,
     ):
         self.examples_path = Path(examples_path)
         self.client = chromadb.PersistentClient(path=chroma_path)
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        # Nome da coleção inclui o modelo de embedding para evitar incompatibilidade
+        # de dimensões quando o modelo muda (antigo: cosine/384d, nomic: cosine/768d).
+        _suffix = f"_{embed_model.replace(':', '_').replace('-', '_')}" if embed_model else ""
+        _coll_name = f"{COLLECTION_NAME}{_suffix}"
+        _embed_fn = _make_embed_fn(embed_model)
+        kwargs: dict = {"name": _coll_name, "metadata": {"hnsw:space": "cosine"}}
+        if _embed_fn:
+            kwargs["embedding_function"] = _embed_fn
+        self.collection = self.client.get_or_create_collection(**kwargs)
         # Cache da métrica de qualidade do recall (painel Saúde): cada cálculo faz
         # ~6 embeddings via Ollama. Métrica muda devagar → TTL curto basta.
         self._rq_cache = TTLCache(ttl=90.0)

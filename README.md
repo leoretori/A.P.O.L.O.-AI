@@ -476,7 +476,12 @@ pytest tests/ -v
 - [x] **Multi-arquivo** — botão 📎 aceita múltiplos arquivos de uma vez; ingere sequencialmente e exibe contagem final ✅
 - [x] **TTS** — `speechSynthesis` do navegador (Web Speech API, PT-BR) já presente; botão 🔊 em cada resposta ✅
 - [x] **Visão** — análise de imagens via modelo llava local (Ollama) já presente ✅
-- [ ] **Fase 4 — Soberania Total** — PostgreSQL local, embeddings próprios, fine-tuning LoRA
+### ✅ Fase 4 — Soberania Total (Jun 2026)
+- [x] **Base de conhecimento local (SQLite FTS5)** — `src/local_knowledge.py`: implementa a mesma interface de `SupabaseKnowledge` com SQLite FTS5. Ativado automaticamente quando Supabase não está configurado. Zero dependências externas, busca full-text PT-BR, rerank híbrido, cache de insights. Sidebar mostra `💾 Local SQLite` quando ativo ✅
+- [x] **Embeddings locais via Ollama** — `EMBED_MODEL=nomic-embed-text` em `.env` ativa embeddings 100% locais no ChromaDB; usa coleção isolada para evitar incompatibilidade de dimensões. Instalar: `ollama pull nomic-embed-text` ✅
+- [x] **LLM_BACKEND=llamacpp** — motor de LLM próprio migrado em toda a app (`src/providers.py`) ✅
+- [ ] **Migração Supabase → SQLite** — script de migração para mover dados existentes (pós-disco-disponível)
+- [ ] **Fine-tuning LoRA** — requer GPU; roadmap para quando tiver hardware
 - [ ] **Fase 4 — Soberania Total** — PostgreSQL local (sem Supabase), embeddings próprios, fine-tuning LoRA
 - [ ] **Fase 5 — Multi-agente** — sub-agentes especializados orquestrados pelo A.P.O.L.O., API LAN, benchmark contínuo
 

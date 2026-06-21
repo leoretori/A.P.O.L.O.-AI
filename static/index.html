@@ -2869,21 +2869,30 @@
     });
   }
 
-  // ── Supabase status ──────────────────────────────────────────
+  // ── Knowledge backend status (Supabase ou Local SQLite) ─────
   async function checkSupabase() {
     try {
-      const d = await fetch('/api/knowledge/stats').then(r=>r.json());
+      const [d, h] = await Promise.all([
+        fetch('/api/knowledge/stats').then(r=>r.json()),
+        fetch('/api/health').then(r=>r.json()).catch(()=>({})),
+      ]);
       const dot = document.getElementById('dot-sb');
       const lbl = document.getElementById('lbl-sb');
-      if (d.enabled) {
+      const backend = h.knowledge_backend || 'supabase';
+      if (d.enabled || d.total >= 0) {
         dot.classList.add('on'); dot.classList.remove('off');
-        let txt = `Supabase · ${d.total} artigos`;
-        if (d.saved_session) txt += ` · ${d.saved_session} nesta sessão`;
-        if (d.save_errors) { txt += ` · ⚠️ ${d.save_errors} falhas`; dot.classList.add('off'); dot.classList.remove('on'); }
+        const backendLabel = backend === 'local_sqlite' ? '💾 Local SQLite' : 'Supabase';
+        let txt = `${backendLabel} · ${d.total ?? 0} artigos`;
+        if (d.saved_session) txt += ` · ${d.saved_session} salvos`;
+        if (d.save_errors) {
+          txt += ` · ⚠️ ${d.save_errors} falhas`;
+          dot.classList.replace('on','off');
+        }
         lbl.textContent = txt;
         if (d.last_error) lbl.title = 'Último erro: ' + d.last_error;
+      } else {
+        lbl.textContent = 'Base de conhecimento · indisponível';
       }
-      else { lbl.textContent='Supabase · não configurado'; }
     } catch {}
   }
 
