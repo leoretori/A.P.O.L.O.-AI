@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 style-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+                 script-src 'unsafe-inline' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net;
+                 connect-src http: https:;
+                 img-src data: https:;
+                 font-src https:;">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: var(--vscode-sideBar-background, #1e1e1e);
+      --bg2: var(--vscode-editor-background, #252526);
+      --border: var(--vscode-sideBarSectionHeader-border, #3a3a3a);
+      --text: var(--vscode-editor-foreground, #d4d4d4);
+      --muted: var(--vscode-descriptionForeground, #888);
+      --input-bg: var(--vscode-input-background, #3c3c3c);
+      --btn: var(--vscode-button-background, #0e639c);
+      --btn-fg: var(--vscode-button-foreground, #fff);
+      --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
+      --link: var(--vscode-textLink-foreground, #3794ff);
+      --sun: #f59e0b;
+      --sun-dark: #d97706;
+    }
+
+    body {
+      font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+      font-size: var(--vscode-font-size, 13px);
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    #header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px 6px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sun-icon {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: radial-gradient(circle at 40% 40%, #fde68a, #f59e0b);
+      flex-shrink: 0;
+    }
+    #header-title { font-size: 12px; font-weight: 600; color: var(--text); flex: 1; }
+    #status-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #555;
+      flex-shrink: 0; transition: background .3s;
+    }
+    #status-dot.ok { background: #4ade80; box-shadow: 0 0 4px #4ade8066; }
+    #status-dot.err { background: #f87171; }
+    #status-dot.loading { background: #f59e0b; animation: pulse .8s infinite; }
+    @keyframes pulse { 0%,100%{opacity:.5}50%{opacity:1} }
+    #status-text { font-size: 10px; color: var(--muted); }
+
+    /* ── Context strip (arquivo/seleção injetada) ── */
+    #context-strip {
+      display: none; padding: 5px 10px;
+      background: color-mix(in srgb, var(--sun) 8%, transparent);
+      border-bottom: 1px solid color-mix(in srgb, var(--sun) 25%, transparent);
+      font-size: 10.5px; color: #d4a017;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    #context-strip.show { display: block; }
+
+    /* ── Messages ── */
+    #messages {
+      flex: 1; overflow-y: auto; padding: 8px 6px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Empty state */
+    #empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 10px; color: var(--muted); padding: 20px;
+    }
+    #empty .sun-big {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: radial-gradient(circle at 40% 40%, #fde68a, #f59e0b);
+      opacity: .85;
+    }
+    #empty p { font-size: 12px; text-align: center; line-height: 1.6; max-width: 200px; }
+    .hint-row {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10.5px; color: var(--muted);
+    }
+    kbd {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 3px; padding: 1px 4px; font-size: 10px;
+      font-family: monospace;
+    }
+
+    /* Bubbles */
+    .msg { display: flex; flex-direction: column; gap: 2px; animation: fade-in .2s ease; }
+    @keyframes fade-in { from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none} }
+
+    .msg-user .bubble {
+      align-self: flex-end;
+      background: var(--btn);
+      color: var(--btn-fg);
+      padding: 7px 10px; border-radius: 10px 10px 3px 10px;
+      max-width: 90%; font-size: 12.5px; line-height: 1.5;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .msg-ai { align-self: flex-start; max-width: 100%; }
+    .msg-ai .bubble {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 3px 10px 10px 10px; padding: 8px 10px;
+    }
+
+    /* Markdown inside AI bubble */
+    .md { font-size: 12.5px; color: var(--text); line-height: 1.65; }
+    .md p { margin-bottom: 6px; } .md p:last-child { margin-bottom: 0; }
+    .md h1,.md h2,.md h3 { color: var(--text); margin: 10px 0 5px; font-weight: 600; }
+    .md h1 { font-size: 14px; } .md h2 { font-size: 13px; } .md h3 { font-size: 12.5px; }
+    .md ul,.md ol { padding-left: 16px; margin-bottom: 6px; }
+    .md li { margin-bottom: 2px; }
+    .md code:not([class]) {
+      background: var(--input-bg); border: 1px solid var(--border);
+      border-radius: 3px; padding: 1px 4px; font-size: 11.5px;
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .md strong { color: var(--text); font-weight: 600; }
+    .md a { color: var(--link); }
+    .md blockquote { border-left: 3px solid var(--sun); padding-left: 8px; color: var(--muted); }
+
+    /* Code blocks */
+    .code-wrap { margin: 6px 0; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+    .code-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 3px 8px; background: #1a1a1a; border-bottom: 1px solid var(--border);
+    }
+    .code-lang { font-size: 10px; color: var(--muted); font-family: monospace; }
+    .code-actions { display: flex; gap: 6px; }
+    .code-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      font-size: 10px; padding: 1px 6px; border-radius: 3px; cursor: pointer;
+    }
+    .code-btn:hover { border-color: var(--sun); color: var(--sun); }
+    .md pre { margin: 0; } .md code { font-size: 11.5px !important; padding: 10px !important; }
+
+    /* Status stream */
+    .stream-status {
+      font-size: 11px; color: var(--muted); padding: 4px 0;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .spin {
+      width: 10px; height: 10px; border: 1.5px solid var(--border);
+      border-top-color: var(--sun); border-radius: 50%;
+      animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+    @keyframes spin { to{transform:rotate(360deg)} }
+    .stream-text { font-size: 11px; color: var(--muted); white-space: pre-wrap; }
+
+    /* Review panel */
+    .review-panel {
+      margin: 6px 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    }
+    .review-header {
+      background: #0d1a2a; padding: 5px 10px; font-size: 10.5px; color: #5eead4;
+      font-weight: 600; letter-spacing: .3px;
+    }
+    .review-body { padding: 8px 10px; }
+
+    /* ── Input area ── */
+    #input-area {
+      flex-shrink: 0; padding: 7px 8px 8px;
+      border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 5px;
+    }
+    #input-wrap {
+      display: flex; gap: 5px; align-items: flex-end;
+      background: var(--input-bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 6px;
+      transition: border-color .15s;
+    }
+    #input-wrap:focus-within { border-color: var(--sun); }
+    #input {
+      flex: 1; background: none; border: none; outline: none;
+      color: var(--text); font-size: 12.5px; resize: none;
+      max-height: 100px; line-height: 1.5;
+      font-family: var(--vscode-font-family, inherit);
+    }
+    #input::placeholder { color: var(--muted); }
+    #send-btn {
+      background: var(--btn); color: var(--btn-fg);
+      border: none; border-radius: 4px; padding: 4px 8px;
+      cursor: pointer; font-size: 13px; flex-shrink: 0;
+      transition: background .15s;
+    }
+    #send-btn:hover { background: var(--btn-hover); }
+    #send-btn:disabled { opacity: .4; cursor: default; }
+
+    /* Bottom toolbar */
+    #toolbar {
+      display: flex; gap: 4px; align-items: center;
+    }
+    .tb-btn {
+      background: none; border: 1px solid var(--border); color: var(--muted);
+      font-size: 10px; padding: 2px 7px; border-radius: 4px; cursor: pointer;
+      transition: all .12s; white-space: nowrap;
+    }
+    .tb-btn:hover { border-color: var(--sun); color: var(--sun); }
+    .tb-btn.active { border-color: var(--sun); color: var(--sun); background: color-mix(in srgb, var(--sun) 10%, transparent); }
+    #smart-indicator { margin-left: auto; font-size: 9.5px; color: var(--muted); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div id="header">
+  <div class="sun-icon"></div>
+  <span id="header-title">A.P.O.L.O.</span>
+  <span id="status-text">conectando...</span>
+  <div id="status-dot" class="loading"></div>
+</div>
+
+<!-- Context strip -->
+<div id="context-strip"></div>
+
+<!-- Messages -->
+<div id="messages">
+  <div id="empty">
+    <div class="sun-big"></div>
+    <p>Seu assistente de engenharia está pronto.</p>
+    <div class="hint-row"><kbd>Ctrl+Shift+A</kbd> perguntar sobre arquivo</div>
+    <div class="hint-row"><kbd>Ctrl+Shift+R</kbd> revisar seleção</div>
+    <div class="hint-row">ou escreva abaixo</div>
+  </div>
+</div>
+
+<!-- Input -->
+<div id="input-area">
+  <div id="input-wrap">
+    <textarea id="input" rows="1" placeholder="Pergunte ao A.P.O.L.O.…"
+              onkeydown="onKey(event)" oninput="resize(this)"></textarea>
+    <button id="send-btn" onclick="send()" title="Enviar (Enter)">↑</button>
+  </div>
+  <div id="toolbar">
+    <button class="tb-btn" onclick="clearChat()" title="Limpar conversa">Limpar</button>
+    <button class="tb-btn" id="web-btn" onclick="toggleWeb()" title="Buscar na web antes de responder">🌐 Web</button>
+    <span id="smart-indicator"></span>
+  </div>
+</div>
+
+<script>
+const vscode = acquireVsCodeApi();
+let SERVER = 'http://localhost:8000';
+let SMART = false;
+let USE_WEB = false;
+let busy = false;
+let sessionId = 'vscode-' + Math.random().toString(36).slice(2, 10);
+
+// ── Comunicação com a extensão ────────────────────────────────────────────────
+window.addEventListener('message', e => {
+  const msg = e.data;
+  if (msg.type === 'config') {
+    SERVER = msg.serverUrl || 'http://localhost:8000';
+    SMART = !!msg.smart;
+    document.getElementById('smart-indicator').textContent = SMART ? '🧠 14b' : '';
+    checkConnection();
+  } else if (msg.type === 'sendMessage') {
+    sendText(msg.content);
+  } else if (msg.type === 'reviewCode') {
+    runReview(msg.code, msg.lang);
+  }
+});
+vscode.postMessage({ type: 'ready' });
+
+// ── Conexão ───────────────────────────────────────────────────────────────────
+async function checkConnection() {
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+  dot.className = 'loading';
+  txt.textContent = 'conectando...';
+  try {
+    const r = await fetch(SERVER + '/api/health', { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      dot.className = 'ok';
+      const d = await r.json();
+      const model = d.ollama?.chat_model || 'A.P.O.L.O.';
+      txt.textContent = model;
+    } else throw new Error('status ' + r.status);
+  } catch {
+    dot.className = 'err';
+    txt.textContent = 'offline';
+  }
+}
+setTimeout(checkConnection, 300);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function md(text) {
+  try {
+    const raw = DOMPurify.sanitize(marked.parse(text || ''));
+    return raw;
+  } catch { return esc(text); }
+}
+function resize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 100) + 'px';
+}
+function scrollBottom() {
+  const m = document.getElementById('messages');
+  m.scrollTop = m.scrollHeight;
+}
+function setEmpty(on) {
+  document.getElementById('empty').style.display = on ? 'flex' : 'none';
+}
+function toggleWeb() {
+  USE_WEB = !USE_WEB;
+  document.getElementById('web-btn').classList.toggle('active', USE_WEB);
+}
+function clearChat() {
+  document.getElementById('messages').innerHTML = '';
+  setEmpty(true);
+  sessionId = 'vscode-' + Math.random().toString(36).slice(2, 10);
+  document.getElementById('context-strip').classList.remove('show');
+}
+
+// ── Render code blocks com botões de ação ─────────────────────────────────────
+function renderWithCodeBlocks(container, html) {
+  container.innerHTML = html;
+  container.querySelectorAll('pre code').forEach(el => {
+    hljs.highlightElement(el);
+    const lang = (el.className.match(/language-(\w+)/)||[])[1] || 'código';
+    const pre = el.parentElement;
+    const wrap = document.createElement('div');
+    wrap.className = 'code-wrap';
+    const toolbar = document.createElement('div');
+    toolbar.className = 'code-toolbar';
+    toolbar.innerHTML = `<span class="code-lang">${esc(lang)}</span>
+      <div class="code-actions">
+        <button class="code-btn" title="Copiar">Copiar</button>
+        <button class="code-btn" title="Inserir no editor">Inserir</button>
+      </div>`;
+    toolbar.querySelector('[title="Copiar"]').onclick = () => {
+      vscode.postMessage({ type: 'copyCode', text: el.textContent });
+    };
+    toolbar.querySelector('[title="Inserir"]').onclick = () => {
+      vscode.postMessage({ type: 'insertCode', text: el.textContent });
+    };
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(toolbar);
+    wrap.appendChild(pre);
+  });
+}
+
+// ── Adicionar mensagem do usuário ─────────────────────────────────────────────
+function addUser(text) {
+  setEmpty(false);
+  const div = document.createElement('div');
+  div.className = 'msg msg-user';
+  div.innerHTML = `<div class="bubble">${esc(text)}</div>`;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+}
+
+// ── Adicionar bolha de AI vazia + retornar referências ────────────────────────
+function addAi() {
+  setEmpty(false);
+  const div = document.createElement('div');
+  div.className = 'msg msg-ai';
+  div.innerHTML = `<div class="bubble">
+    <div class="stream-status"><div class="spin"></div><span>Pensando...</span></div>
+    <div class="stream-text" style="display:none"></div>
+    <div class="md" style="display:none"></div>
+  </div>`;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+  return {
+    status: div.querySelector('.stream-status'),
+    stream: div.querySelector('.stream-text'),
+    final: div.querySelector('.md'),
+  };
+}
+
+// ── Chat SSE ──────────────────────────────────────────────────────────────────
+async function sendText(text) {
+  if (busy || !text.trim()) return;
+  busy = true;
+  document.getElementById('send-btn').disabled = true;
+  document.getElementById('input').value = '';
+  resize(document.getElementById('input'));
+
+  addUser(text);
+  const els = addAi();
+  let full = '';
+
+  try {
+    const resp = await fetch(SERVER + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text, session_id: sessionId,
+        smart: SMART, use_web: USE_WEB,
+      }),
+    });
+
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    els.status.style.display = 'none';
+    els.stream.style.display = 'block';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n'); buf = parts.pop();
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        const d = JSON.parse(part.slice(6));
+        if (d.type === 'token') {
+          full += d.content;
+          els.stream.textContent = full.slice(-400);
+          scrollBottom();
+        } else if (d.type === 'status') {
+          els.status.style.display = 'flex';
+          els.status.querySelector('span').textContent = d.message;
+          setTimeout(() => { els.status.style.display = 'none'; }, 2000);
+        } else if (d.type === 'done') {
+          break;
+        }
+      }
+    }
+
+    els.stream.style.display = 'none';
+    els.final.style.display = 'block';
+    renderWithCodeBlocks(els.final, md(full));
+    scrollBottom();
+
+  } catch (err) {
+    els.status.innerHTML = `<span style="color:#f87171">Erro: ${esc(err.message)}<br>Verifique se o servidor está em ${SERVER}</span>`;
+    els.stream.style.display = 'none';
+  } finally {
+    busy = false;
+    document.getElementById('send-btn').disabled = false;
+    document.getElementById('input').focus();
+  }
+}
+
+// ── Code Review via /api/review ───────────────────────────────────────────────
+async function runReview(code, lang) {
+  if (busy) return;
+  busy = true;
+  document.getElementById('send-btn').disabled = true;
+  setEmpty(false);
+
+  // Bolha do "usuário"
+  addUser(`🔍 Revisando código ${lang ? `(${lang})` : ''}:\n${code.slice(0, 200)}${code.length > 200 ? '…' : ''}`);
+
+  const div = document.createElement('div');
+  div.className = 'msg msg-ai';
+  div.innerHTML = `<div class="review-panel">
+    <div class="review-header">🔍 A.P.O.L.O. Code Review</div>
+    <div class="review-body">
+      <div class="stream-status"><div class="spin"></div><span>Analisando...</span></div>
+      <div class="stream-text" style="display:none"></div>
+      <div class="md" style="display:none"></div>
+    </div>
+  </div>`;
+  document.getElementById('messages').appendChild(div);
+  scrollBottom();
+
+  const status = div.querySelector('.stream-status');
+  const stream = div.querySelector('.stream-text');
+  const final = div.querySelector('.md');
+  let full = '';
+
+  try {
+    const resp = await fetch(SERVER + '/api/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, language: lang || 'auto' }),
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder(); let buf = '';
+    status.style.display = 'none'; stream.style.display = 'block';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n'); buf = parts.pop();
+      for (const p of parts) {
+        if (!p.startsWith('data: ')) continue;
+        const d = JSON.parse(p.slice(6));
+        if (d.type === 'token') {
+          full += d.content;
+          stream.textContent = full.slice(-400);
+          scrollBottom();
+        } else if (d.type === 'step') {
+          status.style.display = 'flex';
+          status.querySelector('span').textContent = d.message || d.icon;
+        } else if (d.type === 'done') break;
+      }
+    }
+
+    stream.style.display = 'none'; final.style.display = 'block';
+    renderWithCodeBlocks(final, md(full));
+    scrollBottom();
+  } catch (err) {
+    status.innerHTML = `<span style="color:#f87171">Erro: ${esc(err.message)}</span>`;
+    stream.style.display = 'none';
+  } finally {
+    busy = false;
+    document.getElementById('send-btn').disabled = false;
+  }
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+function send() {
+  const val = document.getElementById('input').value.trim();
+  if (val) sendText(val);
+}
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+}
+</script>
+</body>
+</html>

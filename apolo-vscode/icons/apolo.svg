@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <g transform="translate(50,50)">
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(45)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(90)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(135)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(180)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(225)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(270)"/>
+    <rect x="-6" y="-42" width="12" height="20" rx="6" fill="#f59e0b" opacity="0.6" transform="rotate(315)"/>
+  </g>
+  <circle cx="50" cy="50" r="22" fill="#d97706"/>
+  <circle cx="50" cy="50" r="17" fill="#f59e0b"/>
+  <circle cx="50" cy="50" r="12" fill="#fbbf24"/>
+  <circle cx="50" cy="50" r="7" fill="#fef3c7"/>
+</svg>

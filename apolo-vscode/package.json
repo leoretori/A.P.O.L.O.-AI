@@ -1,0 +1,106 @@
+{
+  "name": "apolo-assistant",
+  "displayName": "A.P.O.L.O. Assistant",
+  "description": "IA pessoal local conectada ao A.P.O.L.O. — chat, revisão e contexto de arquivo",
+  "version": "0.1.0",
+  "publisher": "apolo",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["AI", "Programming Languages", "Other"],
+  "icon": "icons/apolo-128.png",
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "apolo-sidebar",
+          "title": "A.P.O.L.O.",
+          "icon": "icons/apolo.svg"
+        }
+      ]
+    },
+    "views": {
+      "apolo-sidebar": [
+        {
+          "id": "apolo.chatView",
+          "name": "Chat",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "apolo.askAboutFile",
+        "title": "A.P.O.L.O.: Perguntar sobre este arquivo",
+        "category": "A.P.O.L.O."
+      },
+      {
+        "command": "apolo.reviewSelection",
+        "title": "A.P.O.L.O.: Revisar código selecionado",
+        "category": "A.P.O.L.O."
+      },
+      {
+        "command": "apolo.explainSelection",
+        "title": "A.P.O.L.O.: Explicar código selecionado",
+        "category": "A.P.O.L.O."
+      },
+      {
+        "command": "apolo.openChat",
+        "title": "A.P.O.L.O.: Abrir chat",
+        "category": "A.P.O.L.O."
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "apolo.askAboutFile",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "apolo.reviewSelection",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "apolo.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "apolo@1"
+        },
+        {
+          "command": "apolo.explainSelection",
+          "when": "editorHasSelection",
+          "group": "apolo@2"
+        },
+        {
+          "command": "apolo.askAboutFile",
+          "group": "apolo@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "A.P.O.L.O.",
+      "properties": {
+        "apolo.serverUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "URL do servidor A.P.O.L.O. (padrão: http://localhost:8000)"
+        },
+        "apolo.smartMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Usar modelo 14b (mais lento mas mais inteligente) por padrão"
+        },
+        "apolo.maxFileLines": {
+          "type": "number",
+          "default": 300,
+          "description": "Máximo de linhas do arquivo a enviar como contexto"
+        }
+      }
+    }
+  }
+}
