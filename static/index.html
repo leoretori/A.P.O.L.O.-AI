@@ -518,13 +518,15 @@
     #mind-overlay { display:none; position:fixed; inset:0; background:#000a; z-index:100; backdrop-filter:blur(3px); }
     #mind-overlay.open { display:flex; align-items:flex-start; justify-content:center; padding:32px 16px; }
     #mind-panel { width:100%; max-width:860px; max-height:calc(100vh - 64px); background:#111116; border:1px solid #22222e; border-radius:14px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 60px #000c; }
-    #mind-header { padding:16px 20px; border-bottom:1px solid #1e1e26; display:flex; align-items:center; gap:12px; flex-shrink:0; }
-    #mind-header h2 { font-size:16px; color:#fff; }
+    #mind-header { padding:14px 20px 0; border-bottom:1px solid #1e1e26; display:flex; flex-direction:column; gap:10px; flex-shrink:0; }
+    #mind-header-top { display:flex; align-items:center; gap:12px; }
+    #mind-header h2 { font-size:16px; color:#fff; flex:1; }
     #mind-header h2 span { color:var(--sun); }
-    #mind-sub { font-size:11px; color:#555; flex:1; }
-    #mind-close { background:none; border:1px solid #2a2a35; color:#666; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+    #mind-sub { font-size:11px; color:#555; }
+    #mind-close { background:none; border:1px solid #2a2a35; color:#666; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; flex-shrink:0; }
     #mind-close:hover { border-color:#555; color:#aaa; }
-    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex, #mind-obsidian { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+    #mind-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding-bottom:10px; }
+    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex, #mind-obsidian { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:11.5px; white-space:nowrap; }
     #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover, #mind-reindex:hover, #mind-obsidian:hover { border-color:var(--sun); color:var(--sun); }
     .dg-sector { margin-bottom:14px; }
     .dg-sector-head { font-size:13px; color:#ddd; margin-bottom:6px; }
@@ -1119,15 +1121,19 @@
 <div id="mind-overlay" onclick="closeMindIfBg(event)">
   <div id="mind-panel">
     <div id="mind-header">
-      <h2>🧠 Mente do <span>A.P.O.L.O.</span></h2>
-      <span id="mind-sub">Tudo o que ele aprendeu sozinho — por categoria e fonte</span>
-      <button id="mind-digest" onclick="digestToday()" title="O que o A.P.O.L.O. aprendeu nas últimas 24h">📅 Hoje</button>
-      <button id="mind-curate" onclick="curateMemory()" title="Procurar e remover conhecimento duplicado">🧹 Curar</button>
-      <button id="mind-schedule" onclick="openSchedules()" title="Agendar estudos diários">⏰ Agendar</button>
-      <button id="mind-map" onclick="openGraph()" title="Mapa visual do conhecimento">🗺️ Mapa</button>
-      <button id="mind-reindex" onclick="reindexEpisodic()" title="Indexar conversas antigas na memória semântica">💬 Reindexar</button>
-      <button id="mind-obsidian" onclick="exportObsidian()" title="Exportar todo o conhecimento como vault Obsidian (.zip)">📒 Obsidian</button>
-      <button id="mind-close" onclick="closeMind()">✕ Fechar</button>
+      <div id="mind-header-top">
+        <h2>🧠 Mente do <span>A.P.O.L.O.</span></h2>
+        <span id="mind-sub">Tudo o que ele aprendeu sozinho</span>
+        <button id="mind-close" onclick="closeMind()">✕ Fechar</button>
+      </div>
+      <div id="mind-toolbar">
+        <button id="mind-digest"   onclick="digestToday()"       title="O que o A.P.O.L.O. aprendeu nas últimas 24h">📅 Hoje</button>
+        <button id="mind-curate"   onclick="curateMemory()"      title="Procurar e remover conhecimento duplicado">🧹 Curar</button>
+        <button id="mind-schedule" onclick="openSchedules()"     title="Agendar estudos diários">⏰ Agendar</button>
+        <button id="mind-map"      onclick="openGraph()"         title="Mapa visual do conhecimento">🗺️ Mapa</button>
+        <button id="mind-reindex"  onclick="reindexEpisodic()"   title="Indexar conversas antigas na memória semântica">💬 Reindexar</button>
+        <button id="mind-obsidian" onclick="exportObsidian()"    title="Exportar todo o conhecimento como vault Obsidian (.zip)">📒 Obsidian</button>
+      </div>
     </div>
     <div id="mind-body">
       <div id="mind-loading">Mapeando a mente do A.P.O.L.O....</div>
