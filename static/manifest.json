@@ -1,0 +1,48 @@
+{
+  "name": "A.P.O.L.O. — Agente Pessoal",
+  "short_name": "A.P.O.L.O.",
+  "description": "Agente Pessoal de Operações, Lógica e Otimização — IA 100% local",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c0c0e",
+  "theme_color": "#f59e0b",
+  "categories": ["productivity", "utilities"],
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/apolo-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apolo-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apolo-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apolo-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nova conversa",
+      "short_name": "Chat",
+      "description": "Abrir um novo chat",
+      "url": "/?new=1",
+      "icons": [{ "src": "/apolo-icon.svg", "sizes": "any" }]
+    }
+  ]
+}

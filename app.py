@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -2213,6 +2213,43 @@ async def knowledge_recent(limit: int = 10):
         return []
     return db.get_learning_history(limit=limit)
 
+
+# PWA: service worker e manifest precisam ser servidos da raiz com headers corretos.
+# O service worker em /sw.js tem escopo máximo (toda a app); se servido de /static/sw.js
+# o escopo seria limitado a /static/, quebrando o cache das páginas do app.
+@app.get("/sw.js")
+async def pwa_sw():
+    return FileResponse(
+        "static/sw.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
+
+@app.get("/manifest.json")
+async def pwa_manifest():
+    return FileResponse(
+        "static/manifest.json",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+@app.get("/apolo-icon.svg")
+async def pwa_icon_svg():
+    return FileResponse("static/apolo-icon.svg", media_type="image/svg+xml")
+
+@app.get("/apolo-icon-192.png")
+async def pwa_icon_192():
+    path = "static/apolo-icon-192.png"
+    if not os.path.exists(path):
+        return FileResponse("static/apolo-icon.svg", media_type="image/svg+xml")
+    return FileResponse(path, media_type="image/png")
+
+@app.get("/apolo-icon-512.png")
+async def pwa_icon_512():
+    path = "static/apolo-icon-512.png"
+    if not os.path.exists(path):
+        return FileResponse("static/apolo-icon.svg", media_type="image/svg+xml")
+    return FileResponse(path, media_type="image/png")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
