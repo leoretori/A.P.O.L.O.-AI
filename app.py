@@ -1646,6 +1646,72 @@ async def ingest_url(req: IngestUrlRequest):
     return result
 
 
+class IngestFolderRequest(BaseModel):
+    path: str
+    extensions: list[str] = [".md", ".txt", ".markdown"]
+    max_files: int = 200
+
+
+@app.post("/api/ingest/folder")
+async def ingest_folder(req: IngestFolderRequest):
+    """Importa todos os arquivos de texto de uma pasta local (ex.: vault Obsidian).
+    Percorre recursivamente, ingere cada arquivo .md/.txt no RAG e retorna o resumo."""
+    if not ingestor:
+        return {"ok": False, "error": "Ingestor não inicializado."}
+
+    folder = req.path.strip()
+    if not os.path.isdir(folder):
+        return {"ok": False, "error": f"Pasta não encontrada: {folder}"}
+
+    # Coleta arquivos com as extensões pedidas
+    _SKIP = {"__pycache__", ".git", "node_modules", ".obsidian"}
+    files: list[str] = []
+    for root, dirs, fnames in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in _SKIP and not d.startswith(".")]
+        for fname in sorted(fnames):
+            if any(fname.lower().endswith(ext) for ext in req.extensions):
+                files.append(os.path.join(root, fname))
+                if len(files) >= req.max_files:
+                    break
+        if len(files) >= req.max_files:
+            break
+
+    if not files:
+        return {"ok": False, "error": "Nenhum arquivo encontrado com as extensões pedidas."}
+
+    # Ingere cada arquivo
+    ok_count = 0
+    skip_count = 0
+    errors: list[str] = []
+
+    def _ingest_file(fpath: str) -> dict:
+        try:
+            content = open(fpath, encoding="utf-8", errors="ignore").read()
+            filename = os.path.relpath(fpath, folder).replace("\\", "/")
+            source = f"obsidian://{filename}"
+            return ingestor.ingest_text(filename, content, source)
+        except Exception as e:
+            return {"ok": False, "error": str(e)[:120]}
+
+    for fpath in files:
+        res = await asyncio.to_thread(_ingest_file, fpath)
+        if res.get("ok"):
+            ok_count += 1
+        else:
+            skip_count += 1
+            if res.get("error"):
+                errors.append(res["error"])
+
+    return {
+        "ok": True,
+        "folder": folder,
+        "total_files": len(files),
+        "ingested": ok_count,
+        "skipped": skip_count,
+        "errors": errors[:5],
+    }
+
+
 @app.post("/api/stt")
 async def stt_transcribe(request: Request):
     """Transcrição de voz local via faster-whisper.
