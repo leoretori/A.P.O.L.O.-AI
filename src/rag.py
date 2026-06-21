@@ -169,6 +169,32 @@ class RAGManager:
         self._rq_cache.invalidate()  # índice mudou → recalcula a qualidade na próxima
         logger.info(f"Exemplo adicionado: {doc_id}")
 
+    def add_chunked(
+        self,
+        content: str,
+        doc_id: str,
+        metadata: dict | None = None,
+        chunk_size: int = 1200,
+        overlap: int = 200,
+    ) -> int:
+        """Indexa um documento grande em chunks com overlap para melhor recall.
+        Documentos curtos (≤ chunk_size) são indexados como um único item.
+        Retorna o número de chunks criados."""
+        if len(content) <= chunk_size:
+            self.add_example(content, doc_id, metadata)
+            return 1
+        chunks: list[str] = []
+        start = 0
+        while start < len(content):
+            end = min(start + chunk_size, len(content))
+            chunks.append(content[start:end])
+            if end == len(content):
+                break
+            start += chunk_size - overlap
+        for i, chunk in enumerate(chunks):
+            self.add_example(chunk, f"{doc_id}_c{i}", metadata)
+        return len(chunks)
+
     def forget_topic(self, topic: str) -> int:
         """Remove do índice de recall os documentos de um tópico (1ª linha '# {topic}').
         Usado pelo 'esquecer' manual — garante que o conhecimento não volte no recall."""

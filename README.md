@@ -456,17 +456,27 @@ pytest tests/ -v
 
 ## Roadmap — Próximas Evoluções do J.A.R.V.I.S.
 
+### ✅ Fase 1 — Memória e Contexto (Jun 2026)
+- [x] **Contexto multi-turn** — janela deslizante de 12 turnos + resumo rolante para conversas longas (`SUMMARY_TRIGGER`) ✅
+- [x] **Perfil do usuário rico** — `src/profile.py` extrai fatos pessoais automaticamente das mensagens e injeta no system prompt ✅
+- [x] **RAG melhorado com chunking + overlap** — `add_chunked()` divide documentos grandes em chunks de 1200 chars com overlap de 200; rerank híbrido (semântico + lexical + recência) ✅
+- [x] **Memória episódica** — `src/episodic.py` indexa conversas no ChromaDB; o chat recupera automaticamente contexto de sessões antigas por semântica; botão "💬 Reindexar" no painel Mente reindexar o histórico completo (`POST /api/sessions/reindex`) ✅
+
+### Próximas Fases
+- [ ] **Fase 2 — Autonomia e Planejamento** — Coder planeja antes de agir (multi-step), autoaprendizado agendado em idle, grafo de conhecimento, multi-step tool use
+- [ ] **Fase 3 — Percepção e Voz** — Whisper.cpp (STT), Piper/Coqui (TTS), ingestão de PDF/DOCX, contexto de desktop
+- [ ] **Fase 4 — Soberania Total** — PostgreSQL local (sem Supabase), embeddings próprios, fine-tuning LoRA
+- [ ] **Fase 5 — Multi-agente** — sub-agentes especializados orquestrados pelo A.P.O.L.O., API LAN, benchmark contínuo
+
+### Funcionalidades anteriores
 - [x] **GitHub Agent** — lê repositórios e aprende com código real ✅
 - [x] **Self-improvement Loop** — Apolo identifica gaps na síntese e injeta novos estudos automaticamente (Auto-Currículo) ✅
-- [ ] **Memory Agent** — consolida conhecimento antigo e elimina redundâncias
 - [x] **Code Review Agent** — analisa código do usuário e sugere melhorias usando o conhecimento acumulado ✅
 - [x] **Resposta que cita o conhecimento** — Modo Pesquisa Profunda referencia memória + web com fontes numeradas ✅
 - [x] **Auto-percepção (Mente do A.P.O.L.O.)** — painel que mostra o que ele sabe: total, categorias, fontes e aprendizados recentes ✅
 - [x] **Otimização de latência** — keep_alive, warmup, GpuGate, streaming sem bloqueio e modelo de chat leve separado (`CHAT_MODEL`) ✅
 - [ ] **SSE push real-time** — eventos de aprendizado chegam ao browser sem polling
-- [ ] **Knowledge graph** — mapa visual interativo (grafo) do que o Apolo já sabe
 - [ ] **Voice interface** — interação por voz (Whisper + TTS local)
-- [ ] **Multi-modal** — suporte a imagens/diagramas de arquitetura
 
 ---
 

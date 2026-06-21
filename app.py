@@ -43,6 +43,7 @@ from src.prompts import (
     CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION,
 )
 from src.coder import CoderWorkspace, extract_fenced, make_diff
+from src.episodic import index_session as _index_episodic
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
@@ -375,6 +376,12 @@ async def _update_session_summary(session_id: str) -> None:
         if text:
             session_summaries[session_id] = {"text": text[:1500], "upto": len(older)}
             logger.info(f"[summary] sessão {session_id[:8]} resumida ({len(older)} msgs)")
+            # Indexa a conversa no RAG para recall semântico em sessões futuras.
+            if rag:
+                title = db.list_sessions(0, 200)
+                title = next((s.get("title", "") for s in title if s["session_id"] == session_id), "")
+                all_msgs = sessions.get(session_id, [])
+                await asyncio.to_thread(_index_episodic, session_id, title, all_msgs, rag, text)
     except Exception as e:
         logger.debug(f"summary: {e}")
 
@@ -1536,6 +1543,28 @@ async def search_sessions(q: str = ""):
     """Busca no histórico de conversas (todos os chats) por trecho de texto."""
     results = await asyncio.to_thread(db.search_messages, q, 30)
     return {"query": q, "results": results}
+
+
+@app.post("/api/sessions/reindex")
+async def reindex_sessions():
+    """Indexa (ou re-indexa) todas as conversas históricas na memória episódica
+    (ChromaDB). Use para aproveitar chats antigos no recall semântico do chat."""
+    if not rag:
+        return {"ok": False, "error": "RAG não inicializado"}
+    sessions_list = await asyncio.to_thread(db.list_sessions, 0, 500)
+    indexed, skipped = 0, 0
+    for sess in sessions_list:
+        sid = sess["session_id"]
+        title = sess.get("title") or sess.get("first_message", "")[:60]
+        messages = await asyncio.to_thread(db.load_session, sid)
+        summ = session_summaries.get(sid, {}).get("text", "")
+        ok = await asyncio.to_thread(_index_episodic, sid, title, messages, rag, summ)
+        if ok:
+            indexed += 1
+        else:
+            skipped += 1
+    return {"ok": True, "indexed": indexed, "skipped": skipped,
+            "total": len(sessions_list)}
 
 
 @app.get("/api/export")

@@ -269,6 +269,7 @@
     .kb-source-n { color: var(--purple-dark); font-weight: 700; flex-shrink: 0; }
     .kb-source-tag { font-size: 9px; padding: 0 5px; border-radius: 99px; flex-shrink: 0; }
     .kb-source-tag.knowledge { background: #1a0d2a; color: #d8b4fe; }
+    .kb-source-tag.episodic { background: #0d1f18; color: #4ade80; }
     .kb-source-tag.web { background: #0c1828; color: var(--blue); }
     .kb-source-item a, .kb-source-txt { color: #9a8ab5; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .kb-source-item a:hover { color: #c4b5e0; }
@@ -425,8 +426,8 @@
     #mind-sub { font-size:11px; color:#555; flex:1; }
     #mind-close { background:none; border:1px solid #2a2a35; color:#666; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
     #mind-close:hover { border-color:#555; color:#aaa; }
-    #mind-curate, #mind-digest, #mind-schedule, #mind-map { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
-    #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover { border-color:var(--sun); color:var(--sun); }
+    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; }
+    #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover, #mind-reindex:hover { border-color:var(--sun); color:var(--sun); }
     .dg-sector { margin-bottom:14px; }
     .dg-sector-head { font-size:13px; color:#ddd; margin-bottom:6px; }
     .dg-sector-head .count { color:var(--sun); font-weight:700; margin-left:4px; }
@@ -908,6 +909,7 @@
       <button id="mind-curate" onclick="curateMemory()" title="Procurar e remover conhecimento duplicado">🧹 Curar</button>
       <button id="mind-schedule" onclick="openSchedules()" title="Agendar estudos diários">⏰ Agendar</button>
       <button id="mind-map" onclick="openGraph()" title="Mapa visual do conhecimento">🗺️ Mapa</button>
+      <button id="mind-reindex" onclick="reindexEpisodic()" title="Indexar conversas antigas na memória semântica">💬 Reindexar</button>
       <button id="mind-close" onclick="closeMind()">✕ Fechar</button>
     </div>
     <div id="mind-body">
@@ -2596,9 +2598,14 @@
     div.className = 'kb-sources';
     div.innerHTML = `<div class="kb-sources-label">📎 Fontes consultadas (${sources.length})</div>` +
       sources.map(s => {
-        const isKnow = s.type === 'knowledge';
-        const tag = isKnow ? 'knowledge' : 'web';
-        const tagLabel = isKnow ? '📚 memória' : '🌐 web';
+        let tag, tagLabel;
+        if (s.type === 'episodic') {
+          tag = 'episodic'; tagLabel = '💬 conversa';
+        } else if (s.type === 'knowledge') {
+          tag = 'knowledge'; tagLabel = '📚 memória';
+        } else {
+          tag = 'web'; tagLabel = '🌐 web';
+        }
         const inner = s.url && /^https?:/.test(s.url)
           ? `<a href="${escHtml(s.url)}" target="_blank" rel="noopener">${escHtml(s.title)}</a>`
           : `<span class="kb-source-txt">${escHtml(s.title)}</span>`;
@@ -2922,6 +2929,27 @@
       <div class="cur-head">📅 Nas últimas 24h aprendi <b>${d.total}</b> tópicos novos em <b>${d.sectors.length}</b> setores.</div>
       <div class="cur-actions"><button class="cur-back" onclick="loadMind()">← Voltar</button></div>
       ${secs}`;
+  }
+
+  // ── Memória episódica: reindexar conversas antigas ──────────
+  async function reindexEpisodic() {
+    const btn = document.getElementById('mind-reindex');
+    const orig = btn.textContent;
+    btn.textContent = '⏳ Indexando...';
+    btn.disabled = true;
+    try {
+      const d = await fetch('/api/sessions/reindex', {method:'POST'}).then(r => r.json());
+      if (d.ok) {
+        btn.textContent = `✓ ${d.indexed} indexadas`;
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+      } else {
+        btn.textContent = '✗ Erro';
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+      }
+    } catch(e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
   }
 
   // ── Curador de Memória (dedup) ───────────────────────────────
