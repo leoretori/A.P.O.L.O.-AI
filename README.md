@@ -483,7 +483,10 @@ pytest tests/ -v
 - [ ] **Migração Supabase → SQLite** — script de migração para mover dados existentes (pós-disco-disponível)
 - [ ] **Fine-tuning LoRA** — requer GPU; roadmap para quando tiver hardware
 - [ ] **Fase 4 — Soberania Total** — PostgreSQL local (sem Supabase), embeddings próprios, fine-tuning LoRA
-- [ ] **Fase 5 — Multi-agente** — sub-agentes especializados orquestrados pelo A.P.O.L.O., API LAN, benchmark contínuo
+### ✅ Fase 5 — Multi-agente (Jun 2026)
+- [x] **Orquestrador de sub-agentes** — `src/orchestrator.py` + `POST /api/orchestrate`; o modelo analisa a tarefa e decide: resposta direta OU delega a especialistas (🔬 Researcher → síntese de conhecimento, 💡 Analyst → trade-offs e estrutura, 💻 Coder → implementação 14b); execução sequencial com streaming de cada agente ao vivo; síntese final coerente. Modo `🤝 Multi` no input bar ✅
+- [x] **API LAN** — CORS habilitado (`allow_origins=["*"]`); `API_TOKEN` para proteção; acesse de celular/tablet: `uvicorn app:app --host 0.0.0.0 --port 8000` ✅
+- [x] **Benchmark contínuo** — `src/benchmark.py`: 8 perguntas de referência (coding, explanation, devops, database, algorithms, security, ai); score por keyword match + comprimento; latência por questão; `POST /api/benchmark/run` salva histórico, `GET /api/benchmark/diff` compara 2 últimos runs ✅
 
 ### Funcionalidades anteriores
 - [x] **GitHub Agent** — lê repositórios e aprende com código real ✅

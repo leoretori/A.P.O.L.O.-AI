@@ -235,6 +235,17 @@
     #smart-btn.active { background: #1a1405; }
     #agent-btn:hover, #agent-btn.active { border-color: #5eead4; color: #5eead4; }
     #agent-btn.active { background: #07211d; }
+    #multi-btn:hover, #multi-btn.active { border-color: #f472b6; color: #f472b6; }
+    #multi-btn.active { background: #1f0a15; }
+    /* Multi-agente: cards dos especialistas */
+    .agent-bubble { margin: 6px 0; border-radius: 9px; overflow: hidden; border: 1px solid #1e1e28; }
+    .agent-bubble-head { padding: 5px 12px; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+    .agent-bubble-body { padding: 8px 12px; font-size: 13px; color: #c8c8d0; line-height: 1.65; }
+    .agent-bubble.researcher .agent-bubble-head { background: #0c1828; color: #60a5fa; }
+    .agent-bubble.analyst .agent-bubble-head { background: #16140c; color: #fbbf24; }
+    .agent-bubble.coder .agent-bubble-head { background: #0a1a18; color: #5eead4; }
+    .agent-bubble.synthesis .agent-bubble-head { background: #1a0f2e; color: #d8b4fe; }
+    .agent-bubble.direct .agent-bubble-head { background: #1a1a22; color: #e2e8f0; }
     /* Ícones utilitários — discretos, agrupados à esquerda */
     .input-tools { display: flex; gap: 2px; align-items: center; flex-shrink: 0; }
     .tool-icon { background: none; border: none; color: #4a4a55; font-size: 15px; padding: 4px 5px; border-radius: 7px; cursor: pointer; transition: all .15s; line-height: 1; display: flex; align-items: center; }
@@ -982,6 +993,7 @@
       <button id="smart-btn" class="mode-chip" onclick="toggleSmart()" title="Modo Inteligente: usa o modelo 14b para raciocínio mais profundo (mais lento)">🧠 <span>Inteligente</span></button>
       <button id="agent-btn" class="mode-chip" onclick="toggleAgent()" title="Modo Agente: o A.P.O.L.O. escreve e EXECUTA código de verdade (cálculos, lógica, dados)">🤖 <span>Agente</span></button>
       <button id="research-btn" class="mode-chip" onclick="toggleResearch()" title="Pesquisa Profunda: decompõe, investiga memória + web e sintetiza com fontes">🔬 <span>Profundo</span></button>
+      <button id="multi-btn" class="mode-chip" onclick="toggleMulti()" title="Multi-agente: orquestra Researcher, Analyst e Coder para tarefas complexas">🤝 <span>Multi</span></button>
       <button id="web-btn" class="mode-chip" onclick="toggleWeb()" title="Buscar na internet antes de responder">🌐 <span>Web</span></button>
     </div>
     <div id="input-wrap" id="input-wrap"
@@ -1036,6 +1048,7 @@
   let useResearch = false;
   let useSmart = false;     // modo inteligente (modelo 14b)
   let useAgent = false;     // modo agente (escreve+executa código)
+  let useMulti = false;     // modo multi-agente (Researcher + Analyst + Coder)
   let isLearning = false;
   let learnPoll = null;
   let dashOpen = false;
@@ -1068,9 +1081,21 @@
     useResearch = !useResearch;
     document.getElementById('research-btn').classList.toggle('active', useResearch);
     if (useResearch && useWeb) { useWeb = false; document.getElementById('web-btn').classList.remove('active'); }
+    if (useResearch && useMulti) { useMulti = false; document.getElementById('multi-btn').classList.remove('active'); }
     const input = document.getElementById('input');
     input.placeholder = useResearch
       ? '🔬 Pesquisa profunda: faça uma pergunta complexa e veja o A.P.O.L.O. investigar...'
+      : 'Pergunte qualquer coisa sobre código, arquitetura, cloud...';
+  }
+
+  function toggleMulti() {
+    useMulti = !useMulti;
+    document.getElementById('multi-btn').classList.toggle('active', useMulti);
+    if (useMulti && useResearch) { useResearch = false; document.getElementById('research-btn').classList.remove('active'); }
+    if (useMulti && useAgent) { useAgent = false; document.getElementById('agent-btn').classList.remove('active'); }
+    const input = document.getElementById('input');
+    input.placeholder = useMulti
+      ? '🤝 Multi-agente: descreva uma tarefa complexa — Researcher, Analyst e Coder trabalham juntos...'
       : 'Pergunte qualquer coisa sobre código, arquitetura, cloud...';
   }
 
@@ -2469,6 +2494,7 @@
 
     if (useAgent) { return runAgent(text); }
     if (useResearch) { return runResearch(text); }
+    if (useMulti) { return runMultiAgent(text); }
 
     // Memorizar um fato sobre você: "/remember <fato>"
     const rememberMatch = text.match(/^\/remember\s+(.+)/i);
@@ -2853,6 +2879,112 @@
     } catch(e) {
       if (e.name !== 'AbortError') wrap.querySelector('.content').innerHTML =
         `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+    } finally {
+      busy = false; currentAbort = null; setSending(false); input.focus();
+    }
+  }
+
+  // ── Modo Multi-agente ────────────────────────────────────────
+  const _AGENT_LABEL = { researcher:'🔬 Researcher', analyst:'💡 Analyst', coder:'💻 Coder', synthesis:'🔀 Síntese', direct:'⚡ A.P.O.L.O.' };
+
+  async function runMultiAgent(text) {
+    busy = true; setSending(true);
+    const input = document.getElementById('input');
+    input.value = ''; input.style.height = 'auto';
+    addUserMessage(text);
+
+    // Monta a bolha do A.P.O.L.O. com container de sub-agentes
+    const wrap = document.createElement('div');
+    wrap.className = 'message-wrap';
+    const ai = document.createElement('div');
+    ai.className = 'msg-ai';
+    ai.innerHTML = '<div class="avatar">☀️</div>';
+    const content = document.createElement('div');
+    content.className = 'content';
+    // Status de planejamento
+    const status = document.createElement('div');
+    status.className = 'status-line';
+    status.innerHTML = '<div class="spinner"></div><span>Orquestrando equipe de especialistas...</span>';
+    content.appendChild(status);
+    ai.appendChild(content);
+    wrap.appendChild(ai);
+    document.getElementById('messages').appendChild(wrap);
+    scrollBottom();
+
+    let agentBubbles = {};  // specialist → {el, body}
+    let finalAnswer = '';
+    currentAbort = new AbortController();
+
+    function getOrCreateBubble(specialist) {
+      if (agentBubbles[specialist]) return agentBubbles[specialist];
+      const label = _AGENT_LABEL[specialist] || specialist;
+      const bubble = document.createElement('div');
+      bubble.className = `agent-bubble ${specialist}`;
+      const head = document.createElement('div');
+      head.className = 'agent-bubble-head';
+      head.innerHTML = `<div class="spinner" style="width:10px;height:10px;border-width:1.5px"></div>${escHtml(label)}`;
+      const body = document.createElement('div');
+      body.className = 'agent-bubble-body';
+      bubble.appendChild(head); bubble.appendChild(body);
+      content.insertBefore(bubble, content.querySelector('.md-body'));
+      agentBubbles[specialist] = { el: bubble, head, body };
+      return agentBubbles[specialist];
+    }
+
+    try {
+      const resp = await fetch('/api/orchestrate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: sessionId }),
+        signal: currentAbort.signal,
+      });
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split('\n\n'); buf = parts.pop();
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue;
+          const ev = JSON.parse(part.slice(6));
+          if (ev.type === 'step') {
+            status.innerHTML = `<span>${escHtml(ev.icon||'•')} ${escHtml(ev.message)}</span>`;
+          } else if (ev.type === 'agent_start') {
+            getOrCreateBubble(ev.specialist);
+          } else if (ev.type === 'agent_token') {
+            const b = getOrCreateBubble(ev.specialist);
+            b.body.textContent += ev.content;
+            if (ev.specialist === 'synthesis' || ev.specialist === 'direct') finalAnswer += ev.content;
+            scrollBottom();
+          } else if (ev.type === 'done') {
+            // Finaliza: converte corpos dos agentes em Markdown, mostra resposta final
+            Object.values(agentBubbles).forEach(b => {
+              b.head.querySelector('.spinner')?.remove();
+              const md = b.body.textContent;
+              b.body.innerHTML = renderMd(md);
+              b.body.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+            });
+            status.remove();
+            if (ev.answer && ev.answer !== finalAnswer) finalAnswer = ev.answer;
+            if (ev.specialists_used?.length > 1) {
+              // Já renderizado nas bolhas
+            } else if (finalAnswer) {
+              const md = document.createElement('div');
+              md.className = 'md-body';
+              md.innerHTML = renderMd(finalAnswer);
+              content.appendChild(md);
+              md.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+            }
+            scrollBottom(); loadSessions();
+          } else if (ev.type === 'error') {
+            status.innerHTML = `<span style="color:#f87171">⚠ ${escHtml(ev.message)}</span>`;
+          }
+        }
+      }
+    } catch(e) {
+      if (e.name !== 'AbortError') status.innerHTML =
+        `<span style="color:#f87171">Falha: ${escHtml(e.message)}</span>`;
     } finally {
       busy = false; currentAbort = null; setSending(false); input.focus();
     }

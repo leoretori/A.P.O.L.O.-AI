@@ -10,6 +10,7 @@ from datetime import datetime
 from collections import defaultdict
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -110,6 +111,11 @@ MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 320))
 # 0 = desativado. Padrão 600 (10 min). GpuGate já preempta o learner quando
 # o usuário mandar uma mensagem — não há conflito.
 IDLE_TRIGGER = int(os.getenv("IDLE_TRIGGER", 600))
+# API LAN: token de acesso para expor a API na rede local (vazio = sem autenticação).
+API_TOKEN = os.getenv("API_TOKEN", "").strip()
+# Histórico de benchmark em memória (últimos N runs)
+_benchmark_history: list[dict] = []
+_BENCHMARK_HISTORY_MAX = int(os.getenv("BENCHMARK_HISTORY_MAX", 10))
 
 db: DatabaseManager = None
 rag: RAGManager = None
@@ -295,9 +301,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# CORS — permite acesso de qualquer origem (necessário para acesso de celular/tablet na LAN).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 from src.telemetry import tracker as perf_tracker
 import time as _time
+
+
+@app.middleware("http")
+async def _token_auth_middleware(request: Request, call_next):
+    """Autenticação por token para acesso remoto (API LAN).
+    Se API_TOKEN não estiver definido, todas as requisições passam livremente.
+    Quando definido, rotas /api/* que modificam estado (POST/DELETE/PATCH) exigem
+    o header X-API-Token. GET endpoints continuam livres (só leitura)."""
+    if API_TOKEN and request.url.path.startswith("/api/") and request.method not in ("GET", "OPTIONS"):
+        if request.headers.get("X-API-Token", "") != API_TOKEN:
+            return JSONResponse({"error": "unauthorized", "hint": "Header X-API-Token inválido"}, status_code=401)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1458,6 +1485,76 @@ async def agent(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/api/orchestrate")
+async def orchestrate_endpoint(req: ChatRequest):
+    """Orquestrador de sub-agentes — decompõe tarefas complexas, delega a
+    especialistas (Researcher / Analyst / Coder) e sintetiza a resposta final.
+    Streaming SSE com eventos: step, agent_start, agent_token, done."""
+    global _last_request_at
+    _last_request_at = _time.perf_counter()
+    task = sanitize_request(req.message)
+    if learner:
+        learner.add_user_topic(task)
+
+    from src.orchestrator import orchestrate
+
+    async def stream():
+        try:
+            async for ev in orchestrate(
+                task=task,
+                chat_model=CHAT_MODEL,
+                heavy_model=MODEL,
+                keep_light=KEEP_ALIVE,
+                keep_heavy=KEEP_ALIVE_HEAVY,
+                rag=rag,
+                knowledge_db=knowledge_db,
+            ):
+                yield f"data: {json.dumps(ev)}\n\n"
+
+            # Persiste a conversa na sessão
+            # (pega a resposta do último evento 'done' na transmissão — já foi enviado)
+        except Exception as e:
+            logger.error(f"orchestrate: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        _gpu_priority(stream()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/benchmark/run")
+async def benchmark_run():
+    """Executa o benchmark de qualidade e salva o resultado no histórico.
+    Retorna métricas agregadas + por pergunta."""
+    from src.benchmark import run_benchmark
+    result = await run_benchmark(
+        chat_model=CHAT_MODEL,
+        keep_alive=KEEP_ALIVE,
+    )
+    result["timestamp"] = datetime.now().isoformat()
+    _benchmark_history.append(result)
+    if len(_benchmark_history) > _BENCHMARK_HISTORY_MAX:
+        _benchmark_history.pop(0)
+    return result
+
+
+@app.get("/api/benchmark/history")
+async def benchmark_history():
+    """Histórico dos últimos N runs de benchmark."""
+    return {"runs": len(_benchmark_history), "history": _benchmark_history}
+
+
+@app.get("/api/benchmark/diff")
+async def benchmark_diff():
+    """Compara os dois últimos runs: delta de score e latência por pergunta."""
+    from src.benchmark import diff_runs
+    if len(_benchmark_history) < 2:
+        return {"ok": False, "error": "São necessários pelo menos 2 runs para comparar"}
+    return {"ok": True, **diff_runs(_benchmark_history[-2], _benchmark_history[-1])}
 
 
 class IngestRequest(BaseModel):
