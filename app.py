@@ -45,6 +45,7 @@ from src.prompts import (
 )
 from src.coder import CoderWorkspace, extract_fenced, make_diff
 from src.episodic import index_session as _index_episodic
+from src.project_memory import ProjectMemory, analyze_project as _analyze_project
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
@@ -134,6 +135,7 @@ curator: MemoryCurator = None
 profile: UserProfile = None
 gpu_gate: GpuGate = None
 coder_ws: "CoderWorkspace" = None
+project_mem: ProjectMemory = None
 VISION_MODEL = ""  # modelo de visão instalado (llava etc.) — resolvido no startup
 
 # Cache em memória das sessões (lazy-loaded do banco)
@@ -250,7 +252,7 @@ async def _scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, CHAT_MODEL, VISION_MODEL
+    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, project_mem, CHAT_MODEL, VISION_MODEL
     db = DatabaseManager(os.getenv("DATABASE_URL", "sqlite:///data/apolo.db"))
     rag = RAGManager(
         chroma_path=os.getenv("CHROMA_PATH", "./data/chroma_db"),
@@ -276,6 +278,7 @@ async def lifespan(app: FastAPI):
     curator = MemoryCurator(knowledge_db=knowledge_db, rag=rag, db=db)
     profile = UserProfile(path=os.getenv("PROFILE_PATH", "data/user_profile.json"))
     coder_ws = CoderWorkspace(root=os.getenv("APOLO_WORKSPACE", "./workspace"))
+    project_mem = ProjectMemory(path=os.getenv("PROJECT_MEMORY_PATH", "data/project_contexts.json"))
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -611,6 +614,12 @@ async def chat(req: ChatRequest):
             facts = profile.as_context()
             if facts:
                 system_content += PERSONAL_SECTION.format(facts=facts)
+
+        # Contexto do projeto ativo → o A.P.O.L.O. sabe a stack sem o usuário repetir.
+        if project_mem:
+            proj_section = project_mem.as_prompt_section()
+            if proj_section:
+                system_content += proj_section
 
         # Memória de conversa longa: injeta o resumo das mensagens antigas (não enviadas).
         summ = session_summaries.get(req.session_id)
@@ -1206,6 +1215,53 @@ async def coder_set_workspace(req: CoderWorkspaceRequest):
     if res.get("ok"):
         res["tree"] = coder_ws.tree(80)
     return res
+
+
+# ── Memória de Projeto ────────────────────────────────────────────────────────
+
+class ProjectAnalyzeRequest(BaseModel):
+    path: str = ""  # vazio = usa o workspace atual do Coder
+
+
+@app.post("/api/project/analyze")
+async def project_analyze(req: ProjectAnalyzeRequest):
+    """Detecta a stack e dependências do projeto e salva como contexto ativo.
+    Se `path` estiver vazio, usa o workspace atual do Coder."""
+    folder = (req.path or "").strip() or str(coder_ws.root)
+    if not os.path.isdir(folder):
+        return {"ok": False, "error": f"Pasta não encontrada: {folder}"}
+    ctx = await asyncio.to_thread(_analyze_project, folder)
+    await asyncio.to_thread(project_mem.set_context, ctx)
+    return {"ok": True, "context": ctx}
+
+
+@app.get("/api/project/context")
+async def project_context():
+    """Retorna o contexto do projeto ativo (ou null se nenhum estiver ativo)."""
+    ctx = project_mem.get_active() if project_mem else None
+    return {"active": ctx}
+
+
+@app.post("/api/project/clear")
+async def project_clear():
+    """Limpa o projeto ativo (A.P.O.L.O. para de usar o contexto de projeto)."""
+    if project_mem:
+        await asyncio.to_thread(project_mem.clear_active)
+    return {"ok": True}
+
+
+@app.get("/api/project/list")
+async def project_list():
+    """Lista todos os contextos de projeto salvos."""
+    contexts = project_mem.list_all() if project_mem else []
+    return {"contexts": contexts}
+
+
+@app.delete("/api/project/{name}")
+async def project_delete(name: str):
+    """Remove um contexto de projeto salvo."""
+    ok = await asyncio.to_thread(project_mem.remove, name) if project_mem else False
+    return {"ok": ok}
 
 
 @app.post("/api/coder/self")

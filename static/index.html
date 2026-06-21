@@ -1006,6 +1006,7 @@
       <button class="coder-btn" onclick="setCoderWorkspace()" title="Apontar para esta pasta">Usar</button>
       <button class="coder-btn accent" onclick="openInVSCode()" title="Abrir esta pasta no VS Code">⧉ VS Code</button>
       <button class="coder-btn violet" onclick="coderSelfImprove()" title="Automelhoria numa cópia isolada e segura do projeto">🧬 Auto-melhorar</button>
+      <button class="coder-btn" onclick="analyzeCurrentProject()" id="coder-analyze-btn" title="Detectar stack e dependências — o A.P.O.L.O. vai usar no chat">🎯 Memorizar Projeto</button>
       <button id="coder-review-btn" class="coder-btn go" onclick="reviewSandbox()" title="Revisar e aplicar as mudanças da cópia" style="display:none">🧪 Revisar cópia</button>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -1301,6 +1302,13 @@
       </button>
     </div>
     <div id="input-hint">Enter envia · Shift+Enter quebra linha · Ctrl+K navega</div>
+    <!-- Indicador de projeto ativo — some quando nenhum projeto está memorizado -->
+    <div id="project-indicator" style="display:none;max-width:820px;margin:3px auto 0;display:flex;align-items:center;gap:6px;font-size:10.5px;color:#6b6450;padding:0 2px">
+      <span style="color:#f59e0b">🎯</span>
+      <span id="project-name" style="color:#d4a017;font-weight:600"></span>
+      <span id="project-stack" style="color:#6b6450;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></span>
+      <button onclick="clearProjectContext()" style="background:none;border:none;color:#444;cursor:pointer;font-size:10px;padding:0 3px;flex-shrink:0" title="Limpar contexto de projeto">✕</button>
+    </div>
   </div>
 </div>
 <div id="ingest-toast"></div>
@@ -3638,6 +3646,52 @@
     }
   }
 
+  // ── Memória de Projeto ───────────────────────────────────────
+  async function analyzeCurrentProject() {
+    const btn = document.getElementById('coder-analyze-btn');
+    const orig = btn.textContent;
+    btn.textContent = '⏳ Analisando...';
+    btn.disabled = true;
+    try {
+      const d = await fetch('/api/project/analyze', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({path: ''}),  // usa workspace atual do Coder
+      }).then(r => r.json());
+      if (d.ok) {
+        updateProjectIndicator(d.context);
+        btn.textContent = `✓ ${d.context.name}`;
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
+        showIngestToast(`🎯 Projeto <b>${escHtml(d.context.name)}</b> memorizado — stack: ${escHtml(d.context.stack || '—')}`);
+      } else {
+        btn.textContent = '✗ Erro'; btn.disabled = false;
+        setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
+      }
+    } catch(e) {
+      btn.textContent = orig; btn.disabled = false;
+    }
+  }
+
+  function updateProjectIndicator(ctx) {
+    const ind = document.getElementById('project-indicator');
+    if (!ctx) { ind.style.display = 'none'; return; }
+    document.getElementById('project-name').textContent = ctx.name || '';
+    document.getElementById('project-stack').textContent = ctx.stack ? '· ' + ctx.stack : '';
+    ind.style.display = 'flex';
+  }
+
+  async function clearProjectContext() {
+    await fetch('/api/project/clear', {method:'POST'});
+    document.getElementById('project-indicator').style.display = 'none';
+    showIngestToast('Contexto de projeto removido');
+  }
+
+  async function loadProjectContext() {
+    try {
+      const d = await fetch('/api/project/context').then(r => r.json());
+      updateProjectIndicator(d.active);
+    } catch {}
+  }
+
   // ── Analisar Repositório GitHub ───────────────────────────────
   async function openRepoModal() {
     document.getElementById('repo-modal').style.display = 'flex';
@@ -4261,6 +4315,7 @@
   refreshLearnStatus();
   loadModelInfo();
   startNotifications();
+  loadProjectContext();   // exibe indicador de projeto ativo no rodapé do input
   // Atualiza contador da knowledge base no boot
   fetch('/api/learning/history').then(r=>r.json()).then(d => {
     if (d.length) document.getElementById('kb-count').textContent = d.length;
