@@ -43,8 +43,10 @@ from src.prompts import (
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
     AGENT_INSTRUCTION, AGENT_MEMORY_SECTION, AGENT_SELFEVAL_PROMPT,
     CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION, CODER_PLAN_PROMPT,
+    CODER_REFLECT_PROMPT,
 )
-from src.coder import CoderWorkspace, extract_fenced, make_diff
+from src.coder import CoderWorkspace, extract_fenced, make_diff, compact_messages
+from src.lessons import LessonMemory
 from src.episodic import index_session as _index_episodic
 from src.project_memory import ProjectMemory, analyze_project as _analyze_project
 from src.system_cache import get as _syscache_get, put as _syscache_put, invalidate as _syscache_inv
@@ -99,6 +101,12 @@ MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", 5))
 MAX_AGENT_FIXES = int(os.getenv("MAX_AGENT_FIXES", 2))
 # Modo Coder ("Claude Code" interno): nº máximo de passos ler/escrever/rodar.
 MAX_CODER_STEPS = int(os.getenv("MAX_CODER_STEPS", 12))
+# Orçamento de contexto do loop do Coder (chars). Acima disso, observações antigas
+# são compactadas — evita estourar num_ctx=8192 e "esquecer" a tarefa/plano.
+CODER_CTX_CHARS = int(os.getenv("CODER_CTX_CHARS", 20000))
+# Reflexão pós-tarefa do Coder: extrai 1 lição e guarda na memória de lições
+# (data/lessons.db) — injetada nas próximas tarefas parecidas. CODER_REFLECT=0 desativa.
+CODER_REFLECT = os.getenv("CODER_REFLECT", "1") not in ("0", "false", "False")
 # Auto-avaliação: após rascunhar a resposta, o agente critica e refina a si mesmo (1 passe).
 AGENT_SELF_EVAL = os.getenv("AGENT_SELF_EVAL", "1") not in ("0", "false", "False", "")
 # Memória de conversas longas: acima de SUMMARY_TRIGGER msgs, resume as antigas;
@@ -158,6 +166,7 @@ profile: UserProfile = None
 gpu_gate: GpuGate = None
 coder_ws: "CoderWorkspace" = None
 project_mem: ProjectMemory = None
+lesson_mem: LessonMemory = None
 VISION_MODEL = ""  # modelo de visão instalado (llava etc.) — resolvido no startup
 
 # Cache em memória das sessões (lazy-loaded do banco)
@@ -274,7 +283,7 @@ async def _scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, project_mem, CHAT_MODEL, VISION_MODEL
+    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, project_mem, lesson_mem, CHAT_MODEL, VISION_MODEL
     db = DatabaseManager(os.getenv("DATABASE_URL", "sqlite:///data/apolo.db"))
     rag = RAGManager(
         chroma_path=os.getenv("CHROMA_PATH", "./data/chroma_db"),
@@ -301,6 +310,7 @@ async def lifespan(app: FastAPI):
     profile = UserProfile(path=os.getenv("PROFILE_PATH", "data/user_profile.json"))
     coder_ws = CoderWorkspace(root=os.getenv("APOLO_WORKSPACE", "./workspace"))
     project_mem = ProjectMemory(path=os.getenv("PROJECT_MEMORY_PATH", "data/project_contexts.json"))
+    lesson_mem = LessonMemory(path=os.getenv("LESSONS_PATH", "data/lessons.db"))
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -1000,6 +1010,16 @@ async def coder(req: ChatRequest):
         answer = ""
         try:
             system_content = CODER_SYSTEM + CODER_DOCTRINE + CODER_TREE_SECTION.format(tree=coder_ws.tree())
+            # ── Autoaprendizado: injeta lições de tarefas anteriores parecidas ──
+            # O Coder lê a própria experiência (regressões revertidas, reflexões)
+            # antes de agir — mesmo mecanismo de memória do Claude Code.
+            if lesson_mem:
+                lessons_block = await asyncio.to_thread(lesson_mem.format_section, task)
+                if lessons_block:
+                    system_content += lessons_block
+                    n_les = lessons_block.count("\n- ")
+                    yield _ev({"type": "step", "icon": "🧠",
+                               "message": f"Aplicando {n_les} lição(ões) aprendida(s) em tarefas anteriores"})
             mlabel = "14b (inteligente)" if req.smart else "leve (rápido)"
             yield _ev({"type": "step", "icon": "💻", "message": f"Planejando a tarefa... [modelo {mlabel}]"})
 
@@ -1047,9 +1067,34 @@ async def coder(req: ChatRequest):
             wrote_files = False
             did_run = False
             nudged = False
+            reverted = False
+            actions_log: list[str] = []  # trilha p/ reflexão pós-tarefa
+            compact_notified = False
+
+            async def _syntax_check(path: str) -> str:
+                """Verificação sintática automática pós-escrita (custo ~0, sem LLM):
+                erro de sintaxe é detectado NA HORA, não no RODAR três passos depois."""
+                if not path.endswith(".py"):
+                    return ""
+                ok_c, out_c = await asyncio.to_thread(
+                    coder_ws.run_cmd, f'python -m py_compile "{path}"', 30)
+                if ok_c:
+                    return ""
+                return (f"\n⚠️ VERIFICAÇÃO AUTOMÁTICA: py_compile FALHOU neste arquivo:\n"
+                        f"{out_c[:500]}\nConserte a sintaxe ANTES de qualquer outra ação.")
+
             for step in range(MAX_CODER_STEPS):
                 if gpu_gate and req.smart:
                     await gpu_gate.wait_for_idle()
+                # Compactação de contexto: histórico longo → observações antigas
+                # encolhem; tarefa/plano (head) e o presente (tail) ficam intactos.
+                compacted = compact_messages(messages, CODER_CTX_CHARS)
+                if compacted is not messages:
+                    messages = compacted
+                    if not compact_notified:
+                        compact_notified = True
+                        yield _ev({"type": "step", "icon": "🗜️",
+                                   "message": "Contexto compactado — observações antigas resumidas para não estourar a janela"})
                 content = await asyncio.to_thread(
                     chat_resilient, model, messages, keep_alive=keep,
                 ) or ""
@@ -1118,7 +1163,14 @@ async def coder(req: ChatRequest):
                             yield _ev({"type": "test_hint", "path": arg, "tests": _related})
                     else:
                         yield _ev({"type": "step", "icon": "✗", "message": f"EDITAR {arg} — {out[:80]}"})
-                    obs = out + "\n\nPróxima ação (verifique com RODAR antes de CONCLUIR)."
+                    chk = await _syntax_check(arg) if out.startswith("OK") else ""
+                    if chk:
+                        yield _ev({"type": "step", "icon": "🧪",
+                                   "message": f"py_compile falhou em {arg} — devolvendo o erro ao modelo"})
+                    actions_log.append(
+                        f"EDITAR {arg} → {'ok' if out.startswith('OK') else 'FALHOU: ' + out[:100]}"
+                        + (" (sintaxe quebrada detectada)" if chk else ""))
+                    obs = out + chk + "\n\nPróxima ação (verifique com RODAR antes de CONCLUIR)."
                 elif action == "write":
                     if not payload:
                         obs = "Faltou o bloco ``` com o conteúdo do arquivo. Reenvie ESCREVER + bloco."
@@ -1137,7 +1189,14 @@ async def coder(req: ChatRequest):
                         _related = await asyncio.to_thread(coder_ws.find_related_tests, arg)
                         if _related:
                             yield _ev({"type": "test_hint", "path": arg, "tests": _related})
-                        obs = out
+                        chk = await _syntax_check(arg)
+                        if chk:
+                            yield _ev({"type": "step", "icon": "🧪",
+                                       "message": f"py_compile falhou em {arg} — devolvendo o erro ao modelo"})
+                        actions_log.append(
+                            f"ESCREVER {arg} (+{diff['added']} -{diff['removed']})"
+                            + (" (sintaxe quebrada detectada)" if chk else ""))
+                        obs = out + chk
                 elif action == "run":
                     did_run = True
                     yield _ev({"type": "step", "icon": "⚙️", "message": f"RODAR {arg[:70]}"})
@@ -1167,6 +1226,8 @@ async def coder(req: ChatRequest):
                             break
                     await fut
                     out = "\n".join(out_lines).strip() or "(sem saída)"
+                    actions_log.append(
+                        f"RODAR {arg[:60]} → " + ("ok" if ok else f"FALHOU: {out[-160:].strip()}"))
                     yield _ev({"type": "step", "icon": "✓" if ok else "✗",
                                "message": f"{'ok' if ok else 'falhou'}: {out[:120].strip()}"})
                     obs = f"Resultado de '{arg}' ({'sucesso' if ok else 'erro'}):\n```\n{out[:2000]}\n```"
@@ -1190,11 +1251,31 @@ async def coder(req: ChatRequest):
                 yield _ev({"type": "step", "icon": "🛡️", "message": "Guarda de regressão: revalidando a suíte após as alterações..."})
                 final_green, final_out = await asyncio.to_thread(coder_ws.run_cmd, "python -m pytest -q", 300)
                 if not final_green:
+                    reverted = True
                     res = await asyncio.to_thread(coder_ws.undo_all)
                     n = res.get("reverted", 0) if isinstance(res, dict) else res
                     yield _ev({"type": "step", "icon": "↩️",
                                "message": f"Testes FICARAM VERMELHOS — revertendo {n} alteração(ões) para proteger o projeto."})
                     tail = "\n".join(final_out.strip().splitlines()[-12:])
+                    # ── Autoaprendizado com a falha ──
+                    # 1) Lição permanente: da próxima vez que pegar tarefa parecida,
+                    #    o Coder verá este aviso ANTES de repetir o erro.
+                    if lesson_mem:
+                        await asyncio.to_thread(
+                            lesson_mem.add, task,
+                            f"Em tarefa parecida, minhas mudanças quebraram a suíte e foram "
+                            f"revertidas (erro: {tail[-180:].strip()}). Rodar os testes relacionados "
+                            f"ANTES de concluir e preferir EDITAR cirúrgico a reescrever.",
+                            "regression")
+                        yield _ev({"type": "step", "icon": "🧠",
+                                   "message": "Lição de regressão registrada — não vou repetir esse erro."})
+                    # 2) Loop fechado Coder → Learner: o tema da falha vira estudo
+                    #    prioritário do autoaprendizado (fecha o ciclo de autonomia).
+                    if learner:
+                        learner.note_gap(task)
+                        learner.add_user_topic(task)
+                        yield _ev({"type": "step", "icon": "📚",
+                                   "message": "Tema enviado ao autoaprendizado — vou estudar o assunto antes da próxima tentativa."})
                     answer = ("⚠️ **Alterações revertidas automaticamente pela guarda de regressão.**\n\n"
                               "A suíte de testes estava passando antes, mas ficou vermelha depois das "
                               "mudanças — então elas foram desfeitas e o projeto está intacto. "
@@ -1203,6 +1284,26 @@ async def coder(req: ChatRequest):
                               f"Saída final dos testes:\n```\n{tail}\n```")
                 else:
                     yield _ev({"type": "step", "icon": "✅", "message": "Guarda de regressão: suíte continua verde — alterações preservadas."})
+
+            # ── Reflexão pós-tarefa (autoaprendizado): extrai UMA lição da execução ──
+            # Usa o modelo LEVE (1 chamada curta) e guarda em data/lessons.db; a lição
+            # é injetada automaticamente nas próximas tarefas parecidas.
+            if CODER_REFLECT and lesson_mem and wrote_files and not reverted and actions_log:
+                try:
+                    outcome = "\n".join(actions_log[-15:])[:2500]
+                    refl = (await asyncio.to_thread(
+                        chat_resilient, CHAT_MODEL,
+                        [{"role": "user", "content":
+                          CODER_REFLECT_PROMPT.format(task=task[:300], outcome=outcome)}],
+                        keep_alive=KEEP_ALIVE) or "").strip()
+                    if refl and not refl.upper().startswith("NONE") and len(refl) >= 15:
+                        saved = await asyncio.to_thread(
+                            lesson_mem.add, task, refl[:600], "reflection")
+                        if saved:
+                            yield _ev({"type": "step", "icon": "🧠",
+                                       "message": f"Lição aprendida: {refl[:120]}"})
+                except Exception as _refl_err:
+                    logger.debug(f"coder reflect: {_refl_err}")
 
             yield _ev({"type": "step", "icon": "📁", "message": f"Workspace:\n{coder_ws.tree(40)}"})
             yield _ev({"type": "token", "content": answer})
@@ -1223,6 +1324,21 @@ async def coder_files():
     """Árvore, lista plana e raiz do workspace do Coder (para o painel)."""
     return {"root": str(coder_ws.root), "tree": coder_ws.tree(80),
             "files": coder_ws.list_files(200), "changes": coder_ws.list_changes()}
+
+
+@app.get("/api/coder/lessons")
+async def coder_lessons():
+    """Memória de lições do Coder — o que ele aprendeu com as próprias tarefas."""
+    if not lesson_mem:
+        return {"count": 0, "lessons": []}
+    return {"count": lesson_mem.count(), "lessons": lesson_mem.recent(30)}
+
+
+@app.delete("/api/coder/lessons/{lesson_id}")
+async def coder_lesson_delete(lesson_id: int):
+    """Curadoria: remove uma lição errada/obsoleta da memória do Coder."""
+    ok = lesson_mem.delete(lesson_id) if lesson_mem else False
+    return {"ok": ok}
 
 
 class CoderExecRequest(BaseModel):

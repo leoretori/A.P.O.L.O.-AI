@@ -132,6 +132,21 @@ CODER_TREE_SECTION = """
 Estado atual do workspace:
 {tree}"""
 
+CODER_REFLECT_PROMPT = """Você é A.P.O.L.O. Coder refletindo sobre a tarefa que ACABOU de executar,
+para extrair UMA lição que melhore suas tarefas futuras (automelhoria contínua).
+
+TAREFA: {task}
+
+O QUE ACONTECEU (ações e resultados reais):
+{outcome}
+
+Escreva UMA lição curta (1-2 frases, português) útil para tarefas FUTURAS parecidas:
+um erro a evitar, uma verificação que salvou tempo, um padrão deste workspace.
+Regras: seja específico E generalizável; nada de resumo da tarefa; nada de obviedade
+("testar é importante"). Se não houver lição genuína, responda exatamente: NONE
+
+Lição:"""
+
 CODER_PLAN_PROMPT = """Antes de agir, escreva um PLANO NUMERADO de no máximo 8 passos para esta tarefa.
 Cada passo deve ser uma ação concreta: LISTAR / LER / BUSCAR / EDITAR / ESCREVER / RODAR / CONCLUIR.
 Escreva APENAS a lista numerada. Nenhuma explicação, nenhuma ação ainda.

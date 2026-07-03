@@ -88,6 +88,35 @@ def extract_fenced(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+# Quanto de cada mensagem antiga sobrevive à compactação (chars).
+_COMPACT_KEEP_CHARS = 220
+
+
+def compact_messages(messages: list[dict], max_chars: int = 20000,
+                     keep_head: int = 4, keep_tail: int = 6) -> list[dict]:
+    """Compacta o histórico do loop ReAct quando ele estoura o orçamento de
+    contexto (crítico na CPU com num_ctx=8192: contexto estourado = o modelo
+    "esquece" a tarefa e o plano, que estão no INÍCIO da conversa).
+
+    Estratégia (mesma ideia do compact do Claude Code):
+      - head (system + tarefa + plano) fica INTACTO — é a âncora da tarefa;
+      - as últimas keep_tail mensagens ficam INTACTAS — são o presente;
+      - o miolo (observações antigas: arquivos lidos, saídas de comandos)
+        é truncado — o modelo já agiu sobre elas, o resumo basta.
+    """
+    total = sum(len(m.get("content") or "") for m in messages)
+    if total <= max_chars or len(messages) <= keep_head + keep_tail:
+        return messages
+    out = list(messages[:keep_head])
+    for m in messages[keep_head:-keep_tail]:
+        content = m.get("content") or ""
+        if len(content) > _COMPACT_KEEP_CHARS:
+            content = content[:_COMPACT_KEEP_CHARS] + "\n[... compactado p/ economizar contexto]"
+        out.append({**m, "content": content})
+    out.extend(messages[-keep_tail:])
+    return out
+
+
 class CoderWorkspace:
     def __init__(self, root: str = "./workspace"):
         self.root = Path(root).resolve()
