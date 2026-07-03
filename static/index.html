@@ -1149,6 +1149,11 @@
           <span id="coder-undo-all" onclick="undoCoderAll()" title="Descartar todas as alterações" style="cursor:pointer;color:#f87171;display:none;text-transform:none;letter-spacing:0">↩️ Desfazer tudo</span>
         </div>
         <div id="coder-changes" class="coder-pane" style="max-height:140px;overflow-y:auto;font-size:10px;color:#999;padding:6px 10px"></div>
+        <div class="coder-pane-head" style="margin-top:10px">
+          <span>🧠 Lições aprendidas <span id="coder-lessons-count" style="color:#555;text-transform:none;letter-spacing:0"></span></span>
+          <span class="coder-icon-btn" onclick="refreshCoderLessons()" title="Atualizar lições">↻</span>
+        </div>
+        <div id="coder-lessons" class="coder-pane" style="max-height:130px;overflow-y:auto;font-size:10px;color:#999;padding:6px 10px"></div>
         <div id="coder-git" style="font-size:10px;color:#888;margin-top:8px"></div>
       </div>
     </div>
@@ -1827,7 +1832,38 @@
       }
       renderCoderChanges(d.changes || []);
       refreshCoderGit();
+      refreshCoderLessons();
     } catch {}
+  }
+
+  // ── Memória de lições do Coder (autoaprendizado) ──────────────────────────
+  async function refreshCoderLessons() {
+    const box = document.getElementById('coder-lessons');
+    if (!box) return;
+    try {
+      const d = await fetch('/api/coder/lessons').then(r=>r.json());
+      const cnt = document.getElementById('coder-lessons-count');
+      if (cnt) cnt.textContent = d.count ? `(${d.count})` : '';
+      const lessons = d.lessons || [];
+      if (!lessons.length) {
+        box.innerHTML = '<div style="color:#444;padding:4px 0">Nenhuma lição ainda — o Coder aprende ao concluir tarefas.</div>';
+        return;
+      }
+      const icons = {regression:'🛡️', failure:'✗', reflection:'💡'};
+      const kinds = {regression:'regressão revertida', failure:'falha', reflection:'reflexão pós-tarefa'};
+      box.innerHTML = lessons.map(l=>`
+        <div style="display:flex;align-items:flex-start;gap:6px;padding:4px 0;border-bottom:1px solid #16161c">
+          <span title="${escHtml(kinds[l.kind]||l.kind)}">${icons[l.kind]||'•'}</span>
+          <span style="flex:1;line-height:1.4;color:#a8a8b0" title="Tarefa: ${escHtml(l.task)}&#10;${escHtml(l.created_at)} · usada ${l.hits}×">${escHtml(l.lesson)}</span>
+          <span onclick="deleteCoderLesson(${l.id})" title="Esquecer esta lição" style="cursor:pointer;color:#f87171">🗑️</span>
+        </div>`).join('');
+    } catch {}
+  }
+
+  async function deleteCoderLesson(id) {
+    if (!confirm('Esquecer esta lição? O Coder não a verá mais nas próximas tarefas.')) return;
+    await fetch('/api/coder/lessons/' + id, {method:'DELETE'});
+    refreshCoderLessons();
   }
 
   async function refreshCoderGit() {
