@@ -88,6 +88,30 @@ def extract_fenced(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _closest_block(text: str, old: str, max_lines: int = 12) -> tuple[str, int]:
+    """Localiza no arquivo o bloco mais parecido com o trecho buscado por um
+    EDITAR que falhou. Retorna (bloco, nº da linha 1-based) ou ("", 0) quando
+    nada é razoavelmente parecido (ratio < 0.55)."""
+    import difflib
+    old_lines = [l for l in old.splitlines() if l.strip()]
+    file_lines = text.splitlines()
+    if not old_lines or not file_lines:
+        return "", 0
+    probe = old_lines[0].strip()
+    best_i, best_r = -1, 0.0
+    for i, line in enumerate(file_lines):
+        r = difflib.SequenceMatcher(None, probe, line.strip()).ratio()
+        if r > best_r:
+            best_i, best_r = i, r
+            if r >= 0.999:
+                break
+    if best_i < 0 or best_r < 0.55:
+        return "", 0
+    lo = max(0, best_i - 1)
+    hi = min(len(file_lines), lo + min(max_lines, len(old_lines) + 3))
+    return "\n".join(file_lines[lo:hi]), lo + 1
+
+
 # Quanto de cada mensagem antiga sobrevive à compactação (chars).
 _COMPACT_KEEP_CHARS = 220
 
@@ -293,8 +317,16 @@ class CoderWorkspace:
         before = p.read_text(encoding="utf-8", errors="replace")
         count = before.count(old)
         if count == 0:
+            # A maior causa de EDITAR falho em modelo local: o trecho difere do
+            # arquivo por um detalhe (indentação, espaço, aspas). Em vez de só
+            # "não encontrado", mostramos o bloco REAL mais parecido — o modelo
+            # copia dele e acerta na próxima tentativa.
+            hint, lineno = _closest_block(before, old)
+            hint_msg = (f"\nTrecho mais PARECIDO no arquivo (linha ~{lineno}) — "
+                        f"copie DELE o texto exato do bloco BUSCAR:\n```\n{hint}\n```"
+                        if hint else "")
             return (f"(trecho não encontrado em {rel} — copie o texto EXATO do arquivo, "
-                    f"com a mesma indentação. Use LER para conferir.)")
+                    f"com a mesma indentação. Use LER para conferir.){hint_msg}")
         if count > 1:
             return (f"(o trecho aparece {count}x em {rel} — inclua mais linhas de contexto "
                     f"para torná-lo único antes de editar.)")
@@ -552,16 +584,38 @@ class CoderWorkspace:
         if not ok or out.strip() != "true":
             return {"is_repo": False}
         _, branch = self._git(["rev-parse", "--abbrev-ref", "HEAD"])
-        _, status = self._git(["status", "--short"])
+        # ESCOPO: o workspace pode ser um SUBDIRETÓRIO de um repo maior — sem o
+        # pathspec ".", o status enxergaria (e o commit varreria) o repo INTEIRO.
+        # -u lista untracked individualmente (senão um dir novo vira só "?? ./").
+        _, status = self._git(["status", "--short", "-u", "--", "."])
         _, ahead = self._git(["rev-list", "--count", "@{u}..HEAD"])
         return {"is_repo": True, "branch": branch.strip(),
                 "status": status, "dirty": bool(status.strip()),
                 "ahead": ahead.strip() if ahead.strip().isdigit() else "0"}
 
     def git_diff(self, path: str = "") -> str:
-        args = ["diff", "--", path] if path else ["diff"]
+        # Pathspec "." confina o diff ao workspace (pode ser subdir de repo maior).
+        args = ["diff", "--", path if path else "."]
         ok, out = self._git(args)
         return out if out else "(sem alterações não commitadas)"
+
+    def git_commit_all(self, message: str) -> dict:
+        """Commit assistido: git add -A + commit com a mensagem dada, SEMPRE
+        confinado ao workspace (pathspec ".") — se o workspace for um subdiretório
+        de um repo maior, nada de fora dele é tocado. NUNCA faz push — enviar ao
+        remoto é sempre decisão do usuário."""
+        st = self.git_status()
+        if not st.get("is_repo"):
+            return {"ok": False, "error": "o workspace não é um repositório git"}
+        if not st.get("dirty"):
+            return {"ok": False, "error": "nada para commitar"}
+        message = (message or "").strip() or "chore: alterações via A.P.O.L.O. Coder"
+        ok, out = self._git(["add", "-A", "--", "."], timeout=30)
+        if not ok:
+            return {"ok": False, "error": out[:300]}
+        ok, out = self._git(["commit", "-m", message[:200], "--", "."], timeout=30)
+        return {"ok": ok, "message": message,
+                ("out" if ok else "error"): out[:400]}
 
     def list_files(self, max_files: int = 200) -> list[str]:
         """Lista plana de arquivos de texto (caminhos relativos) — para o painel clicável."""

@@ -117,3 +117,113 @@ def test_coder_stats_taxa_de_sucesso(db):
 def test_coder_stats_vazio(db):
     st = db.get_coder_stats()
     assert st["total"] == 0 and st["success_rate"] is None
+    assert st["trend"] is None
+
+
+def test_coder_stats_tendencia(db):
+    # 10 antigas: 5 revertidas (50%) → 10 recentes: 1 revertida (90%) = melhora
+    for i in range(10):
+        db.save_coder_task(f"antiga {i}", reverted=(i < 5))
+    for i in range(10):
+        db.save_coder_task(f"recente {i}", reverted=(i == 0))
+    st = db.get_coder_stats(window=10)
+    assert st["recent_rate"] == 90 and st["prev_rate"] == 50
+    assert st["trend"] == 40
+
+
+def test_coder_stats_tendencia_sem_janela_anterior(db):
+    for i in range(5):
+        db.save_coder_task(f"t{i}")
+    st = db.get_coder_stats(window=10)
+    assert st["recent_rate"] == 100
+    assert st["prev_rate"] is None and st["trend"] is None
+
+
+# ── EDITAR falho com dica do trecho mais parecido ─────────────────
+def test_edit_dica_trecho_parecido(ws):
+    ws.write_file("calc.py", "def soma(a, b):\n    return a + b\n\n"
+                             "def sub(a, b):\n    return a - b\n")
+    # O modelo errou: esqueceu os espaços da assinatura.
+    out = ws.edit_file("calc.py", "def soma(a,b):\n    return a+b", "def soma(a, b):\n    return a + b + 0")
+    assert "não encontrado" in out
+    assert "PARECIDO" in out
+    assert "def soma(a, b):" in out          # mostra o texto REAL do arquivo
+    assert "linha ~1" in out
+
+
+def test_edit_sem_dica_quando_nada_parecido(ws):
+    ws.write_file("calc.py", "x = 1\ny = 2\n")
+    out = ws.edit_file("calc.py", "class TotalmenteDiferente(Enum):", "z")
+    assert "não encontrado" in out
+    assert "PARECIDO" not in out
+
+
+def test_edit_exato_continua_funcionando(ws):
+    ws.write_file("calc.py", "def soma(a, b):\n    return a - b\n")
+    out = ws.edit_file("calc.py", "return a - b", "return a + b")
+    assert out.startswith("OK")
+    assert "return a + b" in ws.current_content("calc.py")
+
+
+# ── Commit assistido (git_commit_all) ─────────────────────────────
+def _git_ws(tmp_path):
+    import subprocess
+    ws = CoderWorkspace(str(tmp_path))
+    run = lambda *a: subprocess.run(["git", *a], cwd=str(tmp_path),
+                                    capture_output=True, text=True)
+    run("init")
+    run("config", "user.email", "apolo@test.local")
+    run("config", "user.name", "Apolo Test")
+    return ws
+
+
+def test_git_commit_all(tmp_path):
+    ws = _git_ws(tmp_path)
+    ws.write_file("novo.py", "x = 1\n")
+    res = ws.git_commit_all("feat: arquivo novo de teste")
+    assert res["ok"] is True
+    assert res["message"] == "feat: arquivo novo de teste"
+    assert ws.git_status()["dirty"] is False   # workspace limpo após o commit
+
+
+def test_git_commit_sem_mudancas(tmp_path):
+    ws = _git_ws(tmp_path)
+    ws.write_file("a.py", "x = 1\n")
+    ws.git_commit_all("feat: inicial")
+    res = ws.git_commit_all("feat: nada")
+    assert res["ok"] is False and "nada para commitar" in res["error"]
+
+
+def test_git_commit_fora_de_repo(ws):
+    res = ws.git_commit_all("feat: x")
+    assert res["ok"] is False and "repositório" in res["error"]
+
+
+def test_git_commit_confinado_ao_workspace(tmp_path):
+    """REGRESSÃO REAL: com o workspace num SUBDIRETÓRIO de um repo maior,
+    o commit assistido varria o repo inteiro (git add -A sem pathspec) —
+    chegou a commitar data/ e .claude/ do projeto. Agora tudo é confinado
+    ao workspace via pathspec '.'."""
+    import subprocess
+    run = lambda *a: subprocess.run(["git", *a], cwd=str(tmp_path),
+                                    capture_output=True, text=True)
+    run("init")
+    run("config", "user.email", "apolo@test.local")
+    run("config", "user.name", "Apolo Test")
+    # Arquivo FORA do workspace (na raiz do repo) — não pode ser tocado.
+    (tmp_path / "fora_do_workspace.py").write_text("segredo = 1\n", encoding="utf-8")
+    sub = tmp_path / "workspace"
+    sub.mkdir()
+    ws = CoderWorkspace(str(sub))
+    ws.write_file("dentro.py", "x = 1\n")
+
+    st = ws.git_status()
+    assert "dentro.py" in st["status"]
+    assert "fora_do_workspace" not in st["status"]   # status também confinado
+
+    res = ws.git_commit_all("feat: arquivo do workspace")
+    assert res["ok"] is True
+    # O arquivo de fora continua NÃO commitado (untracked no repo pai).
+    out = run("status", "--short").stdout
+    assert "fora_do_workspace.py" in out
+    assert "dentro.py" not in out

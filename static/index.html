@@ -1850,8 +1850,17 @@
       const d = await fetch('/api/coder/tasks?limit=8').then(r=>r.json());
       const st = d.stats || {};
       const statsEl = document.getElementById('coder-tasks-stats');
-      if (statsEl) statsEl.textContent = st.total
-        ? `(${st.total}${st.success_rate !== null && st.success_rate !== undefined ? ` · ${st.success_rate}% ✓` : ''})` : '';
+      if (statsEl) {
+        let trend = '';
+        if (st.trend !== null && st.trend !== undefined) {
+          trend = st.trend > 0 ? ' ↗' : st.trend < 0 ? ' ↘' : ' →';
+        }
+        statsEl.textContent = st.total
+          ? `(${st.total}${st.success_rate !== null && st.success_rate !== undefined ? ` · ${st.success_rate}% ✓${trend}` : ''})` : '';
+        statsEl.title = (st.recent_rate !== null && st.recent_rate !== undefined && st.prev_rate !== null && st.prev_rate !== undefined)
+          ? `Tendência: últimas 10 tarefas ${st.recent_rate}% vs 10 anteriores ${st.prev_rate}% — as lições estão funcionando?` : '';
+        statsEl.style.color = st.trend > 0 ? '#4ade80' : st.trend < 0 ? '#f87171' : '#555';
+      }
       const tasks = d.tasks || [];
       if (!tasks.length) {
         box.innerHTML = '<div style="color:#444;padding:4px 0">Nenhuma tarefa executada ainda.</div>';
@@ -1909,8 +1918,23 @@
       const dot = g.dirty ? '<span style="color:#facc15">●</span>' : '<span style="color:#4ade80">●</span>';
       el.innerHTML = `${dot} <b style="color:#aaa">⎇ ${escHtml(g.branch || '?')}</b> ${g.dirty ? '· alterações pendentes' : '· limpo'}`
         + (parseInt(g.ahead)>0 ? ` · ${g.ahead} à frente` : '')
-        + (g.dirty ? ' · <span onclick="viewGitDiff()" style="cursor:pointer;color:#5b9cff">ver diff</span>' : '');
+        + (g.dirty ? ' · <span onclick="viewGitDiff()" style="cursor:pointer;color:#5b9cff">ver diff</span>'
+                   + ' · <span onclick="coderGitCommit()" style="cursor:pointer;color:#4ade80" title="Commit com mensagem gerada pelo A.P.O.L.O. (nunca faz push)">💾 commit</span>' : '');
     } catch { el.innerHTML = ''; }
+  }
+
+  async function coderGitCommit() {
+    if (!confirm('Commitar TODAS as alterações do workspace?\nA mensagem é gerada automaticamente pelo modelo leve (nunca faz push).')) return;
+    const el = document.getElementById('coder-git');
+    const prev = el.innerHTML;
+    el.innerHTML = '<span style="color:#888">💾 gerando mensagem e commitando…</span>';
+    try {
+      const d = await fetch('/api/coder/commit', {method:'POST',
+        headers:{'Content-Type':'application/json'}, body:'{}'}).then(r=>r.json());
+      if (d.ok) alert('✅ Commit criado:\n\n' + d.message);
+      else { alert('✗ ' + (d.error || 'falhou')); el.innerHTML = prev; }
+    } catch(e) { alert('✗ ' + e.message); el.innerHTML = prev; }
+    refreshCoderGit(); refreshCoderTree();
   }
 
   async function viewGitDiff() {

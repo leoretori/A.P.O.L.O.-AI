@@ -582,15 +582,28 @@ class DatabaseManager:
                      "wrote": r.wrote, "ran": r.ran, "reverted": r.reverted,
                      "duration_s": r.duration_s, "summary": r.summary} for r in rows]
 
-    def get_coder_stats(self) -> dict:
-        """Taxa de sucesso do Coder — % de tarefas concluídas sem reversão."""
+    def get_coder_stats(self, window: int = 10) -> dict:
+        """Taxa de sucesso do Coder + TENDÊNCIA: compara a janela recente com a
+        anterior (medir → melhorar → provar — as lições estão funcionando?)."""
         from sqlalchemy import func
         with Session(self.engine) as s:
             total = s.query(func.count(CoderTask.id)).scalar() or 0
             reverted = (s.query(func.count(CoderTask.id))
                         .filter(CoderTask.reverted == True).scalar() or 0)
-            return {"total": total, "reverted": reverted,
-                    "success_rate": round(100 * (total - reverted) / total) if total else None}
+            flags = [r.reverted for r in
+                     s.query(CoderTask.reverted)
+                      .order_by(CoderTask.id.desc()).limit(window * 2).all()]
+
+        def _rate(fs: list) -> int | None:
+            return round(100 * sum(1 for f in fs if not f) / len(fs)) if fs else None
+
+        recent_rate = _rate(flags[:window])
+        prev_rate = _rate(flags[window:window * 2])
+        trend = (recent_rate - prev_rate
+                 if recent_rate is not None and prev_rate is not None else None)
+        return {"total": total, "reverted": reverted,
+                "success_rate": round(100 * (total - reverted) / total) if total else None,
+                "recent_rate": recent_rate, "prev_rate": prev_rate, "trend": trend}
 
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct

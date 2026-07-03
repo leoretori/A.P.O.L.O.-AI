@@ -44,7 +44,7 @@ from src.prompts import (
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
     AGENT_INSTRUCTION, AGENT_MEMORY_SECTION, AGENT_SELFEVAL_PROMPT,
     CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION, CODER_PLAN_PROMPT,
-    CODER_REFLECT_PROMPT,
+    CODER_REFLECT_PROMPT, COMMIT_MSG_PROMPT,
 )
 from src.coder import CoderWorkspace, extract_fenced, make_diff, compact_messages
 from src.lessons import LessonMemory
@@ -1027,6 +1027,12 @@ async def coder(req: ChatRequest):
         t0 = _time.time()
         try:
             system_content = CODER_SYSTEM + CODER_DOCTRINE + CODER_TREE_SECTION.format(tree=coder_ws.tree())
+            # Memória de Projeto: se há um projeto memorizado (🎯), o Coder conhece
+            # a stack/dependências desde o 1º passo — mesmo contexto que o chat usa.
+            if project_mem:
+                _proj_sec = project_mem.as_prompt_section()
+                if _proj_sec:
+                    system_content += _proj_sec
             # ── Autoaprendizado: injeta lições de tarefas anteriores parecidas ──
             # O Coder lê a própria experiência (regressões revertidas, reflexões)
             # antes de agir — mesmo mecanismo de memória do Claude Code.
@@ -1559,6 +1565,36 @@ async def coder_replace(req: CoderReplaceRequest):
 async def coder_git():
     """Status do git no workspace (se for um repositório)."""
     return await asyncio.to_thread(coder_ws.git_status)
+
+
+class CoderCommitRequest(BaseModel):
+    message: str = ""
+
+
+@app.post("/api/coder/commit")
+async def coder_commit(req: CoderCommitRequest):
+    """Commit assistido: sem mensagem, o modelo leve gera uma (Conventional
+    Commits) a partir do diff real. NUNCA faz push (bloqueado no sandbox)."""
+    msg = (req.message or "").strip()
+    if not msg:
+        st = await asyncio.to_thread(coder_ws.git_status)
+        if not st.get("is_repo"):
+            return {"ok": False, "error": "o workspace não é um repositório git"}
+        if not st.get("dirty"):
+            return {"ok": False, "error": "nada para commitar"}
+        diff = await asyncio.to_thread(coder_ws.git_diff)
+        prompt = COMMIT_MSG_PROMPT.format(
+            status=(st.get("status") or "")[:800], diff=diff[:3000])
+        try:
+            raw = await asyncio.to_thread(
+                chat_resilient, CHAT_MODEL,
+                [{"role": "user", "content": prompt}], keep_alive=KEEP_ALIVE) or ""
+            msg = raw.strip().splitlines()[0].strip().strip('`"\'')[:150]
+        except Exception as e:
+            logger.debug(f"commit msg: {e}")
+        if not msg:
+            msg = "chore: alterações via A.P.O.L.O. Coder"
+    return await asyncio.to_thread(coder_ws.git_commit_all, msg)
 
 
 @app.get("/api/coder/git/diff")

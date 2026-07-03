@@ -13,9 +13,7 @@ __pycache__/
 .Python
 
 # Dados gerados em runtime (não commitar — crescem muito / dados pessoais)
-data/chroma_db/
-data/apolo.db
-data/user_profile.json
+data/
 logs/
 bk_test.json
 *_backup_*.json
@@ -38,8 +36,8 @@ build/
 *.swp
 *.swo
 
-# Claude Code
-.claude/settings.local.json
+# Claude Code (config local da máquina — não versionar)
+.claude/
 
 # OS
 .DS_Store

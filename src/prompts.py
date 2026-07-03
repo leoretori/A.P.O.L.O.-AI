@@ -148,6 +148,19 @@ Regras: seja específico E generalizável; nada de resumo da tarefa; nada de obv
 
 Lição:"""
 
+COMMIT_MSG_PROMPT = """Gere UMA mensagem de commit no padrão Conventional Commits
+(feat:/fix:/refactor:/docs:/test:/chore:), em português, com no máximo 72 caracteres,
+descrevendo as mudanças abaixo. Responda APENAS com a mensagem — uma linha, sem aspas,
+sem explicação.
+
+ARQUIVOS ALTERADOS:
+{status}
+
+DIFF (parcial):
+{diff}
+
+Mensagem:"""
+
 CODER_PLAN_PROMPT = """Antes de agir, escreva um PLANO NUMERADO de no máximo 8 passos para esta tarefa.
 Cada passo deve ser uma ação concreta: LISTAR / LER / BUSCAR / EDITAR / ESCREVER / RODAR / CONCLUIR.
 Escreva APENAS a lista numerada. Nenhuma explicação, nenhuma ação ainda.
