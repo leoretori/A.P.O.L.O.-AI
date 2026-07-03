@@ -219,6 +219,25 @@ def test_repair_falha_nao_estraga_original(monkeypatch, tmp_path):
     assert rows[0]["summary"] == cru[:2000]    # original preservado
 
 
+def test_get_summary_quality(tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    db.save_learned_topic("a", "u", "## Essência\nsíntese boa " + "x" * 100, "web")
+    db.save_learned_topic("b", "u", "texto cru de timeout sem estrutura " * 12, "web")
+    db.save_learned_topic("c", "u", "curtinha", "web")
+    q = db.get_summary_quality()
+    assert q["total"] == 3
+    assert q["structured"] == 1 and q["raw"] == 1 and q["short"] == 1
+    assert q["pct_structured"] == 33
+
+
+def test_get_summary_quality_vazia(tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    q = db.get_summary_quality()
+    assert q["total"] == 0 and q["pct_structured"] is None
+
+
 def test_update_topic_summary(tmp_path):
     from src.storage import DatabaseManager
     db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")

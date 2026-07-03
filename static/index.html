@@ -2993,11 +2993,23 @@
         ) : ''));
 
       const db_ = h.database || {};
+      const q = db_.quality || {};
+      // Qualidade da base: % de sínteses estruturadas (##) vs cruas (lixo de
+      // timeouts antigos — o botão 🩹 Reparar na Mente conserta).
+      let qualLine = '';
+      if (q.total) {
+        const pct = q.pct_structured ?? 0;
+        const pctColor = pct >= 90 ? '#4ade80' : pct >= 60 ? '#facc15' : '#f87171';
+        qualLine = line('Qualidade das sínteses',
+          `<span style="color:${pctColor}" title="${q.structured} estruturadas · ${q.raw} cruas · ${q.short} curtas">${pct}% estruturadas</span>`
+          + ((q.raw ?? 0) > 0 ? ` <span style="color:#f87171;cursor:pointer" title="Re-sintetizar as cruas — Mente → 🩹 Reparar" onclick="openMind();setTimeout(repairSummaries, 600)">· 🩹 ${q.raw} cruas</span>` : ''));
+      }
       const dbCard = card(`${dot(!db_.error)} 💾 Banco local`,
         line('Conhecimentos', db_.learned_total ?? '—') +
         line('Aprendidos hoje', db_.learned_today ?? '—') +
         line('Conversas salvas', db_.sessions ?? '—') +
-        line('Duplicatas', (db_.duplicates ?? 0) > 0 ? `<span style="color:#facc15">${db_.duplicates}</span>` : '0'));
+        line('Duplicatas', (db_.duplicates ?? 0) > 0 ? `<span style="color:#facc15">${db_.duplicates}</span>` : '0') +
+        qualLine);
 
       const sb = h.supabase || {};
       const brk = sb.breaker || {};

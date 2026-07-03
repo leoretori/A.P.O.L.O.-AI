@@ -2722,12 +2722,13 @@ async def health():
     async def _database():
         try:
             ls = await asyncio.to_thread(db.get_learning_stats)
-            dups, sess = await asyncio.gather(
+            dups, sess, quality = await asyncio.gather(
                 asyncio.to_thread(db.count_topic_duplicates),
                 asyncio.to_thread(db.list_sessions, 0, 1000),
+                asyncio.to_thread(db.get_summary_quality),
             )
             return {"learned_total": ls["total"], "learned_today": ls["today"],
-                    "duplicates": dups, "sessions": len(sess)}
+                    "duplicates": dups, "sessions": len(sess), "quality": quality}
         except Exception as e:
             return {"error": str(e)[:120]}
 

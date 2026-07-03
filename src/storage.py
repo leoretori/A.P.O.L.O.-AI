@@ -616,6 +616,22 @@ class DatabaseManager:
             s.commit()
             return True
 
+    def get_summary_quality(self) -> dict:
+        """Qualidade da base de aprendizado: sínteses estruturadas (têm seções
+        '##') vs cruas (texto corrido ≥300 chars — lixo de timeouts antigos)
+        vs curtas. Alimenta o cartão de qualidade do painel Saúde."""
+        from sqlalchemy import func
+        with Session(self.engine) as s:
+            total = s.query(func.count(LearnedTopic.id)).scalar() or 0
+            structured = (s.query(func.count(LearnedTopic.id))
+                          .filter(LearnedTopic.summary.like("%##%")).scalar() or 0)
+            raw = (s.query(func.count(LearnedTopic.id))
+                   .filter(~LearnedTopic.summary.like("%##%"),
+                           func.length(LearnedTopic.summary) >= 300).scalar() or 0)
+        return {"total": total, "structured": structured, "raw": raw,
+                "short": total - structured - raw,
+                "pct_structured": round(100 * structured / total) if total else None}
+
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct
         today = _now().replace(hour=0, minute=0, second=0, microsecond=0)
