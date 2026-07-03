@@ -106,6 +106,70 @@ def test_search_falha_libera_reserva(eng, monkeypatch):
     assert asyncio.run(run()) == 1
 
 
+# ── Síntese que falha não vira conhecimento ──────────────────────
+def _item(topic="tema x", retries=0):
+    from src.learner import FetchedItem
+    return FetchedItem(topic=topic, url="http://u", content="conteúdo " * 50,
+                       category="web_search", agent_name="web", retries=retries)
+
+
+def test_sintese_falha_reenfileira_uma_vez(eng, monkeypatch):
+    async def fail(*a, **k):
+        return None
+    monkeypatch.setattr(eng, "_summarize", fail)
+    eng._reserve("tema x")
+    asyncio.run(eng._process_item(_item()))
+    # 1ª falha: volta para a fila (com retries=1), reserva mantida.
+    assert eng._fetch_queue.qsize() == 1
+    assert not eng._reserve("tema x")
+    requeued = eng._fetch_queue.get_nowait()
+    assert requeued.retries == 1
+
+
+def test_sintese_falha_2x_desiste_sem_salvar(eng, monkeypatch):
+    async def fail(*a, **k):
+        return None
+    saved = []
+    monkeypatch.setattr(eng, "_summarize", fail)
+    monkeypatch.setattr(eng, "_persist", lambda item: saved.append(item))
+    eng._reserve("tema x")
+    asyncio.run(eng._process_item(_item(retries=1)))
+    assert eng._fetch_queue.qsize() == 0          # não re-enfileira
+    assert saved == []                            # NADA salvo (sem lixo cru)
+    assert eng._already_known("tema x")           # desistido nesta sessão
+    assert eng._norm("tema x") not in eng._inflight   # reserva liberada
+
+
+def test_skip_session_limpo_no_start(eng):
+    eng._skip_session.add("tema desistido")
+    assert eng._already_known("tema desistido")
+    eng._skip_session.clear()
+    assert not eng._already_known("tema desistido")
+
+
+def test_prompt_por_categoria():
+    from src.learner import SUMMARIZE_PROMPT_GERAL, GENERAL_CATEGORIES
+    assert "encyclopedia" in GENERAL_CATEGORIES and "book" in GENERAL_CATEGORIES
+    # O template geral não pede código de produção.
+    assert "código" not in SUMMARIZE_PROMPT_GERAL.lower().replace("não invente", "")
+    assert "Essência" in SUMMARIZE_PROMPT_GERAL
+
+
+def test_enciclopedia_nao_repete_no_refresh():
+    from src.agents.encyclopedia_agent import EncyclopediaAgent, WIKI_SUBJECTS
+
+    class DBTudoEstudado:
+        def is_url_studied(self, u):
+            return True
+
+    ag = EncyclopediaAgent(model="m", db=DBTudoEstudado())
+    t1, _ = asyncio.run(ag.next_topic())
+    t2, _ = asyncio.run(ag.next_topic())
+    # Mesmo com tudo estudado, o refresh avança na rotação (não trava num só).
+    assert t1 != t2
+    assert len(WIKI_SUBJECTS) >= 50
+
+
 def test_save_libera_reserva(eng):
     assert eng._reserve("grpc load balancing")
     item = LearnedItem(topic="grpc load balancing", url="u", summary="s",

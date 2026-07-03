@@ -40,6 +40,7 @@ class FetchedItem:
     content: str
     category: str
     agent_name: str
+    retries: int = 0   # tentativas de sumarização já feitas
 
 
 @dataclass
@@ -72,6 +73,33 @@ CONTEÚDO:
 {content}
 
 Síntese (técnica, densa, sem enrolação):"""
+
+# Conhecimento GERAL (enciclopédia, livros) não é código: sintetizar "Teoria da
+# relatividade" com template de engenharia ("Como usar — código real") produzia
+# lixo. Cada categoria usa o template certo.
+SUMMARIZE_PROMPT_GERAL = """Você é A.P.O.L.O., mente enciclopédica de elite.
+
+Sintetize "{topic}" em português brasileiro:
+
+## Essência
+[O conceito explicado em 2-3 frases claras]
+
+## Pontos-chave
+[4-6 fatos ou ideias centrais — os que realmente importam]
+
+## Conexões
+[Como este tema se liga a outras áreas do conhecimento]
+
+## Insight A.P.O.L.O.
+[A compreensão mais valiosa para reter deste tema]
+
+CONTEÚDO:
+{content}
+
+Síntese (clara, densa, fiel ao conteúdo — não invente fatos):"""
+
+# Categorias de conhecimento geral → usam o template enciclopédico.
+GENERAL_CATEGORIES = {"encyclopedia", "book"}
 
 
 class LearningEngine:
@@ -112,6 +140,9 @@ class LearningEngine:
         # até LOTAR a fila com cópias (bug real: 6× "Teoria da relatividade" — o
         # tópico só vira "estudado" DEPOIS do save, ~2 min depois do 1º fetch).
         self._inflight: set[str] = set()
+        # Tópicos cuja sumarização falhou 2× — desistimos deles NESTA sessão
+        # (nada de salvar conteúdo cru como "conhecimento", nem re-tentar em loop).
+        self._skip_session: set[str] = set()
 
         # Filas do pipeline
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
@@ -165,8 +196,10 @@ class LearningEngine:
         self._inflight.discard(self._norm(topic))
 
     def _already_known(self, topic: str, url: str = "") -> bool:
-        """Já estudado (por tópico OU por URL)? Vale para TODOS os agentes —
-        antes só o doc_agent checava URL, e enciclopédia/GitHub/livros repetiam."""
+        """Já estudado (por tópico OU por URL) ou desistido nesta sessão? Vale
+        para TODOS os agentes — antes só o doc_agent checava URL."""
+        if self._norm(topic) in self._skip_session:
+            return True
         if not self.db:
             return False
         if url and self.db.is_url_studied(url):
@@ -201,6 +234,7 @@ class LearningEngine:
         self._start_time = datetime.now()
         self._saved_count = 0
         self._inflight.clear()
+        self._skip_session.clear()
 
         # Lança workers do pipeline
         self._tasks = [
@@ -242,7 +276,9 @@ class LearningEngine:
             return {"ok": False, "topic": topic, "error": "sem resultados"}
 
         url = sources[0]["url"]
-        summary = await self._summarize(topic, web_context)
+        summary = await self._summarize(topic, web_context, "user_question")
+        if summary is None:
+            return {"ok": False, "topic": topic, "error": "síntese falhou — tente de novo"}
         item = LearnedItem(topic=topic, url=url, summary=summary,
                            category="user_question", agent_name="study_now")
         await self._persist(item)
@@ -259,6 +295,7 @@ class LearningEngine:
 
         self.stats["queue_depth"]         = self._fetch_queue.qsize()
         self.stats["total_session"]       = self._saved_count
+        self.stats["summarize_model"]     = self.summarize_model
         self.stats["current_topic"]       = self._active_summarizing
         self.stats["self_directed_count"] = self._self_directed_count
         self.stats["self_queue_depth"]    = self._self_queue.qsize()
@@ -383,18 +420,37 @@ class LearningEngine:
                 item = await asyncio.wait_for(self._fetch_queue.get(), timeout=5.0)
             except asyncio.TimeoutError:
                 continue
+            await self._process_item(item)
 
-            self._active_summarizing = item.topic
-            logger.info(f"[summarizer] {item.agent_name} → {item.topic[:60]}")
-
-            summary = await self._summarize(item.topic, item.content)
-
+    async def _process_item(self, item: FetchedItem) -> None:
+        """Sumariza um item. Falhou? NÃO salva conteúdo cru como 'conhecimento':
+        re-enfileira UMA vez (o fetch já foi pago); na 2ª falha desiste do tópico
+        nesta sessão. Antes, todo timeout salvava lixo truncado na base."""
+        self._active_summarizing = item.topic
+        logger.info(f"[summarizer] {item.agent_name} → {item.topic[:60]}")
+        try:
+            summary = await self._summarize(item.topic, item.content, item.category)
+            if summary is None:
+                if item.retries < 1:
+                    item.retries += 1
+                    try:
+                        self._fetch_queue.put_nowait(item)   # 2ª chance, sem re-fetch
+                        logger.info(f"[summarizer] re-tentará '{item.topic[:50]}'")
+                        return
+                    except asyncio.QueueFull:
+                        pass  # fila cheia → desiste direto
+                self._skip_session.add(self._norm(item.topic))
+                self._release(item.topic)
+                logger.warning(f"[summarizer] desistiu de '{item.topic[:50]}' nesta sessão "
+                               f"(síntese falhou {item.retries + 1}×; nada foi salvo)")
+                return
             learned = LearnedItem(
                 topic=item.topic, url=item.url, summary=summary,
                 category=item.category, agent_name=item.agent_name,
             )
             # Passa para o saver via atributo (evita mais uma fila)
             asyncio.create_task(self._save_and_record(learned))
+        finally:
             self._active_summarizing = ""
 
     async def _save_worker(self) -> None:
@@ -504,12 +560,18 @@ class LearningEngine:
 
     # ── Sumarização ───────────────────────────────────────────
 
-    async def _summarize(self, topic: str, content: str) -> str:
-        prompt = SUMMARIZE_PROMPT.format(topic=topic, content=content[:MAX_CONTENT_CHARS])
+    async def _summarize(self, topic: str, content: str,
+                         category: str = "web_search") -> str | None:
+        """Sintetiza o conteúdo com o template da categoria (tech vs geral).
+        Retorna None quando falha — o chamador decide re-tentar/desistir;
+        NUNCA devolve conteúdo cru fingindo ser síntese."""
+        template = (SUMMARIZE_PROMPT_GERAL if category in GENERAL_CATEGORIES
+                    else SUMMARIZE_PROMPT)
+        prompt = template.format(topic=topic, content=content[:MAX_CONTENT_CHARS])
         try:
             if self.gpu_gate:
                 await self.gpu_gate.wait_for_idle()
-            return await asyncio.wait_for(
+            out = await asyncio.wait_for(
                 asyncio.to_thread(
                     chat_resilient, self.summarize_model,
                     [{"role": "user", "content": prompt}],
@@ -517,12 +579,13 @@ class LearningEngine:
                 ),
                 timeout=120.0,
             )
+            return out if out and len(out.strip()) >= 80 else None
         except asyncio.TimeoutError:
             logger.warning(f"[summarizer] timeout — {topic[:50]}")
-            return content[:1500]
+            return None
         except Exception as e:
             logger.warning(f"[summarizer] erro — {e}")
-            return content[:1500]
+            return None
 
     # ── Persistência ──────────────────────────────────────────
 
