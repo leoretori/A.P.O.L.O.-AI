@@ -13,6 +13,7 @@ já buscaram os próximos 3 — zero tempo ocioso.
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime
 from dataclasses import dataclass, field
 
@@ -106,6 +107,12 @@ class LearningEngine:
         self._book_agent         = BookAgent(**agent_kwargs)
         self._synthesis_agent    = SynthesisAgent(**agent_kwargs)
 
+        # Anti-repetição in-flight: tópicos atualmente na fila ou em sumarização.
+        # Sem isto, um tópico "elegível" era re-enfileirado a cada ciclo do fetcher
+        # até LOTAR a fila com cópias (bug real: 6× "Teoria da relatividade" — o
+        # tópico só vira "estudado" DEPOIS do save, ~2 min depois do 1º fetch).
+        self._inflight: set[str] = set()
+
         # Filas do pipeline
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
         self._user_queue:  asyncio.Queue[str]         = asyncio.Queue()
@@ -140,6 +147,32 @@ class LearningEngine:
             "total_session": 0,
         }
 
+    # ── Anti-repetição ────────────────────────────────────────
+
+    @staticmethod
+    def _norm(topic: str) -> str:
+        return re.sub(r"\s+", " ", (topic or "").strip().lower())
+
+    def _reserve(self, topic: str) -> bool:
+        """Reserva um tópico para estudo. False = já está na fila/em sumarização."""
+        key = self._norm(topic)
+        if not key or key in self._inflight:
+            return False
+        self._inflight.add(key)
+        return True
+
+    def _release(self, topic: str) -> None:
+        self._inflight.discard(self._norm(topic))
+
+    def _already_known(self, topic: str, url: str = "") -> bool:
+        """Já estudado (por tópico OU por URL)? Vale para TODOS os agentes —
+        antes só o doc_agent checava URL, e enciclopédia/GitHub/livros repetiam."""
+        if not self.db:
+            return False
+        if url and self.db.is_url_studied(url):
+            return True
+        return self.db.is_topic_studied(topic)
+
     # ── API pública ───────────────────────────────────────────
 
     def add_user_topic(self, question: str) -> None:
@@ -167,6 +200,7 @@ class LearningEngine:
         self.stats["running"] = True
         self._start_time = datetime.now()
         self._saved_count = 0
+        self._inflight.clear()
 
         # Lança workers do pipeline
         self._tasks = [
@@ -278,19 +312,28 @@ class LearningEngine:
                 agent.current_topic = topic
 
                 if url_hint:
-                    # Doc / GitHub — fetch direto da URL
-                    if agent is self._doc_agent and self.db and self.db.is_url_studied(url_hint):
+                    # Doc / GitHub / Enciclopédia / Livros — fetch direto da URL.
+                    # Anti-repetição em DUAS camadas: já estudado (tópico OU URL,
+                    # p/ todos os agentes) e in-flight (já está na fila esperando
+                    # sumarização — a janela em que o bug das cópias acontecia).
+                    if self._already_known(topic, url_hint) or not self._reserve(topic):
                         agent.active = False
                         agent.current_topic = ""
                         await asyncio.sleep(1)
                         continue
-                    content = await asyncio.wait_for(fetch_page_text(url_hint), timeout=15.0)
-                    if content and len(content) > 100:
-                        item = FetchedItem(topic=topic, url=url_hint,
-                                           content=content[:MAX_CONTENT_CHARS],
-                                           category=agent.category, agent_name=agent.name)
-                        await self._fetch_queue.put(item)
-                        self._fetched_count += 1
+                    enqueued = False
+                    try:
+                        content = await asyncio.wait_for(fetch_page_text(url_hint), timeout=15.0)
+                        if content and len(content) > 100:
+                            item = FetchedItem(topic=topic, url=url_hint,
+                                               content=content[:MAX_CONTENT_CHARS],
+                                               category=agent.category, agent_name=agent.name)
+                            await self._fetch_queue.put(item)
+                            self._fetched_count += 1
+                            enqueued = True
+                    finally:
+                        if not enqueued:
+                            self._release(topic)
                 else:
                     # Search — DuckDuckGo
                     await self._fetch_and_enqueue_search(topic, agent.category, agent.name)
@@ -309,8 +352,13 @@ class LearningEngine:
     async def _fetch_and_enqueue_search(self, topic: str, category: str, agent_name: str) -> None:
         # Anti-duplicação: não re-estuda tópicos de rotação já aprendidos. Perguntas do
         # usuário e o currículo auto-dirigido podem repetir de propósito, então passam.
-        if category not in ("user_question", "self_directed") and self.db and self.db.is_topic_studied(topic):
+        if category not in ("user_question", "self_directed") and self._already_known(topic):
             return
+        # In-flight: nunca duas cópias do mesmo tópico na fila ao mesmo tempo
+        # (vale para todas as categorias — repetir DEPOIS de salvo é permitido).
+        if not self._reserve(topic):
+            return
+        enqueued = False
         try:
             web_context, sources = await asyncio.wait_for(
                 web_research(topic, max_results=2), timeout=18.0
@@ -321,8 +369,12 @@ class LearningEngine:
                                    category=category, agent_name=agent_name)
                 await self._fetch_queue.put(item)
                 self._fetched_count += 1
+                enqueued = True
         except Exception as e:
             logger.debug(f"[search] {topic[:40]}: {e}")
+        finally:
+            if not enqueued:
+                self._release(topic)
 
     async def _summarize_worker(self) -> None:
         """Único consumidor do Ollama — serializa LLM para evitar contenção."""
@@ -357,9 +409,14 @@ class LearningEngine:
                 )
 
     async def _save_and_record(self, item: LearnedItem) -> None:
-        await self._persist(item)
-        self._record_activity(item)
-        self._saved_count += 1
+        try:
+            await self._persist(item)
+            self._record_activity(item)
+            self._saved_count += 1
+        finally:
+            # Só aqui o tópico sai do in-flight: a partir de agora ele consta como
+            # "estudado" no banco, então os fetchers não o pegam de novo.
+            self._release(item.topic)
 
         # Dispara síntese cross-domain a cada N itens
         if self._saved_count % SYNTHESIS_EVERY == 0:

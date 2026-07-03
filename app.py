@@ -333,6 +333,13 @@ async def lifespan(app: FastAPI):
     # Resolve o modelo leve do chat (rápido na CPU); 14b fica para tarefas pesadas.
     CHAT_MODEL = _pick_chat_model()
     VISION_MODEL = _pick_vision_model()
+    # Sumarização do aprendizado no modelo LEVE por padrão: com o 14b na CPU cada
+    # síntese estourava o timeout de 120s (TODO item era salvo como conteúdo cru,
+    # e a geração órfã seguia ocupando o Ollama, atrasando os próximos em cascata).
+    # SUMMARIZE_MODEL definido no .env continua mandando.
+    if not os.getenv("SUMMARIZE_MODEL", "").strip() and learner and CHAT_MODEL != MODEL:
+        learner.summarize_model = CHAT_MODEL
+        logger.info(f"[learner] sumarização no modelo leve: {CHAT_MODEL}")
     # Pré-carrega ambos os modelos — 1ª resposta sem cold start, mesmo quando AUTO_SMART
     # escala para 14b. O warmup do 14b roda 10s depois para não competir com o startup.
     asyncio.create_task(warmup(CHAT_MODEL))
