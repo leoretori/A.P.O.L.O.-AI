@@ -1,0 +1,119 @@
+"""Testes das melhorias de autonomia do Coder: leitura parcial de arquivos
+grandes, parser LER com faixa de linhas, poda da memória de lições e o
+diário de bordo de tarefas (storage)."""
+
+import pytest
+
+from src.coder import CoderWorkspace
+from src.lessons import LessonMemory
+from src.storage import DatabaseManager
+
+
+@pytest.fixture
+def ws(tmp_path):
+    return CoderWorkspace(str(tmp_path))
+
+
+@pytest.fixture
+def db(tmp_path):
+    return DatabaseManager(database_url=f"sqlite:///{tmp_path}/test.db")
+
+
+# ── LER parcial (faixa de linhas) ─────────────────────────────────
+def _big_file(ws, n=300):
+    ws.write_file("grande.py", "\n".join(f"linha_{i} = {i}" for i in range(1, n + 1)))
+
+
+def test_read_file_faixa_de_linhas(ws):
+    _big_file(ws)
+    out = ws.read_file("grande.py", start=10, end=12)
+    assert "(linhas 10-12 de 300)" in out
+    assert "linha_10" in out and "linha_12" in out
+    assert "linha_9 " not in out and "linha_13" not in out
+
+
+def test_read_file_faixa_alem_do_fim(ws):
+    _big_file(ws, n=20)
+    out = ws.read_file("grande.py", start=500, end=600)
+    assert "20 linhas" in out
+
+
+def test_read_file_faixa_fim_ajustado(ws):
+    _big_file(ws, n=20)
+    out = ws.read_file("grande.py", start=18, end=99)
+    assert "(linhas 18-20 de 20)" in out
+
+
+def test_read_file_truncado_ensina_a_continuar(ws):
+    _big_file(ws, n=800)   # bem maior que max_chars=6000
+    out = ws.read_file("grande.py")
+    assert "use LER grande.py:" in out   # dica acionável de leitura parcial
+
+
+def test_read_file_pequeno_sem_ruido(ws):
+    ws.write_file("p.py", "x = 1\n")
+    out = ws.read_file("p.py")
+    assert out == "x = 1\n"
+    assert "truncado" not in out
+
+
+# ── Parser: LER caminho:início-fim ────────────────────────────────
+def test_parse_ler_com_faixa():
+    from app import _parse_coder_action
+    action, arg, payload = _parse_coder_action("LER src/app.py:40-120")
+    assert (action, arg, payload) == ("read", "src/app.py", "40-120")
+
+
+def test_parse_ler_sem_faixa_continua_igual():
+    from app import _parse_coder_action
+    action, arg, payload = _parse_coder_action("LER src/app.py")
+    assert (action, arg, payload) == ("read", "src/app.py", "")
+
+
+# ── Poda da memória de lições ─────────────────────────────────────
+def test_licoes_poda_no_cap(tmp_path):
+    mem = LessonMemory(str(tmp_path / "l.db"), max_rows=5)
+    for i in range(8):
+        mem.add(f"tarefa {i}", f"Lição número {i} sobre o assunto tarefa-{i} deste workspace.")
+    assert mem.count() == 5
+    # As mais recentes sobrevivem (poda remove as antigas menos usadas).
+    lessons = " ".join(l["lesson"] for l in mem.recent(10))
+    assert "número 7" in lessons and "número 0" not in lessons
+
+
+def test_licoes_poda_protege_regressao(tmp_path):
+    mem = LessonMemory(str(tmp_path / "l.db"), max_rows=3)
+    mem.add("tarefa regressao", "Regressão antiga: parser quebrou a suíte de testes uma vez.",
+            kind="regression")
+    for i in range(4):
+        mem.add(f"tarefa {i}", f"Reflexão comum número {i} sobre este workspace em particular.")
+    lessons = " ".join(l["lesson"] for l in mem.recent(10))
+    # A regressão (mais antiga que todas) sobrevive; reflexões antigas caem.
+    assert "Regressão antiga" in lessons
+    assert mem.count() == 3
+
+
+# ── Diário de bordo do Coder (storage) ────────────────────────────
+def test_coder_task_salva_e_lista(db):
+    db.save_coder_task("criar CLI de soma", model="qwen2.5-coder:3b", steps=5,
+                       wrote=True, ran=True, reverted=False, duration_s=42.7,
+                       summary="Criei soma.py com testes.")
+    tasks = db.get_coder_tasks()
+    assert len(tasks) == 1
+    t = tasks[0]
+    assert t["task"] == "criar CLI de soma"
+    assert t["steps"] == 5 and t["wrote"] is True and t["reverted"] is False
+    assert t["duration_s"] == 42.7
+
+
+def test_coder_stats_taxa_de_sucesso(db):
+    for rev in (False, False, False, True):
+        db.save_coder_task("t", reverted=rev)
+    st = db.get_coder_stats()
+    assert st["total"] == 4 and st["reverted"] == 1
+    assert st["success_rate"] == 75
+
+
+def test_coder_stats_vazio(db):
+    st = db.get_coder_stats()
+    assert st["total"] == 0 and st["success_rate"] is None

@@ -43,7 +43,10 @@ def _tokens(text: str) -> set[str]:
 class LessonMemory:
     """Memória persistente de lições do Coder, com recall lexical."""
 
-    def __init__(self, path: str = "data/lessons.db"):
+    def __init__(self, path: str = "data/lessons.db", max_rows: int | None = None):
+        # Curadoria automática: acima de max_rows, as lições menos usadas e mais
+        # antigas são podadas (regressões têm proteção extra — custam caro).
+        self.max_rows = max_rows if max_rows is not None else int(os.getenv("LESSONS_MAX", 300))
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self._lock = threading.Lock()
         self._conn = sqlite3.connect(path, check_same_thread=False)
@@ -85,9 +88,24 @@ class LessonMemory:
                 (datetime.now().isoformat(timespec="seconds"), task, lesson,
                  kind, " ".join(sorted(toks))),
             )
+            self._prune_locked()
             self._conn.commit()
             logger.info(f"[lessons] + ({kind}) {lesson[:80]}")
             return cur.lastrowid
+
+    def _prune_locked(self) -> None:
+        """Poda as lições excedentes — as menos usadas/mais antigas saem primeiro;
+        regressões ganham proteção extra no ranking. Chamar com o lock adquirido."""
+        total = self._conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
+        excess = total - self.max_rows
+        if excess <= 0:
+            return
+        self._conn.execute(
+            "DELETE FROM lessons WHERE id IN ("
+            "  SELECT id FROM lessons "
+            "  ORDER BY (hits + CASE WHEN kind='regression' THEN 5 ELSE 0 END) ASC, id ASC "
+            "  LIMIT ?)", (excess,))
+        logger.info(f"[lessons] poda: {excess} lição(ões) antigas removidas (cap {self.max_rows})")
 
     def relevant(self, task: str, limit: int = 4) -> list[dict]:
         """Lições mais relevantes para a tarefa — score por sobreposição de

@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import sys
 import json
 import logging
@@ -107,6 +108,17 @@ CODER_CTX_CHARS = int(os.getenv("CODER_CTX_CHARS", 20000))
 # Reflexão pós-tarefa do Coder: extrai 1 lição e guarda na memória de lições
 # (data/lessons.db) — injetada nas próximas tarefas parecidas. CODER_REFLECT=0 desativa.
 CODER_REFLECT = os.getenv("CODER_REFLECT", "1") not in ("0", "false", "False")
+# Cache do baseline da guarda de regressão: se a suíte foi medida há pouco e nada
+# mudou por fora, o Coder não re-roda a suíte INTEIRA no início de cada tarefa
+# (na CPU isso economiza minutos por tarefa). Invalidado por qualquer mudança
+# feita fora do loop (terminal, apagar/mover/substituir, undo, troca de pasta).
+CODER_BASELINE_TTL = int(os.getenv("CODER_BASELINE_TTL", 900))
+_coder_baseline_cache: dict[str, tuple[bool, float]] = {}
+
+
+def _invalidate_baseline() -> None:
+    """Workspace mudou fora do loop do Coder → baseline de testes não vale mais."""
+    _coder_baseline_cache.clear()
 # Auto-avaliação: após rascunhar a resposta, o agente critica e refina a si mesmo (1 passe).
 AGENT_SELF_EVAL = os.getenv("AGENT_SELF_EVAL", "1") not in ("0", "false", "False", "")
 # Memória de conversas longas: acima de SUMMARY_TRIGGER msgs, resume as antigas;
@@ -966,6 +978,10 @@ def _parse_coder_action(content: str) -> tuple[str, str, str]:
             # sem bloco ainda — trata como pedido incompleto; deixa o modelo refazer
             return "write", arg, ""
         if verb == "LER":
+            # LER caminho:10-80 — leitura parcial por faixa de linhas (arquivos grandes)
+            m_rng = re.match(r"(.+?):(\d+)-(\d+)$", arg)
+            if m_rng:
+                return "read", m_rng.group(1).strip(), f"{m_rng.group(2)}-{m_rng.group(3)}"
             return "read", arg, ""
         if verb == "LISTAR":
             return "list", arg, ""
@@ -1008,6 +1024,7 @@ async def coder(req: ChatRequest):
 
     async def stream():
         answer = ""
+        t0 = _time.time()
         try:
             system_content = CODER_SYSTEM + CODER_DOCTRINE + CODER_TREE_SECTION.format(tree=coder_ws.tree())
             # ── Autoaprendizado: injeta lições de tarefas anteriores parecidas ──
@@ -1059,15 +1076,27 @@ async def coder(req: ChatRequest):
                 os.path.exists(os.path.join(_root, "pytest.ini"))
             baseline_green = False
             if has_tests:
-                yield _ev({"type": "step", "icon": "🛡️", "message": "Guarda de regressão: verificando a suíte de testes (baseline)..."})
-                baseline_green, _ = await asyncio.to_thread(coder_ws.run_cmd, "python -m pytest -q", 300)
-                yield _ev({"type": "step", "icon": "🛡️",
-                           "message": f"Baseline: testes {'PASSANDO' if baseline_green else 'já vermelhos (guarda desativada)'}"})
+                _cached = _coder_baseline_cache.get(_root)
+                if _cached and (_time.time() - _cached[1]) < CODER_BASELINE_TTL:
+                    baseline_green = _cached[0]
+                    yield _ev({"type": "step", "icon": "🛡️",
+                               "message": f"Baseline em cache ({int(_time.time() - _cached[1])}s atrás): "
+                                          f"testes {'PASSANDO' if baseline_green else 'vermelhos (guarda desativada)'} — suíte não re-rodada"})
+                else:
+                    yield _ev({"type": "step", "icon": "🛡️", "message": "Guarda de regressão: verificando a suíte de testes (baseline)..."})
+                    baseline_green, _ = await asyncio.to_thread(coder_ws.run_cmd, "python -m pytest -q", 300)
+                    _coder_baseline_cache[_root] = (baseline_green, _time.time())
+                    yield _ev({"type": "step", "icon": "🛡️",
+                               "message": f"Baseline: testes {'PASSANDO' if baseline_green else 'já vermelhos (guarda desativada)'}"})
 
             wrote_files = False
             did_run = False
             nudged = False
             reverted = False
+            rescue_used = False          # resgate único p/ resposta sem ação válida
+            last_sig: tuple = ("", "")   # anti-loop: última (ação, alvo) executada
+            repeat_count = 0
+            steps_used = 0
             actions_log: list[str] = []  # trilha p/ reflexão pós-tarefa
             compact_notified = False
 
@@ -1099,8 +1128,23 @@ async def coder(req: ChatRequest):
                     chat_resilient, model, messages, keep_alive=keep,
                 ) or ""
                 action, arg, payload = _parse_coder_action(content)
+                steps_used = step + 1
 
                 if action == "done":
+                    # Resgate único: o modelo despejou código solto (bloco ``` sem
+                    # ESCREVER/EDITAR) ou veio vazio — sem isto, a tarefa terminaria
+                    # "concluída" sem o código ter ido para arquivo nenhum.
+                    stray_code = "```" in content and "CONCLU" not in content.upper()
+                    if (stray_code or not content.strip()) and not rescue_used:
+                        rescue_used = True
+                        yield _ev({"type": "step", "icon": "🩹",
+                                   "message": "Resposta sem ação válida — pedindo o formato correto..."})
+                        messages.append({"role": "assistant", "content": content})
+                        messages.append({"role": "user", "content":
+                            "Sua resposta NÃO continha uma ação válida. Escolha UMA ação no formato exato: "
+                            "para criar/alterar arquivo, 'ESCREVER <caminho>' (ou 'EDITAR <caminho>') "
+                            "seguido do conteúdo; para terminar, 'CONCLUIR' + resumo. Refaça agora:"})
+                        continue
                     # Não deixa concluir sem verificar: se escreveu código mas nunca rodou,
                     # exige uma execução real (evita "achar" que funciona sem testar).
                     if wrote_files and not did_run and not nudged:
@@ -1121,8 +1165,14 @@ async def coder(req: ChatRequest):
                     yield _ev({"type": "step", "icon": "📂", "message": f"LISTAR {arg or '.'}"})
                     obs = f"Conteúdo de '{arg or '.'}':\n{out}"
                 elif action == "read":
-                    out = await asyncio.to_thread(coder_ws.read_file, arg)
-                    yield _ev({"type": "step", "icon": "📖", "message": f"LER {arg}"})
+                    if payload:  # faixa de linhas "início-fim"
+                        _a, _b = payload.split("-", 1)
+                        out = await asyncio.to_thread(
+                            coder_ws.read_file, arg, 6000, int(_a), int(_b))
+                        yield _ev({"type": "step", "icon": "📖", "message": f"LER {arg}:{payload}"})
+                    else:
+                        out = await asyncio.to_thread(coder_ws.read_file, arg)
+                        yield _ev({"type": "step", "icon": "📖", "message": f"LER {arg}"})
                     obs = f"Arquivo '{arg}':\n```\n{out}\n```"
                 elif action == "search":
                     out = await asyncio.to_thread(coder_ws.search, arg)
@@ -1234,6 +1284,24 @@ async def coder(req: ChatRequest):
                 else:
                     obs = ""
 
+                # Anti-loop: repetir a MESMA ação com o MESMO alvo é sinal de que o
+                # modelo travou (o resultado não vai mudar). 1ª repetição → aviso
+                # explícito; 2ª → encerra o loop e pede a conclusão com o que há.
+                if (action, arg) == last_sig:
+                    repeat_count += 1
+                else:
+                    repeat_count = 0
+                    last_sig = (action, arg)
+                if repeat_count >= 2:
+                    yield _ev({"type": "step", "icon": "🔁",
+                               "message": f"Loop detectado ({action.upper()} {arg[:40]} repetido 3×) — encerrando para não desperdiçar passos."})
+                    messages.append({"role": "user", "content":
+                        obs + "\n\nVocê repetiu a mesma ação 3 vezes — PARE. CONCLUA agora resumindo o que conseguiu e o que ficou pendente."})
+                    break
+                if repeat_count == 1:
+                    obs = ("⚠️ Você REPETIU exatamente a ação anterior — o resultado é o mesmo. "
+                           "NÃO repita de novo; tente uma abordagem DIFERENTE.\n\n" + obs)
+
                 messages.append({"role": "user", "content":
                     obs + "\n\nPróxima ação (ou CONCLUIR com o resumo final)."})
 
@@ -1250,6 +1318,11 @@ async def coder(req: ChatRequest):
             if wrote_files and has_tests and baseline_green:
                 yield _ev({"type": "step", "icon": "🛡️", "message": "Guarda de regressão: revalidando a suíte após as alterações..."})
                 final_green, final_out = await asyncio.to_thread(coder_ws.run_cmd, "python -m pytest -q", 300)
+                if final_green:
+                    _coder_baseline_cache[_root] = (True, _time.time())
+                else:
+                    # Revert restaura os arquivos, mas re-mede na próxima tarefa.
+                    _coder_baseline_cache.pop(_root, None)
                 if not final_green:
                     reverted = True
                     res = await asyncio.to_thread(coder_ws.undo_all)
@@ -1305,6 +1378,17 @@ async def coder(req: ChatRequest):
                 except Exception as _refl_err:
                     logger.debug(f"coder reflect: {_refl_err}")
 
+            # Diário de bordo: cada tarefa vira um registro persistente (passos,
+            # duração, escreveu/rodou/revertida) — autonomia visível + matéria-prima
+            # para acompanhar a taxa de sucesso do Coder ao longo do tempo.
+            if db:
+                try:
+                    await asyncio.to_thread(
+                        db.save_coder_task, task, model, steps_used, wrote_files,
+                        did_run, reverted, _time.time() - t0, answer)
+                except Exception as _journal_err:
+                    logger.debug(f"coder journal: {_journal_err}")
+
             yield _ev({"type": "step", "icon": "📁", "message": f"Workspace:\n{coder_ws.tree(40)}"})
             yield _ev({"type": "token", "content": answer})
             yield _ev({"type": "done", "answer": answer})
@@ -1341,6 +1425,18 @@ async def coder_lesson_delete(lesson_id: int):
     return {"ok": ok}
 
 
+@app.get("/api/coder/tasks")
+async def coder_tasks(limit: int = 20):
+    """Diário de bordo do Coder — tarefas executadas + taxa de sucesso."""
+    if not db:
+        return {"stats": {"total": 0}, "tasks": []}
+    stats, tasks = await asyncio.gather(
+        asyncio.to_thread(db.get_coder_stats),
+        asyncio.to_thread(db.get_coder_tasks, limit),
+    )
+    return {"stats": stats, "tasks": tasks}
+
+
 class CoderExecRequest(BaseModel):
     cmd: str
 
@@ -1375,6 +1471,7 @@ async def coder_exec_ws(ws: WebSocket):
                 ok = val
                 break
         await fut
+        _invalidate_baseline()  # o comando pode ter mudado o workspace
         await ws.send_json({"type": "done", "ok": ok})
     except WebSocketDisconnect:
         pass
@@ -1418,6 +1515,7 @@ async def coder_exec(req: CoderExecRequest):
             else:
                 ok = val; break
         await fut
+        _invalidate_baseline()  # o comando pode ter mudado o workspace
         yield _ev({"type": "step", "icon": "✓" if ok else "✗", "message": "concluído" if ok else "falhou"})
         yield _ev({"type": "done", "ok": ok})
 
@@ -1440,6 +1538,7 @@ class CoderPathRequest(BaseModel):
 async def coder_delete(req: CoderPathRequest):
     """Apaga um arquivo do workspace (reversível via histórico)."""
     out = await asyncio.to_thread(coder_ws.delete_file, req.path)
+    _invalidate_baseline()
     return {"ok": out.startswith("OK"), "message": out}
 
 
@@ -1451,7 +1550,9 @@ class CoderReplaceRequest(BaseModel):
 @app.post("/api/coder/replace")
 async def coder_replace(req: CoderReplaceRequest):
     """Busca-e-substitui em massa no workspace (cada arquivo vira snapshot reversível)."""
-    return await asyncio.to_thread(coder_ws.search_replace, req.find, req.replace)
+    res = await asyncio.to_thread(coder_ws.search_replace, req.find, req.replace)
+    _invalidate_baseline()
+    return res
 
 
 @app.get("/api/coder/git")
@@ -1476,6 +1577,7 @@ class CoderMoveRequest(BaseModel):
 async def coder_move(req: CoderMoveRequest):
     """Renomeia/move um arquivo no workspace (reversível)."""
     out = await asyncio.to_thread(coder_ws.rename_file, req.src, req.dst)
+    _invalidate_baseline()
     return {"ok": out.startswith("OK"), "message": out}
 
 
@@ -1487,6 +1589,7 @@ class CoderUndoRequest(BaseModel):
 @app.post("/api/coder/undo")
 async def coder_undo(req: CoderUndoRequest):
     """Desfaz/descarta alterações feitas pelo Coder (snapshots da sessão)."""
+    _invalidate_baseline()
     if req.all:
         return await asyncio.to_thread(coder_ws.undo_all)
     if req.path:
@@ -1502,6 +1605,7 @@ class CoderWorkspaceRequest(BaseModel):
 async def coder_set_workspace(req: CoderWorkspaceRequest):
     """Aponta o Coder para um diretório existente (projeto real)."""
     res = await asyncio.to_thread(coder_ws.set_root, req.path)
+    _invalidate_baseline()
     if res.get("ok"):
         res["tree"] = coder_ws.tree(80)
     return res
@@ -1617,6 +1721,7 @@ async def coder_sandbox_apply(req: SandboxApplyRequest):
     if not coder_sandbox_path:
         return {"ok": False, "error": "nenhuma cópia ativa"}
     res = await asyncio.to_thread(sandbox.apply_sandbox, coder_sandbox_path, PROJECT_ROOT, req.paths)
+    _invalidate_baseline()
     return res
 
 

@@ -1154,6 +1154,11 @@
           <span class="coder-icon-btn" onclick="refreshCoderLessons()" title="Atualizar lições">↻</span>
         </div>
         <div id="coder-lessons" class="coder-pane" style="max-height:130px;overflow-y:auto;font-size:10px;color:#999;padding:6px 10px"></div>
+        <div class="coder-pane-head" style="margin-top:10px">
+          <span>📜 Tarefas recentes <span id="coder-tasks-stats" style="color:#555;text-transform:none;letter-spacing:0"></span></span>
+          <span class="coder-icon-btn" onclick="refreshCoderTasks()" title="Atualizar histórico">↻</span>
+        </div>
+        <div id="coder-tasks" class="coder-pane" style="max-height:110px;overflow-y:auto;font-size:10px;color:#999;padding:6px 10px"></div>
         <div id="coder-git" style="font-size:10px;color:#888;margin-top:8px"></div>
       </div>
     </div>
@@ -1833,6 +1838,35 @@
       renderCoderChanges(d.changes || []);
       refreshCoderGit();
       refreshCoderLessons();
+      refreshCoderTasks();
+    } catch {}
+  }
+
+  // ── Diário de bordo do Coder (tarefas executadas + taxa de sucesso) ───────
+  async function refreshCoderTasks() {
+    const box = document.getElementById('coder-tasks');
+    if (!box) return;
+    try {
+      const d = await fetch('/api/coder/tasks?limit=8').then(r=>r.json());
+      const st = d.stats || {};
+      const statsEl = document.getElementById('coder-tasks-stats');
+      if (statsEl) statsEl.textContent = st.total
+        ? `(${st.total}${st.success_rate !== null && st.success_rate !== undefined ? ` · ${st.success_rate}% ✓` : ''})` : '';
+      const tasks = d.tasks || [];
+      if (!tasks.length) {
+        box.innerHTML = '<div style="color:#444;padding:4px 0">Nenhuma tarefa executada ainda.</div>';
+        return;
+      }
+      box.innerHTML = tasks.map(t => {
+        const icon = t.reverted ? '↩️' : (t.wrote ? '✅' : '💬');
+        const dur = t.duration_s >= 60 ? `${Math.round(t.duration_s/60)}min` : `${Math.round(t.duration_s||0)}s`;
+        const tip = `${escHtml(t.task)}&#10;${t.steps} passo(s) · ${dur} · ${escHtml(t.model||'')}${t.reverted ? '&#10;↩️ revertida pela guarda de regressão' : ''}`;
+        return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #16161c">
+          <span>${icon}</span>
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${t.reverted?'#f87171':'#a8a8b0'}" title="${tip}">${escHtml(t.task)}</span>
+          <span style="color:#555;flex-shrink:0">${_relTime(t.created_at)}</span>
+        </div>`;
+      }).join('');
     } catch {}
   }
 
@@ -2294,12 +2328,16 @@
     showIngestToast('🗑️ Cópia descartada. Projeto real intacto.');
   }
 
+  let _coderAbort = null;   // AbortController da tarefa em curso (⏹ Parar)
   async function runCoder() {
+    if (_coderAbort) { _coderAbort.abort(); return; }   // 2º clique = parar
     const task = document.getElementById('coder-task').value.trim();
     if (!task) return;
     const btn = document.getElementById('coder-run-btn');
     const trace = document.getElementById('coder-trace');
-    btn.disabled = true; btn.textContent = '⏳ Trabalhando…';
+    _coderAbort = new AbortController();
+    btn.textContent = '⏹ Parar';
+    btn.title = 'Interromper a tarefa agora';
     trace.innerHTML = '';
     const addStep = (icon, msg) => {
       const div = document.createElement('div');
@@ -2418,7 +2456,8 @@
     try {
       const resp = await fetch('/api/coder', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({message: task, smart: coderSmart})
+        body: JSON.stringify({message: task, smart: coderSmart}),
+        signal: _coderAbort.signal
       });
       const reader = resp.body.getReader();
       const dec = new TextDecoder(); let buf = '', answer = '';
@@ -2444,11 +2483,13 @@
       fin.style.cssText = 'margin-top:10px;padding:10px;background:#0e2b27;border:1px solid #1e5b52;border-radius:8px;color:#d7fff7;white-space:pre-wrap;line-height:1.5';
       fin.innerHTML = '<b>✅ Concluído</b>\n' + escHtml(answer.trim() || 'Tarefa encerrada — veja o workspace ao lado.');
       trace.appendChild(fin); trace.scrollTop = trace.scrollHeight;
-      refreshCoderTree();
     } catch (e) {
-      addStep('❌', 'Falha: ' + e.message);
+      if (e.name === 'AbortError') addStep('⏹', 'Tarefa interrompida por você. As alterações já feitas estão no histórico (dá para desfazer).');
+      else addStep('❌', 'Falha: ' + e.message);
     } finally {
-      btn.disabled = false; btn.textContent = '▶ Executar';
+      _coderAbort = null;
+      btn.disabled = false; btn.textContent = '▶ Executar'; btn.title = '';
+      refreshCoderTree();
     }
   }
 

@@ -198,7 +198,11 @@ class CoderWorkspace:
             entries.append(f"{p.name}/" if p.is_dir() else p.name)
         return "\n".join(entries) if entries else "(vazio)"
 
-    def read_file(self, rel: str, max_chars: int = 6000) -> str:
+    def read_file(self, rel: str, max_chars: int = 6000,
+                  start: int | None = None, end: int | None = None) -> str:
+        """Lê um arquivo, inteiro ou por faixa de linhas (start/end, 1-based).
+        Arquivos grandes são truncados com uma dica de como ler o resto por
+        faixa — assim o modelo consegue navegar qualquer tamanho de arquivo."""
         try:
             p = self._safe(rel)
         except ValueError as e:
@@ -209,7 +213,23 @@ class CoderWorkspace:
             text = p.read_text(encoding="utf-8", errors="replace")
         except Exception as e:
             return f"(erro ao ler: {e})"
-        return text[:max_chars] + ("\n…(truncado)" if len(text) > max_chars else "")
+        if start is not None:
+            lines = text.splitlines()
+            total = len(lines)
+            lo = max(1, start)
+            hi = min(total, end if end is not None else lo + 120)
+            if lo > total:
+                return f"(o arquivo tem só {total} linhas — pediu a partir da {lo})"
+            chunk = "\n".join(lines[lo - 1:hi])
+            return (f"(linhas {lo}-{hi} de {total})\n" + chunk[:max_chars]
+                    + ("\n…(faixa truncada)" if len(chunk) > max_chars else ""))
+        if len(text) > max_chars:
+            total = text.count("\n") + 1
+            shown = text[:max_chars]
+            upto = shown.count("\n") + 1
+            return (shown + f"\n…(truncado na linha ~{upto} de {total} — "
+                    f"use LER {rel}:{upto}-{min(total, upto + 120)} para continuar)")
+        return text
 
     def current_content(self, rel: str) -> str:
         """Conteúdo atual do arquivo (cru, sem truncar) — usado para gerar o diff."""

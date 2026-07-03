@@ -104,6 +104,22 @@ class Reaction(Base):
     created_at   = Column(DateTime, default=_now)
 
 
+class CoderTask(Base):
+    """Diário de bordo do Coder — cada tarefa executada vira um registro
+    (autonomia visível + matéria-prima para automelhoria)."""
+    __tablename__ = "coder_tasks"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=_now)
+    task       = Column(Text, nullable=False)
+    model      = Column(String(80))
+    steps      = Column(Integer, default=0)      # passos ReAct usados
+    wrote      = Column(Boolean, default=False)  # escreveu/editou arquivos?
+    ran        = Column(Boolean, default=False)  # rodou comandos?
+    reverted   = Column(Boolean, default=False)  # guarda de regressão desfez tudo?
+    duration_s = Column(Float, default=0.0)
+    summary    = Column(Text, default="")        # resumo final (truncado)
+
+
 class BenchmarkRun(Base):
     """Histórico persistente de runs do benchmark de qualidade."""
     __tablename__ = "benchmark_runs"
@@ -545,6 +561,36 @@ class DatabaseManager:
             if len(out) >= limit:
                 break
         return out
+
+    # ── Diário de tarefas do Coder ────────────────────────────
+    def save_coder_task(self, task: str, model: str = "", steps: int = 0,
+                        wrote: bool = False, ran: bool = False, reverted: bool = False,
+                        duration_s: float = 0.0, summary: str = "") -> int:
+        with Session(self.engine) as s:
+            row = CoderTask(task=task[:500], model=model, steps=steps, wrote=wrote,
+                            ran=ran, reverted=reverted, duration_s=round(duration_s, 1),
+                            summary=(summary or "")[:400])
+            s.add(row); s.commit()
+            return row.id
+
+    def get_coder_tasks(self, limit: int = 20) -> list[dict]:
+        with Session(self.engine) as s:
+            rows = (s.query(CoderTask)
+                    .order_by(CoderTask.id.desc()).limit(limit).all())
+            return [{"id": r.id, "created_at": r.created_at.isoformat(),
+                     "task": r.task, "model": r.model, "steps": r.steps,
+                     "wrote": r.wrote, "ran": r.ran, "reverted": r.reverted,
+                     "duration_s": r.duration_s, "summary": r.summary} for r in rows]
+
+    def get_coder_stats(self) -> dict:
+        """Taxa de sucesso do Coder — % de tarefas concluídas sem reversão."""
+        from sqlalchemy import func
+        with Session(self.engine) as s:
+            total = s.query(func.count(CoderTask.id)).scalar() or 0
+            reverted = (s.query(func.count(CoderTask.id))
+                        .filter(CoderTask.reverted == True).scalar() or 0)
+            return {"total": total, "reverted": reverted,
+                    "success_rate": round(100 * (total - reverted) / total) if total else None}
 
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct

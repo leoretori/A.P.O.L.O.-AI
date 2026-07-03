@@ -76,6 +76,7 @@ A CADA TURNO, escolha EXATAMENTE UMA ação e escreva NADA além dela:
 
 1. LISTAR <caminho>            — lista um diretório do workspace (use "." para a raiz)
 2. LER <caminho>              — mostra o conteúdo de um arquivo
+   LER <caminho>:10-80        — só as linhas 10 a 80 (use para navegar arquivos GRANDES; a leitura completa avisa quando truncar)
 2b. BUSCAR <texto>            — procura um texto dentro dos arquivos (grep) e mostra path:linha
 2c. ACHAR <padrão>           — lista arquivos cujo nome/caminho contém o padrão
 3. ESCREVER <caminho>         — cria um arquivo NOVO (ou substitui todo o conteúdo); abaixo, o conteúdo COMPLETO num único bloco ```:
