@@ -605,6 +605,17 @@ class DatabaseManager:
                 "success_rate": round(100 * (total - reverted) / total) if total else None,
                 "recent_rate": recent_rate, "prev_rate": prev_rate, "trend": trend}
 
+    def update_topic_summary(self, topic_id: int, summary: str) -> bool:
+        """Substitui a síntese de um tópico aprendido (reparo in-place —
+        não cria linha nova no log)."""
+        with Session(self.engine) as s:
+            row = s.get(LearnedTopic, topic_id)
+            if not row:
+                return False
+            row.summary = summary[:2000]
+            s.commit()
+            return True
+
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct
         today = _now().replace(hour=0, minute=0, second=0, microsecond=0)

@@ -2963,6 +2963,20 @@ async def stop_learning():
     return {"ok": True, "status": learner.get_status()}
 
 
+@app.post("/api/learning/repair")
+async def learning_repair(limit: int = 8):
+    """Repara sínteses cruas (timeouts antigos salvaram texto truncado como
+    conhecimento): re-sintetiza em background e avisa via notificação."""
+    if not learner or not db:
+        return {"ok": False, "error": "learner indisponível"}
+    rows = await asyncio.to_thread(db.get_learning_history, 300)
+    found = sum(1 for r in rows if learner._looks_raw(r.get("summary", "")))
+    if not found:
+        return {"ok": True, "found": 0}
+    asyncio.create_task(learner.repair_raw_summaries(limit))
+    return {"ok": True, "found": found, "started": min(found, limit)}
+
+
 @app.get("/api/learning/status")
 async def learning_status():
     return learner.get_status() if learner else {"running": False}

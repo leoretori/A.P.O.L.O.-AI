@@ -1314,6 +1314,7 @@
       <div id="mind-toolbar">
         <button id="mind-digest"   onclick="digestToday()"       title="O que o A.P.O.L.O. aprendeu nas últimas 24h">📅 Hoje</button>
         <button id="mind-curate"   onclick="curateMemory()"      title="Procurar e remover conhecimento duplicado">🧹 Curar</button>
+        <button id="mind-repair"   onclick="repairSummaries()"   title="Re-sintetizar conhecimentos salvos crus (timeouts antigos)">🩹 Reparar</button>
         <button id="mind-schedule" onclick="openSchedules()"     title="Agendar estudos diários">⏰ Agendar</button>
         <button id="mind-map"      onclick="openGraph()"         title="Mapa visual do conhecimento">🗺️ Mapa</button>
         <button id="mind-reindex"  onclick="reindexEpisodic()"   title="Indexar conversas antigas na memória semântica">💬 Reindexar</button>
@@ -4326,6 +4327,23 @@
       btn.textContent = '✗ Erro';
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 2000);
     }
+  }
+
+  // ── Reparo de sínteses cruas (timeouts antigos) ───────────────
+  async function repairSummaries() {
+    const btn = document.getElementById('mind-repair');
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '🩹 Verificando…';
+    try {
+      const d = await fetch('/api/learning/repair', {method:'POST'}).then(r => r.json());
+      if (!d.ok) { btn.textContent = '✗ ' + (d.error || 'erro'); }
+      else if (!d.found) { btn.textContent = '✨ Nada cru'; }
+      else {
+        btn.textContent = `🩹 Reparando ${d.started}/${d.found}…`;
+        alert(`🩹 Encontrei ${d.found} síntese(s) crua(s) — re-sintetizando ${d.started} em segundo plano.\nO resultado chega nas 🔔 notificações. Rode de novo para reparar as demais.`);
+      }
+    } catch(e) { btn.textContent = '✗ Erro'; }
+    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
   }
 
   // ── Curador de Memória (dedup) ───────────────────────────────

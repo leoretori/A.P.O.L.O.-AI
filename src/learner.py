@@ -287,6 +287,51 @@ class LearningEngine:
         return {"ok": True, "topic": topic, "url": url, "summary": summary,
                 "agent": "study_now", "time": item.timestamp}
 
+    @staticmethod
+    def _looks_raw(summary: str) -> bool:
+        """Heurística: síntese de verdade tem estrutura markdown (seções '##');
+        conteúdo cru salvo pelos timeouts antigos não tem — é texto corrido."""
+        s = (summary or "").strip()
+        return len(s) >= 300 and "##" not in s
+
+    async def repair_raw_summaries(self, limit: int = 8) -> dict:
+        """Repara conhecimentos salvos CRUS (timeouts antigos que gravaram o
+        texto truncado como 'síntese'): re-sintetiza a partir do próprio texto
+        salvo, com o template certo da categoria, e atualiza in-place (log
+        SQLite + índice RAG). Roda em background — 1 chamada de LLM por item."""
+        if not self.db:
+            return {"ok": False, "error": "sem banco"}
+        rows = await asyncio.to_thread(self.db.get_learning_history, 300)
+        raw_rows = [r for r in rows if self._looks_raw(r.get("summary", ""))][:limit]
+        repaired, failed = 0, 0
+        for r in raw_rows:
+            summary = await self._summarize(
+                r["topic"], r["summary"], r.get("category") or "web_search")
+            if not summary or self._looks_raw(summary):
+                failed += 1
+                continue
+            await asyncio.to_thread(self.db.update_topic_summary, r["id"], summary)
+            # Reindexa o recall com a síntese boa (doc_id por tópico → upsert).
+            if self.rag:
+                try:
+                    key = r["topic"].strip().lower()
+                    doc_id = f"repair_{hash(key) & 0xFFFFFFFF:08x}"
+                    await asyncio.to_thread(
+                        self.rag.add_example,
+                        f"# {r['topic']}\nFonte: {r.get('url', '')}\n\n{summary}", doc_id)
+                except Exception as e:
+                    logger.debug(f"[repair] rag: {e}")
+            repaired += 1
+            logger.info(f"[repair] 🩹 re-sintetizado: {r['topic'][:60]}")
+        if self.db and (repaired or raw_rows):
+            try:
+                self.db.add_notification(
+                    f"🩹 Reparo de sínteses: {repaired} re-sintetizada(s), "
+                    f"{failed} falharam, {len(raw_rows)} encontradas", kind="info")
+            except Exception:
+                pass
+        return {"ok": True, "found": len(raw_rows), "repaired": repaired, "failed": failed}
+
     def get_status(self) -> dict:
         if self.db:
             db_stats = self.db.get_learning_stats()

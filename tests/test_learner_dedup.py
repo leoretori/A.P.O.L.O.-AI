@@ -170,6 +170,65 @@ def test_enciclopedia_nao_repete_no_refresh():
     assert len(WIKI_SUBJECTS) >= 50
 
 
+# ── Reparo de sínteses cruas ─────────────────────────────────────
+def test_looks_raw():
+    eng = LearningEngine(model="m")
+    cru = "A teoria da relatividade foi proposta por Einstein " * 10
+    sintese = "## Essência\nRelatividade...\n## Pontos-chave\n- tempo é relativo\n" + "x" * 300
+    assert eng._looks_raw(cru)
+    assert not eng._looks_raw(sintese)
+    assert not eng._looks_raw("")          # vazio não é cru
+    assert not eng._looks_raw("curto")     # curto demais não vale reparo
+
+
+def test_repair_resintetiza_e_atualiza_in_place(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    cru = "Texto cru salvo por timeout, sem estrutura nenhuma. " * 12
+    db.save_learned_topic("Buraco negro (enciclopédia)", "http://wiki", cru, "encyclopedia")
+    db.save_learned_topic("FastAPI async", "http://doc",
+                          "## Conceitos-chave\n- ok\n" + "y" * 400, "docs")
+
+    eng = LearningEngine(model="m", db=db)
+
+    async def fake_summarize(topic, content, category="web_search"):
+        return f"## Essência\nSíntese reparada de {topic}.\n## Pontos-chave\n- a\n- b" + "z" * 200
+    monkeypatch.setattr(eng, "_summarize", fake_summarize)
+
+    res = asyncio.run(eng.repair_raw_summaries(limit=5))
+    assert res["ok"] and res["found"] == 1 and res["repaired"] == 1
+    rows = {r["topic"]: r["summary"] for r in db.get_learning_history(10)}
+    assert "Síntese reparada" in rows["Buraco negro (enciclopédia)"]
+    assert rows["FastAPI async"].startswith("## Conceitos")   # intocada
+
+
+def test_repair_falha_nao_estraga_original(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    cru = "Conteúdo cru de timeout sem seções markdown. " * 12
+    db.save_learned_topic("Vulcão (enciclopédia)", "http://wiki", cru, "encyclopedia")
+    eng = LearningEngine(model="m", db=db)
+
+    async def fail(*a, **k):
+        return None
+    monkeypatch.setattr(eng, "_summarize", fail)
+
+    res = asyncio.run(eng.repair_raw_summaries(limit=5))
+    assert res["found"] == 1 and res["repaired"] == 0 and res["failed"] == 1
+    rows = db.get_learning_history(10)
+    assert rows[0]["summary"] == cru[:2000]    # original preservado
+
+
+def test_update_topic_summary(tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    db.save_learned_topic("t1", "u", "antiga", "web")
+    tid = db.get_learning_history(1)[0]["id"]
+    assert db.update_topic_summary(tid, "nova síntese") is True
+    assert db.get_learning_history(1)[0]["summary"] == "nova síntese"
+    assert db.update_topic_summary(99999, "x") is False
+
+
 def test_save_libera_reserva(eng):
     assert eng._reserve("grpc load balancing")
     item = LearnedItem(topic="grpc load balancing", url="u", summary="s",
