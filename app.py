@@ -263,8 +263,11 @@ async def _scheduler_loop():
     - Se o usuário estiver ocioso há mais de IDLE_TRIGGER segundos e o
       aprendizado estiver parado, inicia automaticamente (idle learning).
       O GpuGate já preempta o learner quando o usuário volta."""
+    global CHAT_MODEL
     await asyncio.sleep(20)  # deixa o startup assentar
+    tick = 0
     while True:
+        tick += 1
         try:
             due = await asyncio.to_thread(db.due_schedules, datetime.now())
             for sch in due:
@@ -288,6 +291,21 @@ async def _scheduler_loop():
                 if idle > IDLE_TRIGGER:
                     logger.info(f"[idle] {idle:.0f}s sem requisição → iniciando aprendizado autônomo")
                     await learner.start()
+
+            # Auto-recuperação do modelo leve: se o app subiu com o Ollama fora
+            # do ar, CHAT_MODEL caiu no 14b (fallback) e a sumarização leve não
+            # engatou. Quando o Ollama volta, re-escolhemos o modelo leve sem
+            # precisar reiniciar o app. Tenta a cada 5 min (não polui o log).
+            if CHAT_MODEL == MODEL and tick % 5 == 0:
+                picked = await asyncio.to_thread(_pick_chat_model)
+                if picked != MODEL:
+                    CHAT_MODEL = picked
+                    if learner and not os.getenv("SUMMARIZE_MODEL", "").strip():
+                        learner.summarize_model = CHAT_MODEL
+                    logger.info(f"[recover] Ollama voltou — modelo leve re-selecionado: {CHAT_MODEL}")
+                    db.add_notification(
+                        f"✅ Ollama voltou — chat e sumarização no modelo leve ({CHAT_MODEL})",
+                        kind="info")
         except Exception as e:
             logger.debug(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)

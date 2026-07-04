@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 # ── Configuração do pipeline ──────────────────────────────────
 FETCH_QUEUE_MAX   = 12   # buffer máximo de itens prontos para sumarizar
 SYNTHESIS_EVERY   = 6    # dispara síntese a cada N itens salvos
+# Ollama fora do ar → o summarizer PAUSA e re-checa a cada N segundos,
+# em vez de queimar o currículo inteiro descartando tópico por tópico.
+LLM_DOWN_BACKOFF  = float(os.getenv("LLM_DOWN_BACKOFF", 30))
 MAX_CONTENT_CHARS = 3500 # limita conteúdo enviado ao LLM (mais rápido)
 
 
@@ -143,6 +146,10 @@ class LearningEngine:
         # Tópicos cuja sumarização falhou 2× — desistimos deles NESTA sessão
         # (nada de salvar conteúdo cru como "conhecimento", nem re-tentar em loop).
         self._skip_session: set[str] = set()
+        # Falha de INFRAESTRUTURA (Ollama inacessível/circuito aberto) — não é
+        # culpa do tópico: o summarizer pausa em vez de descartar o currículo.
+        self._llm_down = False
+        self._llm_down_notified = False
 
         # Filas do pipeline
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
@@ -235,6 +242,8 @@ class LearningEngine:
         self._saved_count = 0
         self._inflight.clear()
         self._skip_session.clear()
+        self._llm_down = False
+        self._llm_down_notified = False
 
         # Lança workers do pipeline
         self._tasks = [
@@ -341,6 +350,7 @@ class LearningEngine:
         self.stats["queue_depth"]         = self._fetch_queue.qsize()
         self.stats["total_session"]       = self._saved_count
         self.stats["summarize_model"]     = self.summarize_model
+        self.stats["llm_down"]            = self._llm_down
         self.stats["current_topic"]       = self._active_summarizing
         self.stats["self_directed_count"] = self._self_directed_count
         self.stats["self_queue_depth"]    = self._self_queue.qsize()
@@ -476,6 +486,29 @@ class LearningEngine:
         try:
             summary = await self._summarize(item.topic, item.content, item.category)
             if summary is None:
+                if self._llm_down:
+                    # Ollama fora do ar — NÃO é culpa do tópico: devolve à fila
+                    # sem contar tentativa e PAUSA até o motor voltar (bug real:
+                    # com o Ollama desligado, 48 tópicos foram buscados na web e
+                    # descartados um a um em minutos).
+                    if not self._llm_down_notified:
+                        self._llm_down_notified = True
+                        logger.warning("[summarizer] ⏸️ Ollama fora do ar — estudo "
+                                       f"PAUSADO (re-checa a cada {LLM_DOWN_BACKOFF:.0f}s; "
+                                       "nada será descartado)")
+                        if self.db:
+                            try:
+                                self.db.add_notification(
+                                    "⏸️ Ollama fora do ar — o estudo está pausado até ele "
+                                    "voltar (nenhum tópico foi descartado)", kind="info")
+                            except Exception:
+                                pass
+                    try:
+                        self._fetch_queue.put_nowait(item)
+                    except asyncio.QueueFull:
+                        self._release(item.topic)   # re-buscado numa rodada futura
+                    await asyncio.sleep(LLM_DOWN_BACKOFF)
+                    return
                 if item.retries < 1:
                     item.retries += 1
                     try:
@@ -624,11 +657,20 @@ class LearningEngine:
                 ),
                 timeout=120.0,
             )
+            self._llm_down = False
+            self._llm_down_notified = False
             return out if out and len(out.strip()) >= 80 else None
         except asyncio.TimeoutError:
+            # Timeout = o motor está VIVO, só lento → falha de conteúdo.
+            self._llm_down = False
             logger.warning(f"[summarizer] timeout — {topic[:50]}")
             return None
         except Exception as e:
+            # Conexão recusada / circuito aberto = INFRAESTRUTURA fora.
+            msg = str(e).lower()
+            self._llm_down = any(k in msg for k in (
+                "connect", "connection", "circuito", "indisponível",
+                "unavailable", "refused"))
             logger.warning(f"[summarizer] erro — {e}")
             return None
 

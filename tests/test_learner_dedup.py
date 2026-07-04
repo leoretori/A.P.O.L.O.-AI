@@ -170,6 +170,58 @@ def test_enciclopedia_nao_repete_no_refresh():
     assert len(WIKI_SUBJECTS) >= 50
 
 
+# ── Ollama fora do ar: pausa, não descarta ───────────────────────
+def test_summarize_detecta_ollama_fora(eng, monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("Failed to connect to Ollama")
+    monkeypatch.setattr("src.learner.chat_resilient", boom)
+    out = asyncio.run(eng._summarize("tema", "conteúdo " * 30))
+    assert out is None and eng._llm_down is True
+
+
+def test_summarize_timeout_nao_e_infra(eng, monkeypatch):
+    def slow(*a, **k):
+        raise TimeoutError()
+    monkeypatch.setattr("src.learner.chat_resilient", slow)
+    eng._llm_down = True   # estado anterior qualquer
+    out = asyncio.run(eng._summarize("tema", "conteúdo " * 30))
+    assert out is None and eng._llm_down is False   # motor vivo, só lento
+
+
+def test_ollama_fora_pausa_sem_descartar(eng, monkeypatch):
+    """REGRESSÃO REAL: com o Ollama desligado, 48 tópicos foram buscados na
+    web e descartados um a um. Infraestrutura fora → devolve à fila sem contar
+    tentativa e sem entrar no skip da sessão."""
+    async def conn_fail(*a, **k):
+        eng._llm_down = True
+        return None
+    monkeypatch.setattr(eng, "_summarize", conn_fail)
+    monkeypatch.setattr("src.learner.LLM_DOWN_BACKOFF", 0)
+    eng._reserve("tema x")
+    asyncio.run(eng._process_item(_item()))
+    assert eng._fetch_queue.qsize() == 1
+    requeued = eng._fetch_queue.get_nowait()
+    assert requeued.retries == 0                     # NÃO contou tentativa
+    assert not eng._already_known("tema x")          # NÃO desistiu do tópico
+    assert eng._norm("tema x") in eng._inflight      # reserva mantida
+
+
+def test_ollama_fora_notifica_uma_vez(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    eng2 = LearningEngine(model="m", db=db)
+
+    async def conn_fail(*a, **k):
+        eng2._llm_down = True
+        return None
+    monkeypatch.setattr(eng2, "_summarize", conn_fail)
+    monkeypatch.setattr("src.learner.LLM_DOWN_BACKOFF", 0)
+    asyncio.run(eng2._process_item(_item("t1")))
+    asyncio.run(eng2._process_item(_item("t2")))
+    notifs = [n for n in db.list_notifications(20) if "pausado" in n["message"]]
+    assert len(notifs) == 1                          # avisa 1×, não spamma
+
+
 # ── Reparo de sínteses cruas ─────────────────────────────────────
 def test_looks_raw():
     eng = LearningEngine(model="m")
