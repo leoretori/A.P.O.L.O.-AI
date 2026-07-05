@@ -60,7 +60,9 @@ from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
 from src.web_search import web_research
+from src import runtime as rt
 from routers.assets import router as assets_router
+from routers.learning import router as learning_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -188,15 +190,6 @@ sessions: dict[str, list] = defaultdict(list)
 session_summaries: dict[str, dict] = {}
 # Timestamp da última requisição do usuário (chat/agente) — usado pelo idle learning.
 _last_request_at: float = 0.0
-
-
-def _clean_topic(t: str) -> str:
-    """Tira molduras do título para exibição no digest."""
-    t = (t or "").strip()
-    if t.startswith("Ideias centrais do livro "):
-        t = "📖 " + t[len("Ideias centrais do livro "):]
-    t = t.replace(" (enciclopédia)", "")
-    return t[:90]
 
 
 def _is_complex(question: str) -> bool:
@@ -342,6 +335,9 @@ async def lifespan(app: FastAPI):
     coder_ws = CoderWorkspace(root=os.getenv("APOLO_WORKSPACE", "./workspace"))
     project_mem = ProjectMemory(path=os.getenv("PROJECT_MEMORY_PATH", "data/project_contexts.json"))
     lesson_mem = LessonMemory(path=os.getenv("LESSONS_PATH", "data/lessons.db"))
+    # Publica os singletons para os routers modularizados (M1). Enquanto a migração
+    # não termina, eles continuam como globais aqui — mesma referência de objeto.
+    rt.configure(learner=learner, db=db, knowledge_db=knowledge_db)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -3021,145 +3017,11 @@ async def models_info():
     }
 
 
-# ── Rotas de aprendizado autônomo ────────────────────────────
-
-class StudyRequest(BaseModel):
-    topic: str
-
-
-@app.post("/api/learning/start")
-async def start_learning():
-    await learner.start()
-    return {"ok": True, "status": learner.get_status()}
-
-
-@app.post("/api/learning/stop")
-async def stop_learning():
-    await learner.stop()
-    return {"ok": True, "status": learner.get_status()}
-
-
-@app.post("/api/learning/repair")
-async def learning_repair(limit: int = 8):
-    """Repara sínteses cruas (timeouts antigos salvaram texto truncado como
-    conhecimento): re-sintetiza em background e avisa via notificação."""
-    if not learner or not db:
-        return {"ok": False, "error": "learner indisponível"}
-    rows = await asyncio.to_thread(db.get_learning_history, 300)
-    found = sum(1 for r in rows if learner._looks_raw(r.get("summary", "")))
-    if not found:
-        return {"ok": True, "found": 0}
-    asyncio.create_task(learner.repair_raw_summaries(limit))
-    return {"ok": True, "found": found, "started": min(found, limit)}
-
-
-@app.get("/api/learning/status")
-async def learning_status():
-    return learner.get_status() if learner else {"running": False}
-
-
-@app.get("/api/learning/stream")
-async def learning_stream():
-    """SSE push do status do aprendizado — substitui o polling de 3 s/3 s do frontend.
-    O cliente conecta uma vez e recebe updates quando algo muda, sem polling."""
-    async def _events():
-        last_hash = None
-        while True:
-            try:
-                st = learner.get_status() if learner else {"running": False}
-                # Serializa e compara hash — só envia quando o estado mudou
-                payload = json.dumps(st, sort_keys=True)
-                h = hash(payload)
-                if h != last_hash:
-                    last_hash = h
-                    yield f"data: {payload}\n\n"
-                await asyncio.sleep(2)
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                await asyncio.sleep(5)
-    return StreamingResponse(
-        _events(), media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.post("/api/learning/study-now")
-async def study_now(req: StudyRequest):
-    """Estuda um tópico imediatamente, independente do modo estar ligado."""
-    if not learner:
-        return {"ok": False, "error": "Learner não inicializado"}
-    result = await learner.study_now(req.topic)
-    return result
-
-
-@app.get("/api/learning/history")
-async def learning_history(limit: int = 200):
-    if not db:
-        return []
-    items = db.get_learning_history(limit=limit)
-    from src.topics import classify_sector
-    for it in items:
-        it["sector"] = classify_sector(it.get("topic", ""))
-    return items
-
-
-@app.get("/api/learning/timeline")
-async def learning_timeline(days: int = 14):
-    if not db:
-        return []
-    return await asyncio.to_thread(db.get_learning_timeline, days)
-
-
-@app.get("/api/digest")
-async def digest(hours: int = 24):
-    """Digest 'o que aprendi' — tópicos recentes agrupados por setor."""
-    if not db:
-        return {"hours": hours, "total": 0, "sectors": []}
-    items = await asyncio.to_thread(db.get_learned_since, hours)
-    from src.topics import classify_sector, SECTOR_LABELS
-    by_sector: dict[str, list[str]] = {}
-    for it in items:
-        s = classify_sector(it.get("topic", ""))
-        by_sector.setdefault(s, []).append(_clean_topic(it.get("topic", "")))
-    sectors = sorted(
-        ({"sector": s, "label": SECTOR_LABELS.get(s, s), "count": len(v), "samples": v[:5]}
-         for s, v in by_sector.items()),
-        key=lambda x: x["count"], reverse=True,
-    )
-    return {"hours": hours, "total": len(items), "sectors": sectors,
-            "generated_at": datetime.now().isoformat()}
-
-
-@app.get("/api/learning/agents")
-async def learning_agents():
-    """Status em tempo real de cada mini-agente."""
-    if not learner:
-        return []
-    status = learner.get_status()
-    return status.get("agents", [])
-
-
-@app.get("/api/knowledge/search")
-async def search_knowledge(q: str = ""):
-    if not q or not knowledge_db:
-        return []
-    results = await asyncio.to_thread(knowledge_db.search, q, 5)
-    return results
-
-
-@app.get("/api/knowledge/recent")
-async def knowledge_recent(limit: int = 10):
-    """Últimos tópicos aprendidos com sumário."""
-    if not db:
-        return []
-    return db.get_learning_history(limit=limit)
-
-
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
 # com headers corretos e ANTES do mount de /static — senão o mount "/" captura tudo.
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).
 app.include_router(assets_router)
+app.include_router(learning_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
