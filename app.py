@@ -74,6 +74,7 @@ from routers.voice import router as voice_router
 from routers.backup import router as backup_router
 from routers.project import router as project_router
 from routers.system import router as system_router
+from routers.coder_tools import router as coder_tools_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -347,6 +348,7 @@ async def lifespan(app: FastAPI):
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
                  project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
+                 lesson_mem=lesson_mem,
                  get_chat_model=lambda: CHAT_MODEL,
                  get_vision_model=lambda: VISION_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
@@ -1498,40 +1500,6 @@ async def coder(req: ChatRequest):
     )
 
 
-@app.get("/api/coder/files")
-async def coder_files():
-    """Árvore, lista plana e raiz do workspace do Coder (para o painel)."""
-    return {"root": str(coder_ws.root), "tree": coder_ws.tree(80),
-            "files": coder_ws.list_files(200), "changes": coder_ws.list_changes()}
-
-
-@app.get("/api/coder/lessons")
-async def coder_lessons():
-    """Memória de lições do Coder — o que ele aprendeu com as próprias tarefas."""
-    if not lesson_mem:
-        return {"count": 0, "lessons": []}
-    return {"count": lesson_mem.count(), "lessons": lesson_mem.recent(30)}
-
-
-@app.delete("/api/coder/lessons/{lesson_id}")
-async def coder_lesson_delete(lesson_id: int):
-    """Curadoria: remove uma lição errada/obsoleta da memória do Coder."""
-    ok = lesson_mem.delete(lesson_id) if lesson_mem else False
-    return {"ok": ok}
-
-
-@app.get("/api/coder/tasks")
-async def coder_tasks(limit: int = 20):
-    """Diário de bordo do Coder — tarefas executadas + taxa de sucesso."""
-    if not db:
-        return {"stats": {"total": 0}, "tasks": []}
-    stats, tasks = await asyncio.gather(
-        asyncio.to_thread(db.get_coder_stats),
-        asyncio.to_thread(db.get_coder_tasks, limit),
-    )
-    return {"stats": stats, "tasks": tasks}
-
-
 class CoderExecRequest(BaseModel):
     cmd: str
 
@@ -1618,13 +1586,6 @@ async def coder_exec(req: CoderExecRequest):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-@app.get("/api/coder/read")
-async def coder_read(path: str):
-    """Conteúdo de um arquivo do workspace (para o visualizador do painel)."""
-    content = await asyncio.to_thread(coder_ws.read_file, path, 20000)
-    return {"path": path, "content": content}
-
-
 class CoderPathRequest(BaseModel):
     path: str
 
@@ -1648,12 +1609,6 @@ async def coder_replace(req: CoderReplaceRequest):
     res = await asyncio.to_thread(coder_ws.search_replace, req.find, req.replace)
     _invalidate_baseline()
     return res
-
-
-@app.get("/api/coder/git")
-async def coder_git():
-    """Status do git no workspace (se for um repositório)."""
-    return await asyncio.to_thread(coder_ws.git_status)
 
 
 class CoderCommitRequest(BaseModel):
@@ -1684,13 +1639,6 @@ async def coder_commit(req: CoderCommitRequest):
         if not msg:
             msg = "chore: alterações via A.P.O.L.O. Coder"
     return await asyncio.to_thread(coder_ws.git_commit_all, msg)
-
-
-@app.get("/api/coder/git/diff")
-async def coder_git_diff(path: str = ""):
-    """Diff do git (todo o workspace ou um arquivo)."""
-    diff = await asyncio.to_thread(coder_ws.git_diff, path)
-    return {"path": path, "diff": diff}
 
 
 class CoderMoveRequest(BaseModel):
@@ -2304,6 +2252,7 @@ app.include_router(voice_router)
 app.include_router(backup_router)
 app.include_router(project_router)
 app.include_router(system_router)
+app.include_router(coder_tools_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
