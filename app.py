@@ -50,7 +50,7 @@ from src.coder import CoderWorkspace, extract_fenced, make_diff, compact_message
 from src.lessons import LessonMemory
 from src.episodic import index_session as _index_episodic
 from src.project_memory import ProjectMemory, analyze_project as _analyze_project
-from src.system_cache import get as _syscache_get, put as _syscache_put, invalidate as _syscache_inv
+from src.system_cache import get as _syscache_get, put as _syscache_put
 from src.query_cache import (                        # #1 #2
     recall_get as _qcache_recall_get, recall_put as _qcache_recall_put,
     fts_get as _qcache_fts_get, fts_put as _qcache_fts_put,
@@ -64,6 +64,7 @@ from src import runtime as rt
 from routers.assets import router as assets_router
 from routers.learning import router as learning_router
 from routers.sessions import router as sessions_router
+from routers.profile import router as profile_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -339,7 +340,8 @@ async def lifespan(app: FastAPI):
     # Publica os singletons para os routers modularizados (M1). Enquanto a migração
     # não termina, eles continuam como globais aqui — mesma referência de objeto.
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
-                 sessions=sessions, session_summaries=session_summaries)
+                 sessions=sessions, session_summaries=session_summaries,
+                 profile=profile)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -2480,33 +2482,6 @@ async def curate_apply(req: CurateApply):
     return await asyncio.to_thread(curator.apply, req.ids)
 
 
-@app.get("/api/profile")
-async def get_profile():
-    """Lista os fatos que o A.P.O.L.O. sabe sobre o usuário."""
-    return {"facts": profile.list() if profile else []}
-
-
-class FactRequest(BaseModel):
-    fact: str
-
-
-@app.post("/api/profile")
-async def add_fact(req: FactRequest):
-    if not profile:
-        return {"ok": False, "error": "Perfil indisponível."}
-    item = profile.add(req.fact)
-    if item:
-        _syscache_inv()  # perfil mudou → system prompt stale em todas as sessões
-    return {"ok": bool(item), "fact": item}
-
-
-@app.delete("/api/profile/{fact_id}")
-async def remove_fact(fact_id: str):
-    if not profile:
-        return {"ok": False}
-    return {"ok": profile.remove(fact_id)}
-
-
 @app.get("/api/export/obsidian")
 async def export_obsidian():
     """Exporta todo o conhecimento acumulado como vault Obsidian (ZIP de .md).
@@ -2965,6 +2940,7 @@ async def models_info():
 app.include_router(assets_router)
 app.include_router(learning_router)
 app.include_router(sessions_router)
+app.include_router(profile_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
