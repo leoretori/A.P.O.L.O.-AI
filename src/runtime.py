@@ -18,6 +18,7 @@ db: Any = None
 knowledge_db: Any = None
 rag: Any = None
 profile: Any = None
+curator: Any = None
 # Dicts mutáveis compartilhados com o chat (mutados in-place, nunca reatribuídos):
 # o router lê a MESMA referência que o chat muta.
 sessions: Any = None
