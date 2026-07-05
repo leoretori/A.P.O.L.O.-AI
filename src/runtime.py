@@ -16,6 +16,11 @@ from typing import Any, Callable
 # re-seleciona o modelo leve quando o Ollama volta). Um getter lê sempre o valor
 # atual — guardar a string direto no runtime a deixaria stale após a troca.
 get_chat_model: Callable[[], str | None] = lambda: None
+# VISION_MODEL também é resolvido no startup (depois do configure) → getter.
+get_vision_model: Callable[[], str | None] = lambda: None
+
+# Modelo pesado (14b): constante de env, definida no import — nunca reatribuída.
+model: Any = None
 
 # Singletons (None até o startup do app popular via configure()).
 learner: Any = None

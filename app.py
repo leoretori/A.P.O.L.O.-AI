@@ -73,6 +73,7 @@ from routers.ingest import router as ingest_router
 from routers.voice import router as voice_router
 from routers.backup import router as backup_router
 from routers.project import router as project_router
+from routers.system import router as system_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -104,8 +105,6 @@ LIGHT_MODEL_PREFERENCE = [
     "qwen2.5-coder:3b", "qwen2.5:3b", "llama3.2:3b", "phi3:mini",
     "gemma2:2b", "qwen2.5-coder:7b", "codellama:latest",
 ]
-# Modelos "rápidos" (≤3B) — se o chat já usa um destes, não sugerimos baixar outro.
-FAST_MODELS = {"qwen2.5-coder:3b", "qwen2.5:3b", "llama3.2:3b", "phi3:mini", "gemma2:2b"}
 # Nº de mensagens do histórico enviadas ao LLM. Na CPU, histórico grande = prefill
 # mais lento; 12 mantém boa memória de conversa sem inflar a latência. Configurável.
 MAX_HISTORY = int(os.getenv("MAX_HISTORY", 12))
@@ -347,8 +346,9 @@ async def lifespan(app: FastAPI):
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
-                 project_mem=project_mem, coder_ws=coder_ws,
-                 get_chat_model=lambda: CHAT_MODEL)
+                 project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
+                 get_chat_model=lambda: CHAT_MODEL,
+                 get_vision_model=lambda: VISION_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -2121,19 +2121,6 @@ async def orchestrate_endpoint(req: ChatRequest):
     )
 
 
-@app.get("/api/perf")
-async def perf_metrics():
-    """Telemetria de latência por endpoint (média, p95, máximo, contagem, erros).
-    Para flagrar regressões de performance — ex.: se a Mente voltar a ficar lenta."""
-    return perf_tracker.snapshot()
-
-
-@app.post("/api/perf/reset")
-async def perf_reset():
-    perf_tracker.reset()
-    return {"ok": True}
-
-
 @app.get("/api/boot")
 async def boot_data():
     """Dados de inicialização do frontend — agrega o que antes eram 6+ chamadas separadas.
@@ -2301,34 +2288,6 @@ async def health():
     return out
 
 
-@app.get("/api/history")
-async def history():
-    return db.get_history(limit=50)
-
-
-@app.get("/api/models")
-async def models_info():
-    """Modelos disponíveis no provedor ativo (Ollama ou motor próprio) + qual o
-    A.P.O.L.O. usa no chat. Orienta a baixar um modelo leve (3B) p/ respostas rápidas."""
-    from src.providers import get_provider
-    try:
-        installed = await asyncio.to_thread(get_provider().list_models)
-    except Exception as e:
-        logger.warning(f"models list: {e}")
-        installed = []
-    chat_is_fast = CHAT_MODEL in FAST_MODELS
-    return {
-        "chat_model": CHAT_MODEL,
-        "heavy_model": MODEL,
-        "vision_model": VISION_MODEL,
-        "has_vision": bool(VISION_MODEL),
-        "installed": installed,
-        "chat_is_fast": chat_is_fast,
-        # Sugere um 3B só se o chat ainda não usa um modelo rápido.
-        "suggestion": "" if chat_is_fast else "qwen2.5-coder:3b",
-    }
-
-
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
 # com headers corretos e ANTES do mount de /static — senão o mount "/" captura tudo.
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).
@@ -2344,6 +2303,7 @@ app.include_router(ingest_router)
 app.include_router(voice_router)
 app.include_router(backup_router)
 app.include_router(project_router)
+app.include_router(system_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
