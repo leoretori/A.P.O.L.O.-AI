@@ -49,7 +49,7 @@ from src.prompts import (
 from src.coder import CoderWorkspace, extract_fenced, make_diff, compact_messages
 from src.lessons import LessonMemory
 from src.episodic import index_session as _index_episodic
-from src.project_memory import ProjectMemory, analyze_project as _analyze_project
+from src.project_memory import ProjectMemory
 from src.system_cache import get as _syscache_get, put as _syscache_put
 from src.query_cache import (                        # #1 #2
     recall_get as _qcache_recall_get, recall_put as _qcache_recall_put,
@@ -72,6 +72,7 @@ from routers.analytics import router as analytics_router
 from routers.ingest import router as ingest_router
 from routers.voice import router as voice_router
 from routers.backup import router as backup_router
+from routers.project import router as project_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -346,6 +347,7 @@ async def lifespan(app: FastAPI):
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
+                 project_mem=project_mem, coder_ws=coder_ws,
                  get_chat_model=lambda: CHAT_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
@@ -1736,51 +1738,6 @@ async def coder_set_workspace(req: CoderWorkspaceRequest):
 
 # ── Memória de Projeto ────────────────────────────────────────────────────────
 
-class ProjectAnalyzeRequest(BaseModel):
-    path: str = ""  # vazio = usa o workspace atual do Coder
-
-
-@app.post("/api/project/analyze")
-async def project_analyze(req: ProjectAnalyzeRequest):
-    """Detecta a stack e dependências do projeto e salva como contexto ativo.
-    Se `path` estiver vazio, usa o workspace atual do Coder."""
-    folder = (req.path or "").strip() or str(coder_ws.root)
-    if not os.path.isdir(folder):
-        return {"ok": False, "error": f"Pasta não encontrada: {folder}"}
-    ctx = await asyncio.to_thread(_analyze_project, folder)
-    await asyncio.to_thread(project_mem.set_context, ctx)
-    return {"ok": True, "context": ctx}
-
-
-@app.get("/api/project/context")
-async def project_context():
-    """Retorna o contexto do projeto ativo (ou null se nenhum estiver ativo)."""
-    ctx = project_mem.get_active() if project_mem else None
-    return {"active": ctx}
-
-
-@app.post("/api/project/clear")
-async def project_clear():
-    """Limpa o projeto ativo (A.P.O.L.O. para de usar o contexto de projeto)."""
-    if project_mem:
-        await asyncio.to_thread(project_mem.clear_active)
-    return {"ok": True}
-
-
-@app.get("/api/project/list")
-async def project_list():
-    """Lista todos os contextos de projeto salvos."""
-    contexts = project_mem.list_all() if project_mem else []
-    return {"contexts": contexts}
-
-
-@app.delete("/api/project/{name}")
-async def project_delete(name: str):
-    """Remove um contexto de projeto salvo."""
-    ok = await asyncio.to_thread(project_mem.remove, name) if project_mem else False
-    return {"ok": ok}
-
-
 @app.post("/api/coder/self")
 async def coder_self_improve():
     """Aponta o Coder para o **próprio código do A.P.O.L.O.** (a pasta deste projeto),
@@ -2386,6 +2343,7 @@ app.include_router(analytics_router)
 app.include_router(ingest_router)
 app.include_router(voice_router)
 app.include_router(backup_router)
+app.include_router(project_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
