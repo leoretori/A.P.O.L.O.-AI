@@ -98,6 +98,7 @@ def soma(a, b):
 4b. APAGAR <caminho>          — remove um arquivo (reversível)
 4c. SUBSTITUIR <texto> ==> <novo>  — troca um texto por outro em TODOS os arquivos (refactor)
 4d. MOVER <origem> ==> <destino>   — renomeia/move um arquivo
+4e. CONSULTAR <pergunta>      — consulta a BASE DE CONHECIMENTO da IA (tudo que ela já estudou/resolveu). Use quando travar num erro, conceito ou API que não conhece ANTES de chutar — a IA pode já ter aprendido isso.
 5. CONCLUIR                   — quando a tarefa estiver pronta; escreva um resumo final do que fez, em português, SEM ações.
 
 Regras:
@@ -162,7 +163,7 @@ DIFF (parcial):
 Mensagem:"""
 
 CODER_PLAN_PROMPT = """Antes de agir, escreva um PLANO NUMERADO de no máximo 8 passos para esta tarefa.
-Cada passo deve ser uma ação concreta: LISTAR / LER / BUSCAR / EDITAR / ESCREVER / RODAR / CONCLUIR.
+Cada passo deve ser uma ação concreta: LISTAR / LER / BUSCAR / CONSULTAR / EDITAR / ESCREVER / RODAR / CONCLUIR.
 Escreva APENAS a lista numerada. Nenhuma explicação, nenhuma ação ainda.
 
 Tarefa: {task}"""

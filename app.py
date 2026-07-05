@@ -983,7 +983,7 @@ def _parse_coder_action(content: str) -> tuple[str, str, str]:
         # Tolera marcadores de lista/numeração que modelos leves adicionam ("1. ", "- ", "**").
         s = re.sub(r"^[\s\d\.\)\-\*\#`>]+", "", line).strip()
         # Verbos tolerantes a flexão/typo.
-        m = re.match(r"(ESCREV\w*|LIST\w*|ROD\w*|BUSC\w*|ACH\w*|PROCUR\w*|APAG\w*|REMOV\w*|SUBSTITU\w*|MOV\w*|RENOME\w*|LER|LEIA)\s+(.+)", s, re.IGNORECASE)
+        m = re.match(r"(ESCREV\w*|LIST\w*|ROD\w*|BUSC\w*|ACH\w*|PROCUR\w*|APAG\w*|REMOV\w*|SUBSTITU\w*|MOV\w*|RENOME\w*|CONSULT\w*|LEMBR\w*|LER|LEIA)\s+(.+)", s, re.IGNORECASE)
         if not m:
             continue
         raw = m.group(1).upper()
@@ -994,7 +994,8 @@ def _parse_coder_action(content: str) -> tuple[str, str, str]:
                 "ACHAR" if raw.startswith("ACH") else
                 "APAGAR" if raw.startswith("APAG") or raw.startswith("REMOV") else
                 "SUBSTITUIR" if raw.startswith("SUBSTITU") else
-                "MOVER" if raw.startswith("MOV") or raw.startswith("RENOME") else "LER")
+                "MOVER" if raw.startswith("MOV") or raw.startswith("RENOME") else
+                "CONSULTAR" if raw.startswith("CONSULT") or raw.startswith("LEMBR") else "LER")
         arg = m.group(2).strip().strip("`").strip()
         if verb == "ESCREVER":
             body = extract_fenced(content)
@@ -1014,6 +1015,8 @@ def _parse_coder_action(content: str) -> tuple[str, str, str]:
             return "run", arg, ""
         if verb == "BUSCAR":
             return "search", arg, ""
+        if verb == "CONSULTAR":
+            return "consult", arg, ""
         if verb == "ACHAR":
             return "find", arg, ""
         if verb == "APAGAR":
@@ -1213,6 +1216,26 @@ async def coder(req: ChatRequest):
                     out = await asyncio.to_thread(coder_ws.find_files, arg)
                     yield _ev({"type": "step", "icon": "🗂️", "message": f"ACHAR {arg[:60]}"})
                     obs = f"Arquivos que combinam com '{arg}':\n{out}\n\nPróxima ação."
+                elif action == "consult":
+                    # CONSULTAR <pergunta> — o Coder consulta a base de conhecimento
+                    # (RAG) do que a IA já estudou/produziu. Fecha o ciclo learner→coder:
+                    # ao travar num erro ou conceito, ele pergunta à própria memória.
+                    yield _ev({"type": "step", "icon": "📚", "message": f"CONSULTAR base: {arg[:60]}"})
+                    mem = await _agent_recall(arg, limit=4)
+                    if mem:
+                        obs = (f"O que a IA já aprendeu sobre '{arg}':\n\n{mem}\n\n"
+                               "Use isto para decidir a próxima ação (não repita a mesma CONSULTAR).")
+                    else:
+                        # Lacuna de conhecimento: o Coder perguntou algo que a IA nunca
+                        # estudou → registra como prioridade de estudo (loud coder→learner).
+                        if learner:
+                            try:
+                                learner.note_gap(arg)
+                                learner.add_user_topic(arg)
+                            except Exception:
+                                pass
+                        obs = (f"A base não tem nada relevante sobre '{arg}' (registrei como lacuna "
+                               "para a IA estudar depois). Siga com LER/BUSCAR no workspace ou resolva pelo raciocínio.")
                 elif action == "delete":
                     out = await asyncio.to_thread(coder_ws.delete_file, arg)
                     yield _ev({"type": "step", "icon": "🗑️", "message": f"APAGAR {arg}"})

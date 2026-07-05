@@ -70,6 +70,36 @@ def test_parse_ler_sem_faixa_continua_igual():
     assert (action, arg, payload) == ("read", "src/app.py", "")
 
 
+# ── Parser: CONSULTAR (base de conhecimento / RAG) ────────────────
+def test_parse_consultar():
+    from app import _parse_coder_action
+    action, arg, payload = _parse_coder_action("CONSULTAR como fazer streaming SSE em FastAPI")
+    assert action == "consult"
+    assert arg == "como fazer streaming SSE em FastAPI"
+
+
+def test_parse_consultar_flexao_e_lembrar():
+    from app import _parse_coder_action
+    # tolera flexão do verbo (CONSULTE) e o sinônimo LEMBRAR
+    assert _parse_coder_action("CONSULTE decorators em python")[0] == "consult"
+    assert _parse_coder_action("LEMBRAR o que aprendi sobre asyncio")[0] == "consult"
+
+
+def test_parse_consultar_com_marcador_de_lista():
+    from app import _parse_coder_action
+    # modelos leves às vezes prefixam com "1. " ou "- "
+    action, arg, _ = _parse_coder_action("- CONSULTAR circuit breaker resilience")
+    assert action == "consult"
+    assert arg == "circuit breaker resilience"
+
+
+def test_consultar_nao_colide_com_buscar():
+    from app import _parse_coder_action
+    # BUSCAR (grep no workspace) e CONSULTAR (RAG) são ações distintas
+    assert _parse_coder_action("BUSCAR def soma")[0] == "search"
+    assert _parse_coder_action("CONSULTAR def soma")[0] == "consult"
+
+
 # ── Poda da memória de lições ─────────────────────────────────────
 def test_licoes_poda_no_cap(tmp_path):
     mem = LessonMemory(str(tmp_path / "l.db"), max_rows=5)
