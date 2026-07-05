@@ -75,6 +75,7 @@ from routers.backup import router as backup_router
 from routers.project import router as project_router
 from routers.system import router as system_router
 from routers.coder_tools import router as coder_tools_router
+from routers.coder_write import router as coder_write_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -125,13 +126,13 @@ CODER_REFLECT = os.getenv("CODER_REFLECT", "1") not in ("0", "false", "False")
 # mudou por fora, o Coder não re-roda a suíte INTEIRA no início de cada tarefa
 # (na CPU isso economiza minutos por tarefa). Invalidado por qualquer mudança
 # feita fora do loop (terminal, apagar/mover/substituir, undo, troca de pasta).
-CODER_BASELINE_TTL = int(os.getenv("CODER_BASELINE_TTL", 900))
-_coder_baseline_cache: dict[str, tuple[bool, float]] = {}
-
-
-def _invalidate_baseline() -> None:
-    """Workspace mudou fora do loop do Coder → baseline de testes não vale mais."""
-    _coder_baseline_cache.clear()
+# Cache do baseline da guarda de regressão + prioridade de GPU no streaming ficam
+# em src/coder_state.py (compartilhados com os routers do Coder). Aliases mantêm
+# os usos existentes deste módulo funcionando.
+from src.coder_state import (
+    CODER_BASELINE_TTL, baseline_cache as _coder_baseline_cache,
+    invalidate_baseline as _invalidate_baseline, gpu_priority as _gpu_priority,
+)
 # Auto-avaliação: após rascunhar a resposta, o agente critica e refina a si mesmo (1 passe).
 AGENT_SELF_EVAL = os.getenv("AGENT_SELF_EVAL", "1") not in ("0", "false", "False", "")
 # Memória de conversas longas: acima de SUMMARY_TRIGGER msgs, resume as antigas;
@@ -348,7 +349,7 @@ async def lifespan(app: FastAPI):
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
                  project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
-                 lesson_mem=lesson_mem,
+                 lesson_mem=lesson_mem, gpu_gate=gpu_gate,
                  get_chat_model=lambda: CHAT_MODEL,
                  get_vision_model=lambda: VISION_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
@@ -506,19 +507,6 @@ class ChatRequest(BaseModel):
     use_web: bool = False
     smart: bool = False  # usa o modelo 14b (raciocínio mais profundo) em vez do leve
     image: str = ""      # imagem em base64 (sem prefixo data:) → roteia p/ modelo de visão
-
-
-async def _gpu_priority(gen):
-    """Enquanto a requisição do usuário streama, o learner cede a GPU a ela.
-    O user_exit dispara mesmo se o cliente desconectar (o finally roda no close)."""
-    if gpu_gate:
-        gpu_gate.user_enter()
-    try:
-        async for ev in gen:
-            yield ev
-    finally:
-        if gpu_gate:
-            gpu_gate.user_exit()
 
 
 def _get_session(session_id: str) -> list:
@@ -1586,31 +1574,6 @@ async def coder_exec(req: CoderExecRequest):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-class CoderPathRequest(BaseModel):
-    path: str
-
-
-@app.post("/api/coder/delete")
-async def coder_delete(req: CoderPathRequest):
-    """Apaga um arquivo do workspace (reversível via histórico)."""
-    out = await asyncio.to_thread(coder_ws.delete_file, req.path)
-    _invalidate_baseline()
-    return {"ok": out.startswith("OK"), "message": out}
-
-
-class CoderReplaceRequest(BaseModel):
-    find: str
-    replace: str = ""
-
-
-@app.post("/api/coder/replace")
-async def coder_replace(req: CoderReplaceRequest):
-    """Busca-e-substitui em massa no workspace (cada arquivo vira snapshot reversível)."""
-    res = await asyncio.to_thread(coder_ws.search_replace, req.find, req.replace)
-    _invalidate_baseline()
-    return res
-
-
 class CoderCommitRequest(BaseModel):
     message: str = ""
 
@@ -1639,63 +1602,6 @@ async def coder_commit(req: CoderCommitRequest):
         if not msg:
             msg = "chore: alterações via A.P.O.L.O. Coder"
     return await asyncio.to_thread(coder_ws.git_commit_all, msg)
-
-
-class CoderMoveRequest(BaseModel):
-    src: str
-    dst: str
-
-
-@app.post("/api/coder/move")
-async def coder_move(req: CoderMoveRequest):
-    """Renomeia/move um arquivo no workspace (reversível)."""
-    out = await asyncio.to_thread(coder_ws.rename_file, req.src, req.dst)
-    _invalidate_baseline()
-    return {"ok": out.startswith("OK"), "message": out}
-
-
-class CoderUndoRequest(BaseModel):
-    path: str = ""
-    all: bool = False
-
-
-@app.post("/api/coder/undo")
-async def coder_undo(req: CoderUndoRequest):
-    """Desfaz/descarta alterações feitas pelo Coder (snapshots da sessão)."""
-    _invalidate_baseline()
-    if req.all:
-        return await asyncio.to_thread(coder_ws.undo_all)
-    if req.path:
-        return await asyncio.to_thread(coder_ws.undo_file, req.path)
-    return await asyncio.to_thread(coder_ws.undo_last)
-
-
-class CoderWorkspaceRequest(BaseModel):
-    path: str
-
-
-@app.post("/api/coder/workspace")
-async def coder_set_workspace(req: CoderWorkspaceRequest):
-    """Aponta o Coder para um diretório existente (projeto real)."""
-    res = await asyncio.to_thread(coder_ws.set_root, req.path)
-    _invalidate_baseline()
-    if res.get("ok"):
-        res["tree"] = coder_ws.tree(80)
-    return res
-
-
-# ── Memória de Projeto ────────────────────────────────────────────────────────
-
-@app.post("/api/coder/self")
-async def coder_self_improve():
-    """Aponta o Coder para o **próprio código do A.P.O.L.O.** (a pasta deste projeto),
-    para que ele possa se automelhorar. Guiado pela doutrina em A.P.O.L.O._Code.md."""
-    project_root = os.path.dirname(os.path.abspath(__file__))
-    res = await asyncio.to_thread(coder_ws.set_root, project_root)
-    if res.get("ok"):
-        res["tree"] = coder_ws.tree(80)
-        res["self"] = True
-    return res
 
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -1763,6 +1669,10 @@ async def coder_sandbox_discard():
         coder_sandbox_path = None
     await asyncio.to_thread(coder_ws.set_root, os.path.join(PROJECT_ROOT, "workspace"))
     return {"ok": True}
+
+
+class CoderPathRequest(BaseModel):
+    path: str
 
 
 @app.post("/api/coder/test-for")
@@ -2253,6 +2163,7 @@ app.include_router(backup_router)
 app.include_router(project_router)
 app.include_router(system_router)
 app.include_router(coder_tools_router)
+app.include_router(coder_write_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
