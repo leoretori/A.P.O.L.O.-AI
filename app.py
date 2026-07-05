@@ -65,6 +65,8 @@ from routers.assets import router as assets_router
 from routers.learning import router as learning_router
 from routers.sessions import router as sessions_router
 from routers.profile import router as profile_router
+from routers.schedules import router as schedules_router
+from routers.notifications import router as notifications_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -2553,64 +2555,6 @@ async def import_backup(request: Request):
     return {"ok": True, "added": added, "knowledge_restored": knowledge_restored}
 
 
-class ScheduleRequest(BaseModel):
-    topic: str
-    time_of_day: str = "08:00"
-
-
-@app.get("/api/schedules")
-async def list_schedules():
-    """Lista os estudos agendados."""
-    return db.list_schedules()
-
-
-@app.post("/api/schedules")
-async def add_schedule(req: ScheduleRequest):
-    """Agenda um estudo diário: o A.P.O.L.O. estuda `topic` todo dia às `time_of_day`."""
-    topic = (req.topic or "").strip()
-    t = (req.time_of_day or "").strip()
-    # Validação simples de HH:MM
-    import re
-    if len(topic) < 3:
-        return {"ok": False, "error": "tópico muito curto"}
-    if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", t):
-        return {"ok": False, "error": "horário inválido (use HH:MM)"}
-    row = await asyncio.to_thread(db.add_schedule, topic, t)
-    return {"ok": True, "schedule": row}
-
-
-@app.delete("/api/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: int):
-    ok = await asyncio.to_thread(db.delete_schedule, schedule_id)
-    return {"ok": ok}
-
-
-@app.post("/api/schedules/{schedule_id}/toggle")
-async def toggle_schedule(schedule_id: int):
-    ok = await asyncio.to_thread(db.toggle_schedule, schedule_id)
-    return {"ok": ok}
-
-
-@app.get("/api/notifications")
-async def list_notifications():
-    """Avisos do A.P.O.L.O. (autonomia visível) + contador de não-lidas."""
-    items = await asyncio.to_thread(db.list_notifications, 30, False)
-    unread = await asyncio.to_thread(db.unread_count)
-    return {"items": items, "unread": unread}
-
-
-@app.post("/api/notifications/read")
-async def read_notifications():
-    n = await asyncio.to_thread(db.mark_notifications_read)
-    return {"ok": True, "marked": n}
-
-
-@app.delete("/api/notifications")
-async def clear_notifications():
-    n = await asyncio.to_thread(db.clear_notifications)
-    return {"ok": True, "cleared": n}
-
-
 @app.get("/api/perf")
 async def perf_metrics():
     """Telemetria de latência por endpoint (média, p95, máximo, contagem, erros).
@@ -2941,6 +2885,8 @@ app.include_router(assets_router)
 app.include_router(learning_router)
 app.include_router(sessions_router)
 app.include_router(profile_router)
+app.include_router(schedules_router)
+app.include_router(notifications_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
