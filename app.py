@@ -68,6 +68,7 @@ from routers.profile import router as profile_router
 from routers.schedules import router as schedules_router
 from routers.notifications import router as notifications_router
 from routers.knowledge import router as knowledge_router
+from routers.analytics import router as analytics_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -169,9 +170,6 @@ SHORT_MSG_CHARS = int(os.getenv("SHORT_MSG_CHARS", 40))
 IDLE_TRIGGER = int(os.getenv("IDLE_TRIGGER", 600))
 # API LAN: token de acesso para expor a API na rede local (vazio = sem autenticação).
 API_TOKEN = os.getenv("API_TOKEN", "").strip()
-# Histórico de benchmark em memória (últimos N runs)
-_benchmark_history: list[dict] = []
-_BENCHMARK_HISTORY_MAX = int(os.getenv("BENCHMARK_HISTORY_MAX", 10))
 
 db: DatabaseManager = None
 rag: RAGManager = None
@@ -344,7 +342,8 @@ async def lifespan(app: FastAPI):
     # não termina, eles continuam como globais aqui — mesma referência de objeto.
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
                  sessions=sessions, session_summaries=session_summaries,
-                 profile=profile, curator=curator)
+                 profile=profile, curator=curator,
+                 get_chat_model=lambda: CHAT_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -2162,79 +2161,6 @@ async def orchestrate_endpoint(req: ChatRequest):
     )
 
 
-@app.post("/api/benchmark/run")
-async def benchmark_run():
-    """Executa o benchmark de qualidade, persiste no banco e retorna métricas."""
-    from src.benchmark import run_benchmark
-    result = await run_benchmark(chat_model=CHAT_MODEL, keep_alive=KEEP_ALIVE)
-    result["timestamp"] = datetime.now().isoformat()
-    # Persiste no banco (sobrevive ao restart) + memória (acesso rápido)
-    await asyncio.to_thread(db.save_benchmark_run, result)
-    _benchmark_history.append(result)
-    if len(_benchmark_history) > _BENCHMARK_HISTORY_MAX:
-        _benchmark_history.pop(0)
-    return result
-
-
-@app.get("/api/benchmark/history")
-async def benchmark_history():
-    """Histórico de benchmark — banco (persistente) + memória desta sessão."""
-    saved = await asyncio.to_thread(db.get_benchmark_history, 20)
-    return {"runs": len(saved), "history": saved}
-
-
-@app.get("/api/analytics")
-async def analytics():
-    """Painel de analytics: uso, perguntas mais frequentes, tópicos, benchmark."""
-    summary, by_day, by_hour, top_topics, top_words, bench = await asyncio.gather(
-        asyncio.to_thread(db.analytics_usage_summary),
-        asyncio.to_thread(db.analytics_messages_by_day, 30),
-        asyncio.to_thread(db.analytics_messages_by_hour),
-        asyncio.to_thread(db.analytics_top_topics, 20),
-        asyncio.to_thread(db.analytics_top_words, 15),
-        asyncio.to_thread(db.get_benchmark_history, 10),
-    )
-    return {
-        "summary": summary,
-        "messages_by_day": by_day,
-        "messages_by_hour": by_hour,
-        "top_topics": top_topics,
-        "top_words": top_words,
-        "benchmark_history": bench,
-    }
-
-
-class ReactionRequest(BaseModel):
-    message_hash: str
-    reaction: str           # "up" ou "down"
-    session_id: str = ""
-    sources: list[str] = []
-
-
-@app.post("/api/reactions")
-async def save_reaction(req: ReactionRequest):
-    """#7 Salva feedback 👍/👎 no banco. Alimenta métricas de qualidade."""
-    await asyncio.to_thread(
-        db.save_reaction, req.message_hash, req.reaction, req.session_id, req.sources
-    )
-    return {"ok": True}
-
-
-@app.get("/api/reactions/stats")
-async def reaction_stats():
-    """Estatísticas de reações — total, taxa positiva, fontes mais negativas."""
-    return await asyncio.to_thread(db.reaction_stats)
-
-
-@app.get("/api/benchmark/diff")
-async def benchmark_diff():
-    """Compara os dois últimos runs: delta de score e latência por pergunta."""
-    from src.benchmark import diff_runs
-    if len(_benchmark_history) < 2:
-        return {"ok": False, "error": "São necessários pelo menos 2 runs para comparar"}
-    return {"ok": True, **diff_runs(_benchmark_history[-2], _benchmark_history[-1])}
-
-
 class IngestRequest(BaseModel):
     filename: str
     content: str
@@ -2752,6 +2678,7 @@ app.include_router(profile_router)
 app.include_router(schedules_router)
 app.include_router(notifications_router)
 app.include_router(knowledge_router)
+app.include_router(analytics_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

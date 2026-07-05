@@ -10,7 +10,12 @@ Parte da modularização M1 do JARVIS_ROADMAP.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
+
+# Getter do modelo de chat: CHAT_MODEL é REATRIBUÍDO em runtime (o scheduler
+# re-seleciona o modelo leve quando o Ollama volta). Um getter lê sempre o valor
+# atual — guardar a string direto no runtime a deixaria stale após a troca.
+get_chat_model: Callable[[], str | None] = lambda: None
 
 # Singletons (None até o startup do app popular via configure()).
 learner: Any = None
