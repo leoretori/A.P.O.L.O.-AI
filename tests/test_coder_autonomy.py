@@ -100,6 +100,35 @@ def test_consultar_nao_colide_com_buscar():
     assert _parse_coder_action("CONSULTAR def soma")[0] == "consult"
 
 
+# ── Parser: BUSCAR_WEB (pesquisa na web) ──────────────────────────
+def test_parse_buscar_web():
+    from app import _parse_coder_action
+    action, arg, _ = _parse_coder_action("BUSCAR_WEB: FastAPI StreamingResponse SSE example")
+    assert action == "web"
+    assert arg == "FastAPI StreamingResponse SSE example"
+
+
+def test_parse_buscar_web_sem_dois_pontos():
+    from app import _parse_coder_action
+    action, arg, _ = _parse_coder_action("BUSCAR_WEB pydantic v2 migration")
+    assert action == "web"
+    assert arg == "pydantic v2 migration"
+
+
+def test_parse_buscar_web_com_marcador():
+    from app import _parse_coder_action
+    action, arg, _ = _parse_coder_action("- BUSCAR_WEB: como corrigir ImportError X")
+    assert action == "web"
+    assert arg == "como corrigir ImportError X"
+
+
+def test_buscar_web_nao_colide_com_grep():
+    from app import _parse_coder_action
+    # BUSCAR (grep) e BUSCAR_WEB (web) são distintos; grep NUNCA vira web
+    assert _parse_coder_action("BUSCAR web handler")[0] == "search"
+    assert _parse_coder_action("BUSCAR_WEB web handler")[0] == "web"
+
+
 # ── Poda da memória de lições ─────────────────────────────────────
 def test_licoes_poda_no_cap(tmp_path):
     mem = LessonMemory(str(tmp_path / "l.db"), max_rows=5)

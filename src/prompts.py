@@ -99,6 +99,7 @@ def soma(a, b):
 4c. SUBSTITUIR <texto> ==> <novo>  — troca um texto por outro em TODOS os arquivos (refactor)
 4d. MOVER <origem> ==> <destino>   — renomeia/move um arquivo
 4e. CONSULTAR <pergunta>      — consulta a BASE DE CONHECIMENTO da IA (tudo que ela já estudou/resolveu). Use quando travar num erro, conceito ou API que não conhece ANTES de chutar — a IA pode já ter aprendido isso.
+4f. BUSCAR_WEB: <consulta>    — pesquisa na WEB (fatos atuais, docs de bibliotecas, mensagens de erro). Use quando nem a base local resolve. Escreva exatamente numa linha: BUSCAR_WEB: <o que procurar>
 5. CONCLUIR                   — quando a tarefa estiver pronta; escreva um resumo final do que fez, em português, SEM ações.
 
 Regras:

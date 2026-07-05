@@ -979,6 +979,13 @@ def _parse_coder_action(content: str) -> tuple[str, str, str]:
     if m_edit:
         path = m_edit.group(1).strip().strip("`").strip('"').strip()
         return "edit", path, json.dumps({"old": m_edit.group(2), "new": m_edit.group(3)})
+    # BUSCAR_WEB: <consulta> — busca na web (distinto de BUSCAR, que é grep no
+    # workspace). Tratado ANTES do loop de verbos para não ser confundido com BUSC\w*.
+    m_web = re.search(
+        r"^[\s\d\.\)\-\*\#`>]*(?:BUSCAR_WEB|PESQUISAR_WEB|WEB)\s*:?\s+(.+)$",
+        content, re.IGNORECASE | re.MULTILINE)
+    if m_web:
+        return "web", m_web.group(1).strip().strip("`").strip('"').strip(), ""
     for line in content.splitlines():
         # Tolera marcadores de lista/numeração que modelos leves adicionam ("1. ", "- ", "**").
         s = re.sub(r"^[\s\d\.\)\-\*\#`>]+", "", line).strip()
@@ -1235,7 +1242,26 @@ async def coder(req: ChatRequest):
                             except Exception:
                                 pass
                         obs = (f"A base não tem nada relevante sobre '{arg}' (registrei como lacuna "
-                               "para a IA estudar depois). Siga com LER/BUSCAR no workspace ou resolva pelo raciocínio.")
+                               "para a IA estudar depois). Use BUSCAR_WEB para pesquisar na web, "
+                               "ou siga com LER/BUSCAR no workspace.")
+                elif action == "web":
+                    # BUSCAR_WEB <consulta> — pesquisa na web (fatos atuais, docs, APIs
+                    # que nem a base local tem). Mesma infra do chat (web_research).
+                    yield _ev({"type": "step", "icon": "🌐", "message": f"BUSCAR_WEB: {arg[:60]}"})
+                    try:
+                        web_ctx, srcs = await asyncio.wait_for(
+                            web_research(arg, max_results=3), timeout=20.0)
+                    except Exception:
+                        web_ctx, srcs = "", []
+                    yield _ev({"type": "step", "icon": "✓" if web_ctx else "✗",
+                               "message": f"{len(srcs)} fonte(s)" if srcs else "sem resultados"})
+                    if web_ctx:
+                        obs = (f"Resultado da web sobre '{arg}':\n\n{web_ctx[:1800]}\n\n"
+                               "Use isto para agir (aplique no código com EDITAR/ESCREVER). "
+                               "NÃO repita a mesma BUSCAR_WEB.")
+                    else:
+                        obs = (f"A web não retornou nada útil sobre '{arg}'. "
+                               "Resolva pelo raciocínio ou inspecione o workspace (LER/BUSCAR).")
                 elif action == "delete":
                     out = await asyncio.to_thread(coder_ws.delete_file, arg)
                     yield _ev({"type": "step", "icon": "🗑️", "message": f"APAGAR {arg}"})
