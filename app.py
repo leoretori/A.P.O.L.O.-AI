@@ -76,6 +76,7 @@ from routers.project import router as project_router
 from routers.system import router as system_router
 from routers.coder_tools import router as coder_tools_router
 from routers.coder_write import router as coder_write_router
+from routers.coder_ops import router as coder_ops_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -1604,130 +1605,6 @@ async def coder_commit(req: CoderCommitRequest):
     return await asyncio.to_thread(coder_ws.git_commit_all, msg)
 
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-coder_sandbox_path: str | None = None  # cópia isolada ativa (ou None)
-
-
-@app.post("/api/coder/sandbox")
-async def coder_sandbox_create():
-    """Cria uma CÓPIA isolada do projeto e aponta o Coder para ela. A automelhoria
-    acontece na cópia — o projeto ao vivo só muda quando o usuário aplicar."""
-    global coder_sandbox_path
-    from src import sandbox
-    if coder_sandbox_path:
-        await asyncio.to_thread(sandbox.discard_sandbox, coder_sandbox_path)
-    coder_sandbox_path = await asyncio.to_thread(sandbox.create_sandbox, PROJECT_ROOT)
-    res = await asyncio.to_thread(coder_ws.set_root, coder_sandbox_path)
-    res["sandbox"] = True
-    res["tree"] = coder_ws.tree(80)
-    return res
-
-
-@app.get("/api/coder/sandbox/diff")
-async def coder_sandbox_diff():
-    """Lista as mudanças da cópia em relação ao projeto real."""
-    from src import sandbox
-    if not coder_sandbox_path:
-        return {"ok": False, "error": "nenhuma cópia ativa"}
-    changes = await asyncio.to_thread(sandbox.diff_sandbox, coder_sandbox_path, PROJECT_ROOT)
-    return {"ok": True, "changes": changes, "count": len(changes)}
-
-
-@app.get("/api/coder/sandbox/file")
-async def coder_sandbox_file(path: str):
-    """Diff colorido de um arquivo (projeto real → cópia)."""
-    from src import sandbox
-    if not coder_sandbox_path:
-        return {"ok": False, "error": "nenhuma cópia ativa"}
-    old, new = await asyncio.to_thread(sandbox.file_pair, coder_sandbox_path, PROJECT_ROOT, path)
-    return {"ok": True, "diff": make_diff(old, new, path)["text"]}
-
-
-class SandboxApplyRequest(BaseModel):
-    paths: list[str] | None = None
-
-
-@app.post("/api/coder/sandbox/apply")
-async def coder_sandbox_apply(req: SandboxApplyRequest):
-    """Aplica as mudanças da cópia ao projeto real (todas, ou só `paths`)."""
-    global coder_sandbox_path
-    from src import sandbox
-    if not coder_sandbox_path:
-        return {"ok": False, "error": "nenhuma cópia ativa"}
-    res = await asyncio.to_thread(sandbox.apply_sandbox, coder_sandbox_path, PROJECT_ROOT, req.paths)
-    _invalidate_baseline()
-    return res
-
-
-@app.post("/api/coder/sandbox/discard")
-async def coder_sandbox_discard():
-    """Descarta a cópia e volta o Coder para o workspace isolado padrão."""
-    global coder_sandbox_path
-    from src import sandbox
-    if coder_sandbox_path:
-        await asyncio.to_thread(sandbox.discard_sandbox, coder_sandbox_path)
-        coder_sandbox_path = None
-    await asyncio.to_thread(coder_ws.set_root, os.path.join(PROJECT_ROOT, "workspace"))
-    return {"ok": True}
-
-
-class CoderPathRequest(BaseModel):
-    path: str
-
-
-@app.post("/api/coder/test-for")
-async def coder_test_for(req: CoderPathRequest):
-    """Detecta e roda testes relacionados a um arquivo do workspace.
-    Retorna {ok, tests_found, total, passed, failed, skipped, results, output}."""
-    path = (req.path or "").strip()
-    if not path:
-        return {"ok": False, "error": "path obrigatório"}
-    related = await asyncio.to_thread(coder_ws.find_related_tests, path)
-    if not related:
-        return {"ok": True, "tests_found": [], "total": 0, "passed": 0,
-                "failed": 0, "skipped": 0, "results": [], "output": ""}
-    result = await asyncio.to_thread(coder_ws.run_tests_for, related)
-    result["tests_found"] = related
-    return result
-
-
-@app.post("/api/coder/vscode")
-async def coder_open_vscode(req: CoderPathRequest):
-    """Abre o workspace do Coder (ou um arquivo `path`, opcionalmente `arquivo:linha`)
-    no VS Code via CLI `code`."""
-    return await asyncio.to_thread(coder_ws.open_in_vscode, req.path or "")
-
-
-@app.get("/api/coder/browse")
-async def coder_browse(path: str = ""):
-    """Navegador de pastas do servidor — lista os subdiretórios de `path` para o
-    usuário escolher o workspace. Só lista nomes de diretórios (read-only)."""
-    def _list() -> dict:
-        # Sem path → ponto de partida amigável: a pasta do projeto.
-        base = path.strip() or os.path.dirname(os.path.abspath(__file__))
-        try:
-            base = os.path.abspath(base)
-        except Exception:
-            base = os.path.dirname(os.path.abspath(__file__))
-        if not os.path.isdir(base):
-            return {"ok": False, "error": f"não é uma pasta: {base}", "current": base, "dirs": []}
-        try:
-            _skip = {"__pycache__", "node_modules", ".git", ".venv", "venv"}
-            entries = []
-            for name in sorted(os.listdir(base), key=str.lower):
-                full = os.path.join(base, name)
-                if os.path.isdir(full) and not name.startswith(".") and name not in _skip:
-                    entries.append({"name": name, "path": full})
-        except PermissionError:
-            return {"ok": False, "error": "sem permissão para ler esta pasta",
-                    "current": base, "dirs": []}
-        parent = os.path.dirname(base)
-        return {"ok": True, "current": base,
-                "parent": parent if parent and parent != base else "",
-                "dirs": entries}
-    return await asyncio.to_thread(_list)
-
-
 def _parse_agent_action(content: str) -> tuple[str, str]:
     """Decide a ação do agente a partir da resposta do modelo (ReAct).
     Retorna (tipo, payload): 'code' | 'web' | 'base' | 'final'."""
@@ -2164,6 +2041,7 @@ app.include_router(project_router)
 app.include_router(system_router)
 app.include_router(coder_tools_router)
 app.include_router(coder_write_router)
+app.include_router(coder_ops_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
