@@ -208,7 +208,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
-| Q1 | M1 | Modularizar app.py | 🔨 em andamento — 8 routers (+`analytics`) = 45 rotas fora; `src/runtime.py` (estado + getter de CHAT_MODEL). app.py 3.213→2.701 |
+| Q1 | M1 | Modularizar app.py | 🔨 em andamento — 9 routers (+`ingest`) = 50 rotas fora; `src/runtime.py` (estado + getter de CHAT_MODEL). app.py 3.213→2.514 (–22%) |
 | Q1 | M1 | Modularizar frontend | ⬜ |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |
