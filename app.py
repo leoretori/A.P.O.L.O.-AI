@@ -1256,6 +1256,13 @@ async def coder(req: ChatRequest):
                     yield _ev({"type": "step", "icon": "✓" if web_ctx else "✗",
                                "message": f"{len(srcs)} fonte(s)" if srcs else "sem resultados"})
                     if web_ctx:
+                        # Enriquece a base: o que o Coder achou na web vira conhecimento
+                        # PERMANENTE (sintetizado, em background) → a próxima CONSULTAR
+                        # já encontra e ele nunca pesquisa a mesma coisa duas vezes.
+                        if learner:
+                            asyncio.create_task(learner.learn_from_web(arg, web_ctx))
+                            yield _ev({"type": "step", "icon": "📥",
+                                       "message": "Salvando na base para não pesquisar de novo..."})
                         obs = (f"Resultado da web sobre '{arg}':\n\n{web_ctx[:1800]}\n\n"
                                "Use isto para agir (aplique no código com EDITAR/ESCREVER). "
                                "NÃO repita a mesma BUSCAR_WEB.")

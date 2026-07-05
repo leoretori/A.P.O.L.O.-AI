@@ -556,6 +556,41 @@ class LearningEngine:
         if self._saved_count % SYNTHESIS_EVERY == 0:
             asyncio.create_task(self._run_deep_synthesis())
 
+    # ── Aprendizado sob demanda (Coder → base) ────────────────
+
+    async def learn_from_web(self, topic: str, content: str, url: str = "",
+                             category: str = "web_search") -> bool:
+        """Salva na base PERMANENTE um conhecimento que o Coder encontrou na web.
+        Sintetiza primeiro (nunca grava conteúdo cru) e faz dedup por tópico já
+        estudado — assim a próxima CONSULTAR do Coder já acha, sem re-pesquisar.
+        Retorna True se salvou. Chamada em background pelo loop do Coder."""
+        topic = (topic or "").strip()
+        if not topic or len((content or "").strip()) < 120:
+            return False
+        # Já está na base? Não re-sintetiza (economiza uma chamada de LLM).
+        try:
+            if self.db and self.db.is_topic_studied(topic):
+                return False
+        except Exception:
+            pass
+        summary = await self._summarize(topic, content, category)
+        if not summary:  # Ollama fora / timeout → não grava lixo cru
+            return False
+        item = LearnedItem(
+            topic=topic[:200], url=url or f"web://coder/{topic[:80]}",
+            summary=summary, category=category, agent_name="coder_web",
+        )
+        await self._persist(item)
+        self._record_activity(item)
+        self._saved_count += 1
+        if self.db:
+            try:
+                self.db.add_notification(
+                    f"📥 Coder aprendeu da web: {topic[:60]}", kind="learning")
+            except Exception:
+                pass
+        return True
+
     # ── Síntese cross-domain ──────────────────────────────────
 
     async def _run_deep_synthesis(self) -> None:

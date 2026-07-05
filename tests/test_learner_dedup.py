@@ -307,3 +307,62 @@ def test_save_libera_reserva(eng):
     asyncio.run(eng._save_and_record(item))
     # Depois de salvo, o tópico pode ser reservado de novo (refresh futuro).
     assert eng._reserve("grpc load balancing")
+
+
+# ── learn_from_web: pesquisa do Coder vira conhecimento permanente ──
+def test_learn_from_web_sintetiza_e_persiste(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    eng = LearningEngine(model="m", db=db)
+
+    async def fake_summarize(topic, content, category="web_search"):
+        return f"## Conceitos-chave\n- síntese de {topic}\n" + "z" * 200
+    monkeypatch.setattr(eng, "_summarize", fake_summarize)
+
+    content = "Documentação real sobre streaming SSE em FastAPI. " * 8
+    ok = asyncio.run(eng.learn_from_web("FastAPI SSE streaming", content))
+    assert ok is True
+    rows = {r["topic"]: r for r in db.get_learning_history(10)}
+    assert "FastAPI SSE streaming" in rows
+    assert rows["FastAPI SSE streaming"]["summary"].startswith("## Conceitos")
+
+
+def test_learn_from_web_conteudo_curto_ignora(tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    eng = LearningEngine(model="m", db=db)
+    # Conteúdo < 120 chars não vale síntese (nem chama o LLM).
+    ok = asyncio.run(eng.learn_from_web("x", "pouco texto"))
+    assert ok is False
+    assert db.get_learning_history(10) == []
+
+
+def test_learn_from_web_ja_estudado_nao_resinteza(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    db.save_learned_topic("asyncio gather", "u", "## já sei\n" + "y" * 200, "web")
+    eng = LearningEngine(model="m", db=db)
+
+    called = {"n": 0}
+    async def spy_summarize(*a, **k):
+        called["n"] += 1
+        return "## nova\n" + "z" * 200
+    monkeypatch.setattr(eng, "_summarize", spy_summarize)
+
+    ok = asyncio.run(eng.learn_from_web("asyncio gather", "conteúdo novo " * 20))
+    assert ok is False           # já estava na base
+    assert called["n"] == 0      # nem chamou o LLM (economia)
+
+
+def test_learn_from_web_falha_sintese_nao_grava(monkeypatch, tmp_path):
+    from src.storage import DatabaseManager
+    db = DatabaseManager(database_url=f"sqlite:///{tmp_path}/t.db")
+    eng = LearningEngine(model="m", db=db)
+
+    async def fail(*a, **k):
+        return None              # Ollama fora / timeout
+    monkeypatch.setattr(eng, "_summarize", fail)
+
+    ok = asyncio.run(eng.learn_from_web("kafka partições", "conteúdo real " * 20))
+    assert ok is False
+    assert db.get_learning_history(10) == []   # nada cru salvo
