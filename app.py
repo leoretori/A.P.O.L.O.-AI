@@ -70,6 +70,8 @@ from routers.notifications import router as notifications_router
 from routers.knowledge import router as knowledge_router
 from routers.analytics import router as analytics_router
 from routers.ingest import router as ingest_router
+from routers.voice import router as voice_router
+from routers.backup import router as backup_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -2162,116 +2164,6 @@ async def orchestrate_endpoint(req: ChatRequest):
     )
 
 
-@app.post("/api/stt")
-async def stt_transcribe(request: Request):
-    """Transcrição de voz local via faster-whisper.
-    Recebe o áudio bruto (WebM/WAV) como body da requisição.
-    Se faster-whisper não estiver instalado, retorna {ok:false} e o frontend
-    usa o fallback Web Speech API do navegador."""
-    from src.whisper_stt import transcribe, is_available
-    if not is_available():
-        return {"ok": False, "error": "faster-whisper não instalado",
-                "hint": "pip install faster-whisper"}
-    audio = await request.body()
-    if len(audio) < 100:
-        return {"ok": False, "error": "Áudio muito curto ou vazio"}
-    size = os.getenv("WHISPER_MODEL", "base")
-    text = await asyncio.to_thread(transcribe, audio, size)
-    if text:
-        return {"ok": True, "text": text}
-    return {"ok": False, "error": "Não foi possível transcrever o áudio"}
-
-
-@app.get("/api/tts")
-async def tts_endpoint(text: str = "", voice: str = "pt-BR-FranciscaNeural"):
-    """TTS de alta qualidade via edge-tts (vozes neurais PT-BR).
-    Retorna áudio MP3 em streaming — o frontend toca via Audio API.
-    Fallback: speechSynthesis do navegador (browser) quando não instalado."""
-    from src.tts import is_available, synthesize
-    if not is_available():
-        return JSONResponse({"error": "edge-tts não instalado", "hint": "pip install edge-tts"},
-                            status_code=503)
-    clean = (text or "").strip()
-    if not clean:
-        return JSONResponse({"error": "texto vazio"}, status_code=400)
-    return StreamingResponse(
-        synthesize(clean, voice),
-        media_type="audio/mpeg",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.get("/api/export/obsidian")
-async def export_obsidian():
-    """Exporta todo o conhecimento acumulado como vault Obsidian (ZIP de .md).
-
-    Gera um arquivo por setor com todos os tópicos aprendidos, links internos
-    entre tópicos relacionados e um índice geral. Abra o ZIP descompactado
-    como vault no Obsidian para navegar pelo conhecimento do A.P.O.L.O."""
-    from src.obsidian import generate_vault
-    zip_bytes = await asyncio.to_thread(generate_vault, db, knowledge_db)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M")
-    return StreamingResponse(
-        iter([zip_bytes]),
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="APOLO_Obsidian_{stamp}.zip"'},
-    )
-
-
-@app.get("/api/export")
-async def export_all():
-    """Backup completo: conhecimento (Supabase) + sessões e tópicos (SQLite) em JSON."""
-    data = await asyncio.to_thread(db.export_all)
-    if knowledge_db:
-        try:
-            data["knowledge"] = await asyncio.to_thread(knowledge_db.all_rows, 5000)
-            data["counts"]["knowledge"] = len(data["knowledge"])
-        except Exception as e:
-            logger.warning(f"export knowledge: {e}")
-            data["knowledge"] = []
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return JSONResponse(
-        content=data,
-        headers={"Content-Disposition": f'attachment; filename="apolo_backup_{stamp}.json"'},
-    )
-
-
-@app.post("/api/import")
-async def import_backup(request: Request):
-    """Restaura um backup do /api/export (idempotente). Recria sessões, mensagens,
-    tópicos aprendidos e — se o Supabase estiver ativo — o conhecimento."""
-    try:
-        data = await request.json()
-    except Exception:
-        return {"ok": False, "error": "JSON inválido"}
-    if not isinstance(data, dict):
-        return {"ok": False, "error": "formato inesperado"}
-
-    added = await asyncio.to_thread(db.import_all, data)
-
-    knowledge_restored = 0
-    if knowledge_db and isinstance(data.get("knowledge"), list):
-        def _restore_knowledge(rows):
-            n = 0
-            for r in rows:
-                if not r.get("url"):
-                    continue
-                knowledge_db.save(
-                    r.get("title") or "(sem título)", r["url"],
-                    r.get("content") or "", r.get("category") or "web", r.get("tags") or [],
-                )
-                n += 1
-            return n
-        try:
-            knowledge_restored = await asyncio.to_thread(_restore_knowledge, data["knowledge"])
-        except Exception as e:
-            logger.warning(f"import knowledge: {e}")
-
-    # Limpa o cache em memória para refletir o que foi importado.
-    sessions.clear()
-    return {"ok": True, "added": added, "knowledge_restored": knowledge_restored}
-
-
 @app.get("/api/perf")
 async def perf_metrics():
     """Telemetria de latência por endpoint (média, p95, máximo, contagem, erros).
@@ -2492,6 +2384,8 @@ app.include_router(notifications_router)
 app.include_router(knowledge_router)
 app.include_router(analytics_router)
 app.include_router(ingest_router)
+app.include_router(voice_router)
+app.include_router(backup_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
