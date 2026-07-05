@@ -16,6 +16,11 @@ from typing import Any
 learner: Any = None
 db: Any = None
 knowledge_db: Any = None
+rag: Any = None
+# Dicts mutáveis compartilhados com o chat (mutados in-place, nunca reatribuídos):
+# o router lê a MESMA referência que o chat muta.
+sessions: Any = None
+session_summaries: Any = None
 
 
 def configure(**objects: Any) -> None:

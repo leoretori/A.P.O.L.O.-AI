@@ -63,6 +63,7 @@ from src.web_search import web_research
 from src import runtime as rt
 from routers.assets import router as assets_router
 from routers.learning import router as learning_router
+from routers.sessions import router as sessions_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -337,7 +338,8 @@ async def lifespan(app: FastAPI):
     lesson_mem = LessonMemory(path=os.getenv("LESSONS_PATH", "data/lessons.db"))
     # Publica os singletons para os routers modularizados (M1). Enquanto a migração
     # não termina, eles continuam como globais aqui — mesma referência de objeto.
-    rt.configure(learner=learner, db=db, knowledge_db=knowledge_db)
+    rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
+                 sessions=sessions, session_summaries=session_summaries)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
     try:
         orphans = db.cleanup_orphan_meta()
@@ -2505,66 +2507,6 @@ async def remove_fact(fact_id: str):
     return {"ok": profile.remove(fact_id)}
 
 
-@app.delete("/api/session/{session_id}")
-async def clear_session(session_id: str):
-    sessions.pop(session_id, None)
-    db.delete_session(session_id)
-    return {"ok": True}
-
-
-@app.get("/api/session/{session_id}")
-async def get_session(session_id: str):
-    """Carrega conversa completa de uma sessão para restaurar no front."""
-    msgs = db.load_session(session_id)
-    return {"session_id": session_id, "messages": msgs}
-
-
-@app.get("/api/sessions")
-async def list_sessions():
-    """Lista todas as sessões (chats antigos inclusos) para a sidebar."""
-    return db.list_sessions(days=0, limit=100)
-
-
-@app.get("/api/session/{session_id}/export")
-async def export_session_md(session_id: str):
-    """Baixa a conversa como arquivo Markdown."""
-    md = await asyncio.to_thread(db.export_session_markdown, session_id)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return StreamingResponse(
-        iter([md]), media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="apolo_conversa_{stamp}.md"'},
-    )
-
-
-@app.get("/api/sessions/search")
-async def search_sessions(q: str = ""):
-    """Busca no histórico de conversas (todos os chats) por trecho de texto."""
-    results = await asyncio.to_thread(db.search_messages, q, 30)
-    return {"query": q, "results": results}
-
-
-@app.post("/api/sessions/reindex")
-async def reindex_sessions():
-    """Indexa (ou re-indexa) todas as conversas históricas na memória episódica
-    (ChromaDB). Use para aproveitar chats antigos no recall semântico do chat."""
-    if not rag:
-        return {"ok": False, "error": "RAG não inicializado"}
-    sessions_list = await asyncio.to_thread(db.list_sessions, 0, 500)
-    indexed, skipped = 0, 0
-    for sess in sessions_list:
-        sid = sess["session_id"]
-        title = sess.get("title") or sess.get("first_message", "")[:60]
-        messages = await asyncio.to_thread(db.load_session, sid)
-        summ = session_summaries.get(sid, {}).get("text", "")
-        ok = await asyncio.to_thread(_index_episodic, sid, title, messages, rag, summ)
-        if ok:
-            indexed += 1
-        else:
-            skipped += 1
-    return {"ok": True, "indexed": indexed, "skipped": skipped,
-            "total": len(sessions_list)}
-
-
 @app.get("/api/export/obsidian")
 async def export_obsidian():
     """Exporta todo o conhecimento acumulado como vault Obsidian (ZIP de .md).
@@ -3022,6 +2964,7 @@ async def models_info():
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).
 app.include_router(assets_router)
 app.include_router(learning_router)
+app.include_router(sessions_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
