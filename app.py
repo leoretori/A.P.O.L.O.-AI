@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from collections import defaultdict
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware   # #3
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -44,7 +44,7 @@ from src.prompts import (
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
     AGENT_INSTRUCTION, AGENT_MEMORY_SECTION, AGENT_SELFEVAL_PROMPT,
     CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION, CODER_PLAN_PROMPT,
-    CODER_REFLECT_PROMPT, COMMIT_MSG_PROMPT,
+    CODER_REFLECT_PROMPT,
 )
 from src.coder import CoderWorkspace, extract_fenced, make_diff, compact_messages
 from src.lessons import LessonMemory
@@ -77,6 +77,7 @@ from routers.system import router as system_router
 from routers.coder_tools import router as coder_tools_router
 from routers.coder_write import router as coder_write_router
 from routers.coder_ops import router as coder_ops_router
+from routers.coder_run import router as coder_run_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -1489,122 +1490,6 @@ async def coder(req: ChatRequest):
     )
 
 
-class CoderExecRequest(BaseModel):
-    cmd: str
-
-
-@app.websocket("/ws/coder/exec")
-async def coder_exec_ws(ws: WebSocket):
-    """#9 WebSocket para o terminal do Coder — bidirecional real.
-    Recebe {cmd} → transmite linhas de saída → envia {type: done, ok: bool}.
-    Vantagem sobre SSE: permite enviar Ctrl+C para interromper processos."""
-    await ws.accept()
-    try:
-        data = await ws.receive_json()
-        cmd = (data.get("cmd") or "").strip()
-        if not cmd:
-            await ws.send_json({"type": "done", "ok": False, "error": "cmd vazio"})
-            return
-
-        q: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-
-        def _worker():
-            for kind, val in coder_ws.run_cmd_stream(cmd):
-                loop.call_soon_threadsafe(q.put_nowait, (kind, val))
-
-        fut = loop.run_in_executor(None, _worker)
-        ok = False
-        while True:
-            kind, val = await q.get()
-            if kind == "line":
-                await ws.send_json({"type": "line", "content": val[:500]})
-            else:
-                ok = val
-                break
-        await fut
-        _invalidate_baseline()  # o comando pode ter mudado o workspace
-        await ws.send_json({"type": "done", "ok": ok})
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        try:
-            await ws.send_json({"type": "error", "message": str(e)[:200]})
-        except Exception:
-            pass
-
-
-@app.post("/api/coder/exec")
-async def coder_exec(req: CoderExecRequest):
-    """Executa um comando direto no workspace (sem o loop LLM), transmitindo a saída
-    ao vivo — um terminal leve confinado ao workspace, com as mesmas proteções."""
-    cmd = (req.cmd or "").strip()
-
-    def _ev(d): return f"data: {json.dumps(d)}\n\n"
-
-    async def stream():
-        if not cmd:
-            yield _ev({"type": "done", "ok": False}); return
-        yield _ev({"type": "step", "icon": "⚙️", "message": f"$ {cmd[:80]}"})
-        q: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-
-        def _worker():
-            ok_local = False
-            for kind, val in coder_ws.run_cmd_stream(cmd):
-                if kind == "line":
-                    loop.call_soon_threadsafe(q.put_nowait, ("line", val))
-                else:
-                    ok_local = val
-            loop.call_soon_threadsafe(q.put_nowait, ("done", ok_local))
-
-        fut = loop.run_in_executor(None, _worker)
-        ok = False
-        while True:
-            kind, val = await q.get()
-            if kind == "line":
-                yield _ev({"type": "cmd_line", "content": val[:300]})
-            else:
-                ok = val; break
-        await fut
-        _invalidate_baseline()  # o comando pode ter mudado o workspace
-        yield _ev({"type": "step", "icon": "✓" if ok else "✗", "message": "concluído" if ok else "falhou"})
-        yield _ev({"type": "done", "ok": ok})
-
-    return StreamingResponse(_gpu_priority(stream()), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-class CoderCommitRequest(BaseModel):
-    message: str = ""
-
-
-@app.post("/api/coder/commit")
-async def coder_commit(req: CoderCommitRequest):
-    """Commit assistido: sem mensagem, o modelo leve gera uma (Conventional
-    Commits) a partir do diff real. NUNCA faz push (bloqueado no sandbox)."""
-    msg = (req.message or "").strip()
-    if not msg:
-        st = await asyncio.to_thread(coder_ws.git_status)
-        if not st.get("is_repo"):
-            return {"ok": False, "error": "o workspace não é um repositório git"}
-        if not st.get("dirty"):
-            return {"ok": False, "error": "nada para commitar"}
-        diff = await asyncio.to_thread(coder_ws.git_diff)
-        prompt = COMMIT_MSG_PROMPT.format(
-            status=(st.get("status") or "")[:800], diff=diff[:3000])
-        try:
-            raw = await asyncio.to_thread(
-                chat_resilient, CHAT_MODEL,
-                [{"role": "user", "content": prompt}], keep_alive=KEEP_ALIVE) or ""
-            msg = raw.strip().splitlines()[0].strip().strip('`"\'')[:150]
-        except Exception as e:
-            logger.debug(f"commit msg: {e}")
-        if not msg:
-            msg = "chore: alterações via A.P.O.L.O. Coder"
-    return await asyncio.to_thread(coder_ws.git_commit_all, msg)
-
-
 def _parse_agent_action(content: str) -> tuple[str, str]:
     """Decide a ação do agente a partir da resposta do modelo (ReAct).
     Retorna (tipo, payload): 'code' | 'web' | 'base' | 'final'."""
@@ -2042,6 +1927,7 @@ app.include_router(system_router)
 app.include_router(coder_tools_router)
 app.include_router(coder_write_router)
 app.include_router(coder_ops_router)
+app.include_router(coder_run_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

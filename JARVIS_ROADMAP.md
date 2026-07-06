@@ -208,7 +208,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
-| Q1 | M1 | Modularizar app.py | 🔨 quase — 16 routers (+`coder_ops`: sandbox/test-for/vscode/browse) = 85 rotas fora. Restam só 11 @app (chat/research/review/agent/orchestrate/health/boot + coder ReAct/commit/exec/ws). app.py 3.213→2.064 (–36%) |
+| Q1 | M1 | Modularizar app.py | 🔨 quase — 17 routers (+`coder_run`: commit/exec/ws) = 88 rotas fora. Restam só 8 @app (chat/research/review/coder-ReAct/agent/orchestrate/boot/health). app.py 3.213→1.950 (–39%) |
 | Q1 | M1 | Modularizar frontend | ⬜ |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |
