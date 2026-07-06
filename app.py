@@ -61,6 +61,8 @@ from routers.ai import router as ai_router
 from routers.agent import router as agent_router
 from routers.coder import router as coder_router
 from routers.chat import router as chat_router
+from routers.tools import router as tools_router
+import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -539,6 +541,7 @@ app.include_router(ai_router)
 app.include_router(agent_router)
 app.include_router(coder_router)
 app.include_router(chat_router)
+app.include_router(tools_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

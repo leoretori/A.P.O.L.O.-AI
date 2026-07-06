@@ -1353,6 +1353,39 @@
   function openHealth() { document.getElementById('health-overlay').style.display='flex'; loadHealth(); }
   function closeHealth() { document.getElementById('health-overlay').style.display='none'; }
 
+  // ── Painel de Permissões (consentimento de agência — M6) ─────
+  function openPermissions() { document.getElementById('perm-overlay').style.display='flex'; loadPermissions(); }
+  function closePermissions() { document.getElementById('perm-overlay').style.display='none'; }
+
+  async function loadPermissions() {
+    const body = document.getElementById('perm-body');
+    body.textContent = 'Carregando…';
+    try {
+      const d = await fetch('/api/permissions').then(r=>r.json());
+      if (!d.scopes || !d.scopes.length) { body.innerHTML = '<div style="color:#666">Nenhuma capacidade disponível.</div>'; return; }
+      body.innerHTML = d.scopes.map(s => `
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #16161c">
+          <div style="min-width:0">
+            <div style="color:#e0e0e0"><code style="color:#5b9cff">${escHtml(s.scope)}</code></div>
+            <div style="color:#777;font-size:11px">${escHtml(s.label)}</div>
+          </div>
+          <button onclick="togglePermission('${escHtml(s.scope)}', ${s.granted})"
+            style="flex-shrink:0;border:1px solid ${s.granted?'#4ade80':'#2a2a33'};background:${s.granted?'rgba(74,222,128,.12)':'#1a1a22'};color:${s.granted?'#4ade80':'#aaa'};border-radius:7px;padding:4px 12px;cursor:pointer;font-size:11.5px">
+            ${s.granted ? '✓ Autorizado' : 'Autorizar'}
+          </button>
+        </div>`).join('');
+    } catch { body.innerHTML = '<div style="color:#e66">Falha ao carregar as permissões.</div>'; }
+  }
+
+  async function togglePermission(scope, granted) {
+    const url = granted ? '/api/permissions/revoke' : '/api/permissions/grant';
+    try {
+      await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scope})});
+      showIngestToast(granted ? `🔓 Permissão revogada: ${escHtml(scope)}` : `🔐 Permissão concedida: ${escHtml(scope)}`);
+    } catch {}
+    loadPermissions();
+  }
+
   // ── Painel de Auditoria (o que a IA fez nas últimas 24h) ─────
   function openAudit() { document.getElementById('audit-overlay').style.display='flex'; loadAudit(); }
   function closeAudit() { document.getElementById('audit-overlay').style.display='none'; }

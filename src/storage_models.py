@@ -137,6 +137,29 @@ class BenchmarkRun(Base):
     results_json = Column(Text)   # JSON com detalhes por pergunta
 
 
+class Permission(Base):
+    """Consentimento do usuário para uma capacidade de agência (M6, Épico 6.1).
+    Nada que toque o mundo (ler arquivos, agenda, e-mail) roda sem um grant aqui."""
+    __tablename__ = "permissions"
+    scope      = Column(String(60), primary_key=True)   # ex.: files.read, calendar.read
+    granted    = Column(Boolean, default=True)
+    granted_at = Column(DateTime, default=_now)
+    note       = Column(Text, default="")               # ex.: caminho autorizado
+
+
+class ToolAudit(Base):
+    """Log de auditoria de TODA invocação de ferramenta de agência (M6, Épico 6.1)
+    — permitida ou negada. Torna a agência inspecionável e reversível."""
+    __tablename__ = "tool_audit"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    tool       = Column(String(60), nullable=False)
+    scope      = Column(String(60), default="")
+    allowed    = Column(Boolean, default=False)
+    args       = Column(Text, default="")               # resumo dos argumentos
+    result     = Column(Text, default="")               # resumo do resultado
+    created_at = Column(DateTime, default=_now, index=True)
+
+
 class Reminder(Base):
     """Lembrete/follow-up (M4, Épico 4.2): compromisso detectado numa conversa
     ('me lembra de X') ou criado à mão. O A.P.O.L.O. resurface no momento certo."""

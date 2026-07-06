@@ -71,6 +71,15 @@ def test_ordem_de_carregamento_satisfaz_dependencias_de_boot():
     assert html.index("/js/enhancements.js") < html.index("/js/app.js")
 
 
+def test_painel_de_permissoes_esta_ligado():
+    """M6 6.1 — a tela de consentimento precisa do botão + funções de grant/revoke."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'onclick="openPermissions()"' in html and 'id="perm-overlay"' in html
+    for fn in ("function openPermissions", "function togglePermission", "/api/permissions"):
+        assert fn in app_js
+
+
 def test_painel_de_auditoria_esta_ligado():
     """Épico 1.3 — o painel 'Atividade (24h)' precisa do botão no HTML e das
     funções de abertura/carregamento no JS."""
