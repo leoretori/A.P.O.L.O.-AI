@@ -206,7 +206,9 @@ const HF = {
   recorder: null, chunks: [], vadTimer: null,
   waveRaf: null, waveCanvas: null, waveCtx2d: null,
   waveData: null, isRecording: false,
-  useEdgeTts: false, hfVoice: 'feminino',
+  // useServerTts: usa o TTS do servidor (Piper local OU edge nuvem) via /api/tts;
+  // false = cai para a voz do navegador. ttsEngine guarda qual engine respondeu.
+  useServerTts: false, ttsEngine: 'browser', hfVoice: 'feminino',
   VOICES: { feminino: 'pt-BR-FranciscaNeural', masculino: 'pt-BR-AntonioNeural' },
   ENERGY_THRESHOLD: 18,   // energia mínima para considerar fala (0–255)
   SILENCE_MS: 1600,        // ms de silêncio para encerrar gravação
@@ -396,11 +398,12 @@ async function _hfChat(text) {
 }
 
 async function _hfSpeak(text) {
-  if (HF.useEdgeTts) {
+  if (HF.useServerTts) {
     try {
-      const voiceName = HF.VOICES[HF.hfVoice] || HF.VOICES.feminino;
-      const resp = await fetch(`/api/tts?${new URLSearchParams({text:text.slice(0,2000),voice:voiceName})}`);
-      if (!resp.ok) throw new Error('edge-tts falhou');
+      // Envia o RÓTULO da voz (feminino/masculino) — a fachada de TTS mapeia para
+      // o modelo certo em qualquer engine (Piper local ou edge nuvem).
+      const resp = await fetch(`/api/tts?${new URLSearchParams({text:text.slice(0,2000),voice:HF.hfVoice})}`);
+      if (!resp.ok) throw new Error('TTS do servidor falhou');
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
@@ -438,9 +441,15 @@ async function startHandsFree() {
       alert('O modo Mãos Livres requer o Whisper STT local.\nInstale: pip install faster-whisper\nReinicie o servidor e tente de novo.');
       return;
     }
-    HF.useEdgeTts = h.tts_engine === 'edge-tts';
+    // Usa o TTS do servidor para QUALQUER engine != browser (Piper local ou edge
+    // nuvem). Antes só reconhecia 'edge-tts' e ignorava o Piper (voz soberana).
+    HF.ttsEngine = h.tts_engine || 'browser';
+    HF.useServerTts = HF.ttsEngine !== 'browser';
     document.getElementById('hf-voice-btn').textContent =
-      '🔊 ' + (HF.useEdgeTts ? HF.hfVoice : 'browser');
+      '🔊 ' + (HF.useServerTts ? HF.hfVoice : 'browser');
+    // STT ainda aquecendo? avisa que a 1ª fala pode demorar (sem bloquear).
+    if (h.stt && h.stt_ready === false)
+      _hfAddBubble('ai', 'preparando a voz (carregando o modelo)...');
   } catch { return; }
 
   // Inicializa AudioContext + MediaStream
@@ -485,7 +494,7 @@ function cycleHfVoice() {
   const idx = voices.indexOf(HF.hfVoice);
   HF.hfVoice = voices[(idx+1) % voices.length];
   document.getElementById('hf-voice-btn').textContent =
-    '🔊 ' + (HF.useEdgeTts ? HF.hfVoice : 'browser');
+    '🔊 ' + (HF.useServerTts ? HF.hfVoice : 'browser');
 }
 
 // ── PWA: Service Worker ──────────────────────────────────────────────────────

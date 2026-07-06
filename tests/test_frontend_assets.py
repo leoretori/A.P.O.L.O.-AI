@@ -92,6 +92,17 @@ def test_js_css_tem_cache_control_no_cache():
         assert r.headers.get("cache-control") == "no-cache", path
 
 
+def test_handsfree_usa_tts_do_servidor_para_qualquer_engine():
+    """Loop conversacional (M3 3.3): o modo mãos-livres deve usar o TTS do
+    servidor para QUALQUER engine != browser (Piper local OU edge nuvem). O bug
+    antigo só reconhecia 'edge-tts' e ignorava o Piper (voz soberana)."""
+    js = (STATIC / "js" / "enhancements.js").read_text(encoding="utf-8")
+    assert "useEdgeTts" not in js                         # lógica antiga removida
+    assert "HF.useServerTts = HF.ttsEngine !== 'browser'" in js
+    # envia o rótulo da voz (feminino/masculino), que a fachada mapeia por engine
+    assert "voice:HF.hfVoice" in js
+
+
 def test_sw_nao_serve_js_css_do_app_desatualizado():
     """Com JS/CSS em arquivos externos (Épico 1.2), o service worker precisa
     tratá-los como network-first — senão o cache-first serve código velho para

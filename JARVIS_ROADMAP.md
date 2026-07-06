@@ -217,13 +217,15 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 | Q1 | M2 | Consolidação noturna | ⬜ |
 | Q1 | M3 | TTS local (Piper) | 🔨 **engine soberano + honestidade** — TTS virou fachada (`src/tts.py`) que prefere **Piper (100% local, CPU)** sobre edge-tts (nuvem): `active_engine()`/`is_local()`/`media_type()`, `TTS_ENGINE` força um. `src/tts_piper.py` (novo engine, WAV) + `src/tts_edge.py` (nuvem, MP3, fallback). `/api/tts` manda `X-TTS-Engine`/`X-TTS-Local`; `/api/health` reporta `tts_engine`+`tts_local` (fim da mentira L1: o código dizia edge="local"). Verificado: fallback p/ edge funciona e se declara nuvem. Falta p/ fechar: usuário instalar `piper-tts` + modelo PT-BR e medir latência no CPU (🔒 HW) |
 | Q1 | M3 | STT sempre pronto | ✅ — Whisper (`src/whisper_stt.py`) ganhou `warmup()` + `is_ready()`; o boot pré-carrega o modelo (task atrasada 12s, `STT_WARMUP=0` desliga) → a 1ª ditada não paga o cold-start (~15s de load, medido). `/api/health` e `/api/boot` reportam `stt_ready`. Verificado no preview: modelo `base` pré-carregado no boot, `stt_ready` vira true. (Boot/health também passaram a reportar o `tts_engine`/`tts_local` reais via fachada.) |
-| Q1 | M3 | Loop conversacional | ⬜ |
+| Q1 | M3 | Loop conversacional | ✅ — o modo mãos-livres (VAD → `/api/stt` → `/api/chat` → TTS → volta a ouvir, em `enhancements.js`) foi integrado ao stack de voz soberano: usa o TTS do servidor para QUALQUER engine ≠ browser (corrige o bug que só reconhecia edge-tts e IGNORAVA o Piper local); envia o rótulo da voz (a fachada mapeia por engine); avisa se o STT ainda está aquecendo (`stt_ready`). Verificado no preview (decisão de engine + contrato `/api/health`). Loop 100% local quando Piper instalado |
 
 *(a tabela cresce conforme avançamos; itens viram ✅ com o commit que os entrega)*
 
 > **🏁 M1 (Arquitetura & Observabilidade) — 100% concluído (2026-07-06).** Monólitos quebrados (backend em routers+mixins, frontend em CSS/JS externos), observabilidade e auditoria no ar, e a DoD batida: nenhum arquivo Python > 800 linhas; suíte verde (630); UI idêntica ao usuário.
 >
-> **🏁 M2 (Tecido de Memória Unificado) — 100% concluído (2026-07-06).** MemoryFabric é a porta única sobre RAG + base + lições + episódios; todo recall semântico do app passa por ela; memória episódica/autobiográfica com recall temporal ("o que fizemos ontem?") e consolidação automática ("sono") que transforma conversas em episódios sozinha. DoD batida. Próximo: **M3 — Voz Local de Verdade** (Piper TTS + Whisper STT + loop conversacional).
+> **🏁 M2 (Tecido de Memória Unificado) — 100% concluído (2026-07-06).** MemoryFabric é a porta única sobre RAG + base + lições + episódios; todo recall semântico do app passa por ela; memória episódica/autobiográfica com recall temporal ("o que fizemos ontem?") e consolidação automática ("sono") que transforma conversas em episódios sozinha. DoD batida.
+>
+> **🏁 M3 (Voz Local de Verdade) — código concluído (2026-07-06).** TTS soberano (fachada que prefere Piper local sobre edge nuvem, com reporte honesto de `tts_local`); STT sempre pronto (Whisper pré-carregado no boot, sem cold-start na 1ª ditada); loop conversacional mãos-livres integrado ao stack de voz (usa o TTS do servidor p/ qualquer engine). **Pendência do usuário para 100% soberano:** `pip install piper-tts` + baixar um modelo PT-BR e medir a latência no CPU (🔒 HW). Fecha o Q1 (Fundação). Próximo trimestre: **Q2 — Presença & Agência** (M4 proatividade, M5 wake word, M6 ler o mundo).
 
 ---
 
