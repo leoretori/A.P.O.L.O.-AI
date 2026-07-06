@@ -168,7 +168,10 @@ async def chat(req: cc.ChatRequest):
 
         # ── Fase 2+3: memória semântica (ChromaDB) + base FTS (Supabase) EM PARALELO ──
         async def _do_recall() -> list[dict]:
-            if not rt.rag or _is_short:
+            # Memória semântica pela porta única (MemoryFabric, M2); fallback p/
+            # rt.rag direto se o fabric ainda não foi injetado no runtime.
+            mem = rt.memory
+            if _is_short or (mem is None and not rt.rag):
                 return []
             # #1 Cache: mesma query recente → resultado imediato, sem re-embedding
             recent = [m.get("content", "")[:80] for m in history[-4:]
@@ -179,7 +182,12 @@ async def chat(req: cc.ChatRequest):
             if cached is not None:
                 return cached
             try:
-                recalled = await asyncio.to_thread(rt.rag.recall, enriched, MEMORY_RECALL_N)
+                if mem is not None:
+                    hits = await asyncio.to_thread(mem.recall, enriched, "semantic", MEMORY_RECALL_N)
+                    recalled = [{"title": h.title, "snippet": h.text, "source": h.source,
+                                 "relevance": h.score} for h in hits]
+                else:
+                    recalled = await asyncio.to_thread(rt.rag.recall, enriched, MEMORY_RECALL_N)
                 result = [
                     m for m in recalled if (m.get("relevance") or 0) >= MEMORY_MIN_RELEVANCE
                 ][:MEMORY_TOP]

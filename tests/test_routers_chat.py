@@ -61,6 +61,45 @@ def test_chat_fast_path_streama_e_persiste(monkeypatch):
     assert ("assistant", "Olá!") in saved
 
 
+def test_chat_recall_passa_pelo_memory_fabric(monkeypatch):
+    """Mensagem longa (não fast-path) → o recall semântico do chat vai pelo
+    MemoryFabric. A memória recuperada vira memory_sources no evento 'done'."""
+    from src.memory import MemoryFabric
+
+    async def fake_stream_chat(model, messages, keep_alive=None):
+        yield "resposta"
+    monkeypatch.setattr(chat_mod, "stream_chat", fake_stream_chat)
+
+    class FakeRag:
+        def recall(self, query, n):
+            return [{"title": "FastAPI streaming", "snippet": "use StreamingResponse",
+                     "source": "doc:fastapi", "relevance": 0.9}]
+
+    class FakeDB:
+        def load_session(self, sid): return None
+        def save_message(self, sid, role, content): pass
+        def save_execution(self, d): pass
+
+    rt.configure(rag=None, knowledge_db=None, learner=None, profile=None,
+                 project_mem=None, db=FakeDB(), executor=None, gpu_gate=None,
+                 memory=MemoryFabric(rag=FakeRag()),
+                 sessions=defaultdict(list), session_summaries={},
+                 model="qwen2.5-coder:14b", get_chat_model=lambda: "qwen2.5-coder:3b",
+                 get_vision_model=lambda: "")
+
+    r = _client().post("/api/chat", json={
+        "message": "como faço streaming de resposta no FastAPI com SSE?",
+        "session_id": "s2"})
+    assert r.status_code == 200
+    eventos = [json.loads(l[6:]) for l in r.text.splitlines() if l.startswith("data: ")]
+    done = eventos[-1]
+    assert done["type"] == "done"
+    # a memória recuperada (via fabric) apareceu como fonte e NÃO foi tratada como lacuna
+    titles = [s["title"] for s in done["memory_sources"]]
+    assert "FastAPI streaming" in titles
+    assert done["gap"] is False
+
+
 def test_maybe_extract_fact_ignora_mensagem_impessoal():
     # Sem pista pessoal → não chama LLM (retorna cedo). Só garante que não quebra.
     import asyncio
