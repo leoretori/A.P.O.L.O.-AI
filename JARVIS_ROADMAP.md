@@ -209,7 +209,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
 | Q1 | M1 | Modularizar app.py | ✅ **app.py < 800** — 22 routers (+`chat`), 0 rotas @app no app.py (só bootstrap/lifespan/scheduler/middleware). app.py 3.213→**485** (–85%). Falta quebrar learner.py/storage.py (851) p/ fechar o épico |
-| Q1 | M1 | Modularizar frontend | ⬜ |
+| Q1 | M1 | Modularizar frontend | 🔨 **CSS extraído** — `<style>` inline (795 linhas) → `static/css/app.css`; index.html 5.401→4.605. UI idêntica (verificado no preview). Falta extrair os 2 blocos `<script>` (~3.960 linhas) em módulos JS |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |
 | Q1 | M2 | Memória episódica | ⬜ |
