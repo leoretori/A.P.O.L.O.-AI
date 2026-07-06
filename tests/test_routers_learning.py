@@ -25,8 +25,24 @@ def test_rotas_registradas():
         "/api/learning/status", "/api/learning/stream", "/api/learning/study-now",
         "/api/learning/history", "/api/learning/timeline", "/api/learning/agents",
         "/api/digest", "/api/knowledge/search", "/api/knowledge/recent",
+        "/api/briefing",
     }
     assert esperadas <= paths
+
+
+def test_briefing_compoe_resumo():
+    class FakeDB:
+        def get_learned_since(self, hours): return [{"topic": "asyncio em Python"}]
+        def list_schedules(self): return []
+        def unread_count(self): return 1
+    rt.configure(db=FakeDB(), episodic=None, learner=None, knowledge_db=None)
+    c = TestClient(_app_with_router())
+    r = c.get("/api/briefing?hours=12")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["learned_count"] == 1
+    assert body["unread_notifications"] == 1
+    assert "text" in body and body["text"].startswith(("Bom dia", "Boa tarde", "Boa noite"))
 
 
 def test_status_sem_learner_nao_quebra():

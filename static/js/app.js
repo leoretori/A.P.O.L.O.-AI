@@ -1891,6 +1891,21 @@
     return b;
   }
 
+  // ── Briefing do dia (M4 4.1): o A.P.O.L.O. te resume o dia e FALA ──
+  async function playBriefing() {
+    const btn = document.getElementById('briefing-btn');
+    if (btn) btn.textContent = '⏳';
+    try {
+      const b = await fetch('/api/briefing').then(r => r.json());
+      showIngestToast('📻 ' + escHtml(b.text || 'Sem novidades.'), 14000);
+      if (b.text) speak(b.text);
+    } catch {
+      showIngestToast('Não consegui montar o briefing agora.');
+    } finally {
+      if (btn) btn.textContent = '📻';
+    }
+  }
+
   // ── Voz: ditar por microfone ────────────────────────────────
   // Tenta Whisper local (/api/stt) primeiro; se não disponível, usa Web Speech API.
   let recog = null, recognizing = false;

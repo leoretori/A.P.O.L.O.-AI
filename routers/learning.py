@@ -136,6 +136,16 @@ async def digest(hours: int = 24):
             "generated_at": datetime.now().isoformat()}
 
 
+@router.get("/api/briefing")
+async def briefing(hours: int = 12):
+    """Briefing diário (M4, Épico 4.1): resumo FALÁVEL do que importa — o que o
+    A.P.O.L.O. aprendeu enquanto você esteve fora, o que vocês fizeram, a agenda
+    e pendências. Retorna dados estruturados + `text` pronto p/ TTS."""
+    from src.briefing import build_briefing
+    hours = max(1, min(hours, 168))
+    return await asyncio.to_thread(build_briefing, rt.db, rt.episodic, rt.learner, hours)
+
+
 @router.get("/api/learning/agents")
 async def learning_agents():
     """Status em tempo real de cada mini-agente."""

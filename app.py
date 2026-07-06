@@ -105,6 +105,10 @@ _RATE_LIMITS = {"/api/chat": 40, "/api/research": 15, "/api/agent": 20,
 IDLE_TRIGGER = int(os.getenv("IDLE_TRIGGER", 600))
 # API LAN: token de acesso para expor a API na rede local (vazio = sem autenticação).
 API_TOKEN = os.getenv("API_TOKEN", "").strip()
+# Briefing diário (M4 4.1): hora local (0–23) a partir da qual o A.P.O.L.O. te
+# aborda com o resumo do dia, uma vez por dia. -1 desliga.
+BRIEFING_HOUR = int(os.getenv("BRIEFING_HOUR", 8))
+_last_briefing_date = None
 
 db: DatabaseManager = None
 rag: RAGManager = None
@@ -252,6 +256,22 @@ async def _scheduler_loop():
                 res = await asyncio.to_thread(rt.episodic.consolidate)
                 if res.get("consolidated"):
                     logger.info(f"[sono] {res['consolidated']} conversa(s) viraram memória de longo prazo")
+
+            # Briefing diário (M4 4.1): a partir de BRIEFING_HOUR, uma vez por dia,
+            # o A.P.O.L.O. te aborda primeiro com o resumo do dia (vira notificação;
+            # o front pode falá-lo). Guarda a data p/ não repetir.
+            global _last_briefing_date
+            if BRIEFING_HOUR >= 0:
+                _today = datetime.now()
+                if _today.hour >= BRIEFING_HOUR and _last_briefing_date != _today.date():
+                    _last_briefing_date = _today.date()
+                    try:
+                        from src.briefing import build_briefing
+                        b = await asyncio.to_thread(build_briefing, db, rt.episodic, learner, 12)
+                        db.add_notification(f"☀️ {b['text'][:400]}", kind="briefing")
+                        logger.info("[briefing] briefing diário enviado")
+                    except Exception as e:
+                        logger.debug(f"[briefing] {e}")
         except Exception as e:
             logger.debug(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)
