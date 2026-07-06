@@ -47,6 +47,33 @@ def last_request_at() -> float:
     return _last_request_at
 
 
+def get_session(session_id: str) -> list:
+    """Retorna a sessão do cache em memória (rt.sessions) ou carrega do banco."""
+    if session_id not in rt.sessions:
+        loaded = rt.db.load_session(session_id) if rt.db else None
+        if loaded:
+            rt.sessions[session_id] = loaded
+            logger.info(f"Sessão {session_id[:8]}... restaurada do banco ({len(loaded)} msgs)")
+    return rt.sessions[session_id]
+
+
+async def agent_recall(query: str, limit: int = 3) -> str:
+    """Memória de longo prazo do agente — soluções/conhecimento já produzidos (RAG)."""
+    if not rt.rag:
+        return ""
+    try:
+        hits = await asyncio.to_thread(rt.rag.recall, query, limit)
+    except Exception:
+        return ""
+    parts = []
+    for h in hits or []:
+        if h.get("relevance") is not None and h["relevance"] < 0.15:
+            continue
+        title = h.get("title") or "memória"
+        parts.append(f"**{title}**\n{(h.get('snippet') or '')[:400]}")
+    return "\n\n---\n\n".join(parts)
+
+
 async def generate_session_title(session_id: str, first_message: str) -> None:
     """Gera título curto para a sessão usando LLM — roda em background."""
     try:

@@ -1,6 +1,8 @@
 """Testes dos helpers do Modo Agente (parsing de ação + limpeza de resposta)."""
 
-from app import _clean_agent_answer, _parse_agent_action
+# Helpers do agente moram em routers/agent.py desde a M1 (JARVIS_ROADMAP).
+from routers.agent import clean_agent_answer as _clean_agent_answer
+from routers.agent import parse_agent_action as _parse_agent_action
 
 
 # ── Limpeza de scaffolding vazado por modelos leves ───────────
