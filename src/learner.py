@@ -15,7 +15,6 @@ import logging
 import os
 import re
 from datetime import datetime
-from dataclasses import dataclass, field
 
 from src.agents import (
     DocCrawlerAgent, WebSearchAgent, TrendAgent, SynthesisAgent, GitHubAgent,
@@ -27,82 +26,14 @@ from src.web_search import web_research, fetch_page_text
 
 logger = logging.getLogger(__name__)
 
-# ── Configuração do pipeline ──────────────────────────────────
-FETCH_QUEUE_MAX   = 12   # buffer máximo de itens prontos para sumarizar
-SYNTHESIS_EVERY   = 6    # dispara síntese a cada N itens salvos
-# Ollama fora do ar → o summarizer PAUSA e re-checa a cada N segundos,
-# em vez de queimar o currículo inteiro descartando tópico por tópico.
-LLM_DOWN_BACKOFF  = float(os.getenv("LLM_DOWN_BACKOFF", 30))
-MAX_CONTENT_CHARS = 3500 # limita conteúdo enviado ao LLM (mais rápido)
-
-
-@dataclass
-class FetchedItem:
-    topic: str
-    url: str
-    content: str
-    category: str
-    agent_name: str
-    retries: int = 0   # tentativas de sumarização já feitas
-
-
-@dataclass
-class LearnedItem:
-    topic: str
-    url: str
-    summary: str
-    category: str
-    agent_name: str
-    timestamp: str = field(default_factory=lambda: datetime.now().strftime("%H:%M"))
-
-
-SUMMARIZE_PROMPT = """Você é A.P.O.L.O., agente de IA de elite em engenharia de software.
-
-Sintetize "{topic}" em português brasileiro:
-
-## Conceitos-chave
-[3-4 pontos fundamentais — direto ao ponto]
-
-## Como usar
-[Código real ou passos concretos de produção]
-
-## Integração
-[Como se conecta com outras tecnologias do ecossistema]
-
-## Insight A.P.O.L.O.
-[O ponto mais importante para um engenheiro sênior lembrar]
-
-CONTEÚDO:
-{content}
-
-Síntese (técnica, densa, sem enrolação):"""
-
-# Conhecimento GERAL (enciclopédia, livros) não é código: sintetizar "Teoria da
-# relatividade" com template de engenharia ("Como usar — código real") produzia
-# lixo. Cada categoria usa o template certo.
-SUMMARIZE_PROMPT_GERAL = """Você é A.P.O.L.O., mente enciclopédica de elite.
-
-Sintetize "{topic}" em português brasileiro:
-
-## Essência
-[O conceito explicado em 2-3 frases claras]
-
-## Pontos-chave
-[4-6 fatos ou ideias centrais — os que realmente importam]
-
-## Conexões
-[Como este tema se liga a outras áreas do conhecimento]
-
-## Insight A.P.O.L.O.
-[A compreensão mais valiosa para reter deste tema]
-
-CONTEÚDO:
-{content}
-
-Síntese (clara, densa, fiel ao conteúdo — não invente fatos):"""
-
-# Categorias de conhecimento geral → usam o template enciclopédico.
-GENERAL_CATEGORIES = {"encyclopedia", "book"}
+from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
+    FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
+    FetchedItem, LearnedItem,
+    SUMMARIZE_PROMPT, SUMMARIZE_PROMPT_GERAL, GENERAL_CATEGORIES,
+)
+from src.learner_synthesis import (  # noqa: F401 (re-exporta p/ compat)
+    _extract_self_queries, _cluster_topics, _build_synthesis_prompt,
+)
 
 
 class LearningEngine:
@@ -753,99 +684,3 @@ class LearningEngine:
         logger.info(f"✓ [{item.agent_name}] '{item.topic[:55]}'")
 
 
-# ── Helpers de síntese cross-domain ──────────────────────────
-
-DOMAIN_KEYWORDS = {
-    "Python Core":      ["asyncio","typing","python","decorator","generator","dataclass","pep","gil"],
-    "Web / API":        ["fastapi","django","rest","http","websocket","graphql","grpc","starlette","api"],
-    "Banco de Dados":   ["postgresql","sql","sqlite","redis","mongodb","elasticsearch","query","orm","migration"],
-    "Cloud / Infra":    ["aws","gcp","azure","lambda","s3","ecs","kubernetes","docker","terraform","helm"],
-    "Data Engineering": ["kafka","airflow","spark","dbt","bigquery","pipeline","etl","streaming","duckdb"],
-    "Arquitetura":      ["clean","ddd","cqrs","microservice","hexagonal","saga","event","pattern","solid"],
-    "DevOps / CI/CD":   ["github actions","ci","cd","docker","deploy","pipeline","monitoring","observability"],
-    "IA / ML":          ["llm","ai","ml","embedding","rag","langchain","ollama","model","vector","agent"],
-    "Segurança":        ["auth","jwt","oauth","owasp","secret","security","ssl","zero trust"],
-    "GitHub / OSS":     ["trending","github","readme","repository","open source"],
-}
-
-
-def _extract_self_queries(synthesis: str) -> list[str]:
-    """Extrai as queries auto-geradas (linhas '🎯 QUERY: ...') da síntese."""
-    import re
-    queries: list[str] = []
-    for line in synthesis.splitlines():
-        if "QUERY:" not in line:
-            continue
-        q = line.split("QUERY:", 1)[1].strip(" *_`\"'-").strip()
-        q = re.sub(r"\s+", " ", q)  # normaliza espaços internos
-        # Sanidade: precisa parecer uma query buscável de verdade
-        if 12 <= len(q) <= 140 and " " in q:
-            queries.append(q)
-    # Dedup por forma NORMALIZADA (ignora pontuação/maiúsculas) — assim
-    # "Redis pub/sub" e "redis pub sub?" não viram dois estudos do mesmo tema.
-    seen, unique = set(), []
-    for q in queries:
-        # Pontuação vira espaço (pub/sub == pub sub) e espaços são colapsados.
-        key = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", q.lower())).strip()
-        if key and key not in seen:
-            seen.add(key)
-            unique.append(q)
-    return unique[:6]
-
-
-def _cluster_topics(history: list[dict]) -> dict[str, list[str]]:
-    clusters: dict[str, list[str]] = {d: [] for d in DOMAIN_KEYWORDS}
-    clusters["Outros"] = []
-    for item in history:
-        text = (item["topic"] + " " + (item["summary"] or "")[:200]).lower()
-        placed = False
-        for domain, keywords in DOMAIN_KEYWORDS.items():
-            if any(k in text for k in keywords):
-                clusters[domain].append(item["topic"][:80])
-                placed = True
-                break
-        if not placed:
-            clusters["Outros"].append(item["topic"][:80])
-    return {k: v for k, v in clusters.items() if v}
-
-
-SYNTHESIS_CROSS_PROMPT = """Você é A.P.O.L.O., arquiteto de sistemas de elite.
-
-Você aprendeu os seguintes tópicos, agrupados por domínio:
-
-{clusters_text}
-
-Crie uma SÍNTESE ESTRATÉGICA DE CRUZAMENTO DE CONHECIMENTO:
-
-## Mapa de Integração
-[Como esses domínios se conectam numa stack real — desenhe o fluxo completo de uma aplicação moderna usando os componentes acima]
-
-## Padrões Cross-Domain Identificados
-[3-4 padrões que aparecem em múltiplos domínios — ex: "async aparece em Python, FastAPI, banco de dados e Kafka"]
-
-## Stack de Referência A.P.O.L.O.
-[Baseado no que foi estudado, qual seria a stack ideal para uma aplicação de produção? Por quê cada escolha?]
-
-## Gaps de Conhecimento
-[Que áreas importantes ainda não foram estudadas? Quais conexões estão faltando?]
-
-## Próximos Estudos Estratégicos
-Você é uma IA AUTÔNOMA: decida sozinho o que estudar a seguir para preencher os gaps acima e
-aumentar sua autonomia, automelhoria e inteligência. Liste EXATAMENTE 6 queries de busca.
-FORMATO OBRIGATÓRIO — cada uma em sua própria linha, exatamente assim:
-🎯 QUERY: <query técnica específica e buscável em inglês>
-
-Exemplo de formato:
-🎯 QUERY: LangGraph stateful agent checkpointing Python production
-🎯 QUERY: autonomous AI self-correction loop implementation Python
-
-Síntese em português brasileiro — seja estratégico, arquitetural e acionável:"""
-
-
-def _build_synthesis_prompt(clusters: dict[str, list[str]]) -> str:
-    lines = []
-    for domain, topics in clusters.items():
-        lines.append(f"\n**{domain}** ({len(topics)} tópicos):")
-        for t in topics[:6]:
-            lines.append(f"  - {t}")
-    return SYNTHESIS_CROSS_PROMPT.format(clusters_text="\n".join(lines))
