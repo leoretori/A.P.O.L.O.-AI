@@ -208,7 +208,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
-| Q1 | M1 | Modularizar app.py | 🔨 quase lá — 21 routers (+`coder`: o loop ReAct, 525 linhas) = 95 rotas fora. Resta só 1 @app: /api/chat. app.py 3.213→890 (–72%). Falta só quebrar chat p/ bater 800; depois learner.py/storage.py (851) |
+| Q1 | M1 | Modularizar app.py | ✅ **app.py < 800** — 22 routers (+`chat`), 0 rotas @app no app.py (só bootstrap/lifespan/scheduler/middleware). app.py 3.213→**485** (–85%). Falta quebrar learner.py/storage.py (851) p/ fechar o épico |
 | Q1 | M1 | Modularizar frontend | ⬜ |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |

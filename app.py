@@ -3,7 +3,6 @@
 import asyncio
 import os
 import sys
-import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -12,7 +11,7 @@ from collections import defaultdict
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware   # #3
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 
@@ -31,29 +30,13 @@ from src.curator import MemoryCurator
 from src.profile import UserProfile
 from src.gpu_gate import GpuGate
 from src.llm import (
-    KEEP_ALIVE, KEEP_ALIVE_HEAVY, stream_chat, warmup,
-    chat_resilient,
-)
-from src.prompts import (
-    SYSTEM_PROMPT, GENERATE_PROMPT, PERSONAL_SECTION,
-    MEMORY_SECTION, KNOWLEDGE_SECTION, WEB_SECTION,
-    FACT_EXTRACT_PROMPT,
-    CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
-    AGENT_SELFEVAL_PROMPT,
+    KEEP_ALIVE, warmup,
 )
 from src.coder import CoderWorkspace
 from src.lessons import LessonMemory
-from src.episodic import index_session as _index_episodic
 from src.project_memory import ProjectMemory
-from src.system_cache import get as _syscache_get, put as _syscache_put
-from src.query_cache import (                        # #1 #2
-    recall_get as _qcache_recall_get, recall_put as _qcache_recall_put,
-    fts_get as _qcache_fts_get, fts_put as _qcache_fts_put,
-)
-from src.utils import extract_code, extract_explanation, sanitize_request
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
-from src.web_search import web_research
 from src import runtime as rt
 from routers.assets import router as assets_router
 from routers.learning import router as learning_router
@@ -76,6 +59,7 @@ from routers.health import router as health_router
 from routers.ai import router as ai_router
 from routers.agent import router as agent_router
 from routers.coder import router as coder_router
+from routers.chat import router as chat_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -107,45 +91,14 @@ LIGHT_MODEL_PREFERENCE = [
     "qwen2.5-coder:3b", "qwen2.5:3b", "llama3.2:3b", "phi3:mini",
     "gemma2:2b", "qwen2.5-coder:7b", "codellama:latest",
 ]
-# Nº de mensagens do histórico enviadas ao LLM. Na CPU, histórico grande = prefill
-# mais lento; 12 mantém boa memória de conversa sem inflar a latência. Configurável.
-MAX_HISTORY = int(os.getenv("MAX_HISTORY", 12))
-# A prioridade de GPU no streaming (o learner cede a GPU ao usuário) vive em
-# src/coder_state.py, compartilhada com os routers. Alias mantém o uso no chat.
-from src.coder_state import gpu_priority as _gpu_priority
-# Memória de conversas longas: acima de SUMMARY_TRIGGER msgs, resume as antigas;
-# regenera o resumo a cada SUMMARY_STALE mensagens novas (em background).
-SUMMARY_TRIGGER = int(os.getenv("SUMMARY_TRIGGER", 16))
-SUMMARY_STALE = int(os.getenv("SUMMARY_STALE", 8))
+# Tuning do chat (MAX_HISTORY, recall semântico, self-eval, auto-web etc.) mora
+# em routers/chat.py; app.py mantém só o que o bootstrap/lifespan/scheduler usa.
 LEARNING_INTERVAL = int(os.getenv("LEARNING_INTERVAL", 180))
-# Tempo máximo esperando o Supabase antes de responder sem ele (não atrasa o 1º token).
-KNOWLEDGE_TIMEOUT = float(os.getenv("KNOWLEDGE_TIMEOUT", 4))
-# Limite de caracteres do contexto RAG injetado (corta o prefill na CPU).
-RAG_CTX_CHARS = int(os.getenv("RAG_CTX_CHARS", 1200))
-# Auto-roteamento: perguntas complexas usam o 14b sozinhas (sem o usuário ligar o toggle).
-AUTO_SMART = os.getenv("AUTO_SMART", "1") not in ("0", "false", "False", "")
-# Recall semântico no chat: quantas memórias buscar, quantas usar, corte de relevância e tamanho.
-MEMORY_RECALL_N = int(os.getenv("MEMORY_RECALL_N", 6))   # busca mais candidatos para rerank
-MEMORY_TOP = int(os.getenv("MEMORY_TOP", 3))
-MEMORY_MIN_RELEVANCE = float(os.getenv("MEMORY_MIN_RELEVANCE", 0.18))  # limiar levemente menor
-MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 400))                 # snippets mais longos
-# Auto-pesquisa na web quando não há memória relevante (lacuna de conhecimento).
-# Evita resposta vaga — busca informação real antes de responder.
-AUTO_WEB_ON_GAP = os.getenv("AUTO_WEB_ON_GAP", "1") not in ("0", "false", "False")
-# Contexto rico (≥N memórias relevantes) → upgrade automático para 14B para síntese mais profunda.
-MEMORY_RICH_14B = int(os.getenv("MEMORY_RICH_14B", 2))
-# Self-eval no chat: após responder, o A.P.O.L.O. critica e refina a própria resposta.
-# Só ativo quando já usando 14b (evita dobrar latência no modelo leve).
-# Desative com CHAT_SELF_EVAL=0.
-CHAT_SELF_EVAL = os.getenv("CHAT_SELF_EVAL", "1") not in ("0", "false", "False")
 # Rate limiting: máximo de requisições por endpoint por janela de 60s.
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT", "1") not in ("0", "false", "False")
 _rate_windows: dict[str, list] = defaultdict(list)
 _RATE_LIMITS = {"/api/chat": 40, "/api/research": 15, "/api/agent": 20,
                 "/api/orchestrate": 10, "default": 80}
-# Mensagens curtas (sim/não/ok/continue) → modelo leve sempre, sem recall caro.
-# Número máximo de caracteres para considerar mensagem "curta".
-SHORT_MSG_CHARS = int(os.getenv("SHORT_MSG_CHARS", 40))
 # Idle learning: se o usuário ficar inativo por IDLE_TRIGGER segundos e o
 # aprendizado estiver parado, o A.P.O.L.O. o inicia automaticamente.
 # 0 = desativado. Padrão 600 (10 min). GpuGate já preempta o learner quando
@@ -178,9 +131,7 @@ session_summaries: dict[str, dict] = {}
 # src/chat_common.py (compartilhados com os routers de IA). Aliases mantêm os
 # usos deste módulo intactos.
 from src.chat_common import (
-    ChatRequest, generate_session_title as _generate_session_title,
-    mark_request as _mark_request, last_request_at as _last_request_at_fn,
-    get_session as _get_session,
+    last_request_at as _last_request_at_fn,
 )
 
 
@@ -487,363 +438,6 @@ async def _latency_middleware(request: Request, call_next):
         perf_tracker.record(path, ms, is_error=is_error)
 
 
-# Pistas de que a mensagem fala do usuário — só aí vale a pena rodar a extração.
-_FACT_CUES = (
-    "meu ", "minha ", "eu ", " sou ", "estou ", "trabalho", "uso ", "utilizo",
-    "prefiro", "gosto", "projeto", "stack", "nosso", "nossa", "to usando", "tô usando",
-)
-
-
-async def _maybe_extract_fact(message: str) -> None:
-    """Aprende um fato pessoal a partir da mensagem (background, não bloqueia o chat).
-    Só roda quando a mensagem tem cara de pessoal, p/ evitar ruído e custo de LLM."""
-    if not profile:
-        return
-    low = message.lower()
-    if not any(cue in low for cue in _FACT_CUES):
-        return
-    try:
-        prompt = FACT_EXTRACT_PROMPT.format(message=message[:400])
-        fact = await asyncio.to_thread(
-            chat_resilient,
-            CHAT_MODEL,
-            [{"role": "user", "content": prompt}],
-            keep_alive=KEEP_ALIVE,
-            options={"num_predict": 40},
-        )
-        fact = (fact or "").strip().strip('"').strip()
-        if fact and "NONE" not in fact.upper() and len(fact) > 5:
-            added = profile.add(fact, source="auto")
-            if added:
-                logger.info(f"[profile] fato auto-aprendido: {fact[:60]}")
-    except Exception as e:
-        logger.debug(f"fact extract: {e}")
-
-
-async def _update_session_summary(session_id: str) -> None:
-    """Resume as mensagens antigas de uma conversa longa (background, não bloqueia).
-    A próxima resposta passa a contar com o resumo no system prompt."""
-    hist = sessions.get(session_id, [])
-    older = hist[:-MAX_HISTORY] if len(hist) > MAX_HISTORY else []
-    if len(hist) <= SUMMARY_TRIGGER or not older:
-        return
-    convo = "\n".join(f"{m['role']}: {(m.get('content') or '')[:500]}" for m in older[-40:])
-    try:
-        prompt = CONVERSATION_SUMMARY_PROMPT.format(conversation=convo)
-        text = await asyncio.to_thread(
-            chat_resilient, CHAT_MODEL,
-            [{"role": "user", "content": prompt}],
-            keep_alive=KEEP_ALIVE, options={"num_predict": 240},
-        )
-        text = (text or "").strip()
-        if text:
-            session_summaries[session_id] = {"text": text[:1500], "upto": len(older)}
-            logger.info(f"[summary] sessão {session_id[:8]} resumida ({len(older)} msgs)")
-            # Indexa a conversa no RAG para recall semântico em sessões futuras.
-            if rag:
-                title = db.list_sessions(0, 200)
-                title = next((s.get("title", "") for s in title if s["session_id"] == session_id), "")
-                all_msgs = sessions.get(session_id, [])
-                await asyncio.to_thread(_index_episodic, session_id, title, all_msgs, rag, text)
-    except Exception as e:
-        logger.debug(f"summary: {e}")
-
-
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
-    _mark_request()
-    request = sanitize_request(req.message)
-    history = _get_session(req.session_id)
-
-    # Adiciona pergunta ao learner para estudo aprofundado
-    if learner:
-        learner.add_user_topic(request)
-
-    # Auto-detecta necessidade de busca na web
-    use_web = req.use_web
-    if request.startswith("/web "):
-        use_web = True
-        request = request[5:].strip()
-
-    async def stream():
-        web_context = ""
-        web_sources: list[dict] = []
-        knowledge_context = ""
-
-        # ── Fase 1: Busca na web ──────────────────────────────
-        if use_web:
-            yield f"data: {json.dumps({'type': 'status', 'message': 'Pesquisando na web...'})}\n\n"
-            try:
-                web_context, web_sources = await asyncio.wait_for(
-                    web_research(request, max_results=2),
-                    timeout=15.0,
-                )
-                if web_sources:
-                    yield f"data: {json.dumps({'type': 'status', 'message': f'{len(web_sources)} fontes encontradas'})}\n\n"
-                    if knowledge_db and web_context:
-                        asyncio.create_task(asyncio.to_thread(
-                            knowledge_db.save,
-                            f"Pesquisa: {request[:100]}",
-                            web_sources[0]["url"],
-                            web_context,
-                            "web_search",
-                        ))
-            except asyncio.TimeoutError:
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Busca expirou — continuando sem ela'})}\n\n"
-
-        # ── Fast path: mensagens curtas (sim/não/ok/continue) ───────────────────
-        # Não valem o custo de busca semântica — o modelo já tem o contexto no histórico.
-        # Usa modelo leve sempre, sem recall, sem FTS, resposta quase instantânea.
-        _is_short = len(request) <= SHORT_MSG_CHARS and not use_web and not bool(req.image)
-
-        # ── Fase 2+3: memória semântica (ChromaDB) + base FTS (Supabase) EM PARALELO ──
-        # Usar as duas fontes deixa a resposta mais embasada; rodar em paralelo não
-        # custa latência (a busca demorada não soma com a outra).
-        async def _do_recall() -> list[dict]:
-            if not rag or _is_short:
-                return []
-            # #1 Cache: mesma query recente → resultado imediato, sem re-embedding
-            recent = [m.get("content", "")[:80] for m in history[-4:]
-                      if m.get("role") == "user"]
-            topic_bias = " ".join(recent[:-1]).strip()
-            enriched = (request + " " + topic_bias)[:450] if topic_bias else request
-            cached = _qcache_recall_get(enriched)
-            if cached is not None:
-                return cached
-            try:
-                recalled = await asyncio.to_thread(rag.recall, enriched, MEMORY_RECALL_N)
-                result = [
-                    m for m in recalled if (m.get("relevance") or 0) >= MEMORY_MIN_RELEVANCE
-                ][:MEMORY_TOP]
-                return _qcache_recall_put(enriched, result)
-            except Exception as e:
-                logger.debug(f"recall: {e}")
-                return []
-
-        async def _do_fts() -> str:
-            if not knowledge_db or _is_short:
-                return ""
-            # #2 Cache: FTS do mesmo query → resultado imediato
-            cached = _qcache_fts_get(request)
-            if cached is not None:
-                return cached
-            try:
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(knowledge_db.format_context, request),
-                    timeout=KNOWLEDGE_TIMEOUT,
-                )
-                return _qcache_fts_put(request, result or "")
-            except asyncio.TimeoutError:
-                logger.debug("Knowledge FTS lenta — respondendo sem ela")
-            except Exception as e:
-                logger.warning(f"Knowledge FTS error: {e}")
-            return ""
-
-        memories, knowledge_context = await asyncio.gather(_do_recall(), _do_fts())
-
-        # Lacuna de conhecimento: nenhuma memória semântica relevante.
-        is_gap = not memories
-        if is_gap and learner:
-            learner.note_gap(request)
-            try:
-                db.add_notification(f"🔍 Lacuna detectada — vou estudar: {request[:80]}", kind="gap")
-            except Exception:
-                pass
-            # Auto-pesquisa na web: em vez de responder no vácuo, busca informação
-            # real antes de gerar a resposta. Desativa se o usuário já habilitou web
-            # ou se há imagem (visão não precisa de web search).
-            if AUTO_WEB_ON_GAP and not use_web and not bool(req.image):
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Sem memória sobre isso — pesquisando na web...'})}\n\n"
-                try:
-                    _gap_web, _gap_srcs = await asyncio.wait_for(
-                        web_research(request, max_results=2),
-                        timeout=12.0,
-                    )
-                    if _gap_srcs:
-                        web_context = _gap_web
-                        web_sources = _gap_srcs
-                        is_gap = False  # agora tem contexto
-                        yield f"data: {json.dumps({'type': 'status', 'message': f'{len(_gap_srcs)} fonte(s) encontrada(s) — integrando...'})}\n\n"
-                        # Persiste o aprendizado em background
-                        if knowledge_db and web_context:
-                            asyncio.create_task(asyncio.to_thread(
-                                knowledge_db.save,
-                                f"Auto-pesquisa: {request[:100]}",
-                                _gap_srcs[0]["url"],
-                                web_context,
-                                "web_search",
-                            ))
-                except asyncio.TimeoutError:
-                    yield f"data: {json.dumps({'type': 'status', 'message': 'Busca expirou — respondendo com o que sei...'})}\n\n"
-                except Exception as _we:
-                    logger.debug(f"auto-web on gap: {_we}")
-
-        # Monta a seção de memória numerada (para o modelo citar [n]) + fontes p/ o front.
-        memory_block = ""
-        memory_sources: list[dict] = []
-        if memories:
-            blocks = []
-            for i, m in enumerate(memories, 1):
-                title = m.get("title") or "memória"
-                snippet = (m.get("snippet") or "")[:MEMORY_SNIPPET]
-                src = m.get("source") or ""
-                blocks.append(f"[{i}] {title}\n{snippet}" + (f"\n(fonte: {src})" if src else ""))
-                memory_sources.append({"n": i, "title": title, "url": src, "type": "knowledge"})
-            memory_block = "\n\n".join(blocks)
-
-        # ── Fase 4: Monta prompt ──────────────────────────────
-        user_content = GENERATE_PROMPT.format(
-            memory_section=MEMORY_SECTION.format(context=memory_block) if memory_block else "",
-            knowledge_section=KNOWLEDGE_SECTION.format(context=knowledge_context) if knowledge_context else "",
-            web_section=WEB_SECTION.format(context=web_context) if web_context else "",
-            request=request,
-        )
-
-        # ── System prompt (com cache por sessão) ─────────────────
-        # O conteúdo do system prompt muda apenas quando o perfil ou o projeto mudam —
-        # não a cada mensagem. Cachear reduz recomputação e CPU usage.
-        profile_facts = profile.as_context() if profile else ""
-        proj_section  = project_mem.as_prompt_section() if project_mem else ""
-
-        system_content = _syscache_get(req.session_id, profile_facts, proj_section)
-        if system_content is None:
-            system_content = SYSTEM_PROMPT
-            if profile_facts:
-                system_content += PERSONAL_SECTION.format(facts=profile_facts)
-            if proj_section:
-                system_content += proj_section
-            _syscache_put(req.session_id, system_content, profile_facts, proj_section)
-
-        # Memória de conversa longa: injeta o resumo das mensagens antigas (não enviadas).
-        summ = session_summaries.get(req.session_id)
-        if summ and len(history) > SUMMARY_TRIGGER and summ.get("text"):
-            system_content += CONVERSATION_SUMMARY_SECTION.format(summary=summ["text"])
-
-        messages = [{"role": "system", "content": system_content}]
-        messages.extend(history[-MAX_HISTORY:])
-        user_msg = {"role": "user", "content": user_content}
-
-        # ── Visão: se há imagem, anexa-a e usa um modelo de visão local ──
-        has_image = bool(req.image)
-        if has_image and not VISION_MODEL:
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Para eu analisar imagens, baixe um modelo de visão: ollama pull llava'})}\n\n"
-            return
-        if has_image:
-            user_msg["images"] = [req.image]
-        messages.append(user_msg)
-
-        # Seleção de modelo: visão > inteligente (14b) > leve (chat do dia a dia).
-        # Upgrade automático para 14b quando:
-        #   (a) pergunta complexa (is_complex) — já existia
-        #   (b) contexto rico (≥ MEMORY_RICH_14B memórias relevantes) — síntese profunda
-        rich_context = len(memories) >= MEMORY_RICH_14B
-        auto_smart = AUTO_SMART and not req.smart and not has_image and (
-            _is_complex(request) or rich_context
-        )
-        smart = (req.smart or auto_smart) and MODEL != CHAT_MODEL
-        if has_image:
-            active_model, keep = VISION_MODEL, KEEP_ALIVE_HEAVY
-            yield f"data: {json.dumps({'type': 'status', 'message': f'👁️ Analisando a imagem com {VISION_MODEL}...'})}\n\n"
-        elif smart:
-            active_model, keep = MODEL, KEEP_ALIVE_HEAVY
-            if rich_context and not _is_complex(request):
-                why = f"contexto rico ({len(memories)} memórias) — síntese profunda"
-            else:
-                why = "pergunta complexa detectada" if auto_smart else "modo inteligente"
-            yield f"data: {json.dumps({'type': 'status', 'message': f'{why} — usando {MODEL}...'})}\n\n"
-        else:
-            active_model, keep = CHAT_MODEL, KEEP_ALIVE
-
-        # ── Fase 5: Streaming do LLM (em thread — não bloqueia o event loop) ──
-        full_response = ""
-        try:
-            async for token in stream_chat(active_model, messages, keep_alive=keep):
-                full_response += token
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-
-            # #6 Self-eval no chat: só quando usando 14b e resposta longa de texto.
-            # Critica e refina — mesma lógica do agente, mas aplicada ao chat normal.
-            if (CHAT_SELF_EVAL and smart and not has_image
-                    and len(full_response) > 380 and "```" not in full_response[:200]):
-                try:
-                    verdict = await asyncio.to_thread(
-                        chat_resilient, active_model,
-                        [{"role": "user", "content":
-                            AGENT_SELFEVAL_PROMPT.format(question=request, answer=full_response)}],
-                        keep_alive=keep, options={"num_predict": 400},
-                    )
-                    verdict = (verdict or "").strip()
-                    if verdict and verdict.upper() != "OK" and not verdict.upper().startswith("OK") \
-                            and len(verdict) > 30:
-                        # Envia o refinamento como tokens adicionais
-                        delta = "\n\n---\n*Refinado:* " + verdict.lstrip()
-                        for ch in delta:
-                            full_response += ch
-                            yield f"data: {json.dumps({'type': 'token', 'content': ch})}\n\n"
-                except Exception as _se:
-                    logger.debug(f"chat self-eval: {_se}")
-
-            # Persiste mensagens no banco E no cache em memória
-            is_first_message = len(sessions[req.session_id]) == 0
-            sessions[req.session_id].append({"role": "user", "content": request})
-            sessions[req.session_id].append({"role": "assistant", "content": full_response})
-            db.save_message(req.session_id, "user", request)
-            db.save_message(req.session_id, "assistant", full_response)
-
-            # #10 Trim de sessão: evita crescimento ilimitado de RAM.
-            # Mantém 2×MAX_HISTORY mensagens mais recentes — as antigas foram sumarizadas.
-            _sess = sessions[req.session_id]
-            _keep = 2 * MAX_HISTORY + 4
-            if len(_sess) > _keep:
-                sessions[req.session_id] = _sess[-_keep:]
-
-            # Gera título da sessão na primeira mensagem (em background)
-            if is_first_message:
-                asyncio.create_task(_generate_session_title(req.session_id, request))
-
-            # Aprende um fato pessoal sobre o usuário, se houver (background, não bloqueia)
-            asyncio.create_task(_maybe_extract_fact(request))
-
-            # Conversa longa: atualiza o resumo rolante (background) quando ficar defasado.
-            hist_now = sessions[req.session_id]
-            if len(hist_now) > SUMMARY_TRIGGER:
-                s = session_summaries.get(req.session_id)
-                if not s or (len(hist_now) - s.get("upto", 0)) > SUMMARY_STALE:
-                    asyncio.create_task(_update_session_summary(req.session_id))
-
-            code = extract_code(full_response)
-            explanation = extract_explanation(full_response)
-            has_code = "```" in full_response
-
-            exec_result = None
-            if has_code and code:
-                exec_result = executor.run(code)
-                if exec_result.success and rag:
-                    rag.add_example(
-                        content=f"# Pedido: {request}\n\n{code}",
-                        doc_id=f"gerado_{hash(request) & 0xFFFFFF}",
-                    )
-
-            db.save_execution({
-                "timestamp": datetime.now().isoformat(),
-                "request": request,
-                "result": code if has_code else full_response[:500],
-                "status": "success" if (not exec_result or exec_result.success) else "error",
-            })
-
-            yield f"data: {json.dumps({'type': 'done', 'has_code': has_code, 'code': code, 'explanation': explanation, 'success': exec_result.success if exec_result else None, 'output': exec_result.stdout[:500] if exec_result else '', 'error': exec_result.stderr[:500] if exec_result else '', 'web_sources': web_sources, 'memory_sources': memory_sources, 'gap': is_gap, 'smart': smart, 'auto_smart': auto_smart, 'vision': has_image})}\n\n"
-
-        except Exception as e:
-            logger.error(f"Erro no stream: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(
-        _gpu_priority(stream()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
 # com headers corretos e ANTES do mount de /static — senão o mount "/" captura tudo.
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).
@@ -868,6 +462,7 @@ app.include_router(health_router)
 app.include_router(ai_router)
 app.include_router(agent_router)
 app.include_router(coder_router)
+app.include_router(chat_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
