@@ -59,34 +59,34 @@ def test_read_file_pequeno_sem_ruido(ws):
 
 # ── Parser: LER caminho:início-fim ────────────────────────────────
 def test_parse_ler_com_faixa():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, payload = _parse_coder_action("LER src/app.py:40-120")
     assert (action, arg, payload) == ("read", "src/app.py", "40-120")
 
 
 def test_parse_ler_sem_faixa_continua_igual():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, payload = _parse_coder_action("LER src/app.py")
     assert (action, arg, payload) == ("read", "src/app.py", "")
 
 
 # ── Parser: CONSULTAR (base de conhecimento / RAG) ────────────────
 def test_parse_consultar():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, payload = _parse_coder_action("CONSULTAR como fazer streaming SSE em FastAPI")
     assert action == "consult"
     assert arg == "como fazer streaming SSE em FastAPI"
 
 
 def test_parse_consultar_flexao_e_lembrar():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     # tolera flexão do verbo (CONSULTE) e o sinônimo LEMBRAR
     assert _parse_coder_action("CONSULTE decorators em python")[0] == "consult"
     assert _parse_coder_action("LEMBRAR o que aprendi sobre asyncio")[0] == "consult"
 
 
 def test_parse_consultar_com_marcador_de_lista():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     # modelos leves às vezes prefixam com "1. " ou "- "
     action, arg, _ = _parse_coder_action("- CONSULTAR circuit breaker resilience")
     assert action == "consult"
@@ -94,7 +94,7 @@ def test_parse_consultar_com_marcador_de_lista():
 
 
 def test_consultar_nao_colide_com_buscar():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     # BUSCAR (grep no workspace) e CONSULTAR (RAG) são ações distintas
     assert _parse_coder_action("BUSCAR def soma")[0] == "search"
     assert _parse_coder_action("CONSULTAR def soma")[0] == "consult"
@@ -102,28 +102,28 @@ def test_consultar_nao_colide_com_buscar():
 
 # ── Parser: BUSCAR_WEB (pesquisa na web) ──────────────────────────
 def test_parse_buscar_web():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, _ = _parse_coder_action("BUSCAR_WEB: FastAPI StreamingResponse SSE example")
     assert action == "web"
     assert arg == "FastAPI StreamingResponse SSE example"
 
 
 def test_parse_buscar_web_sem_dois_pontos():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, _ = _parse_coder_action("BUSCAR_WEB pydantic v2 migration")
     assert action == "web"
     assert arg == "pydantic v2 migration"
 
 
 def test_parse_buscar_web_com_marcador():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     action, arg, _ = _parse_coder_action("- BUSCAR_WEB: como corrigir ImportError X")
     assert action == "web"
     assert arg == "como corrigir ImportError X"
 
 
 def test_buscar_web_nao_colide_com_grep():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     # BUSCAR (grep) e BUSCAR_WEB (web) são distintos; grep NUNCA vira web
     assert _parse_coder_action("BUSCAR web handler")[0] == "search"
     assert _parse_coder_action("BUSCAR_WEB web handler")[0] == "web"

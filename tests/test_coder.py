@@ -225,7 +225,7 @@ def test_extract_fenced():
 
 # ── Parser de ações do Coder (no app.py) ──────────────────────
 def test_parse_coder_actions():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     assert _parse_coder_action("LISTAR .")[:2] == ("list", ".")
     assert _parse_coder_action("LER src/app.py")[:2] == ("read", "src/app.py")
     assert _parse_coder_action("RODAR pytest -q")[:2] == ("run", "pytest -q")
@@ -309,14 +309,14 @@ def test_find_files(ws):
 
 
 def test_parse_search_find():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     assert _parse_coder_action("BUSCAR def login")[:2] == ("search", "def login")
     assert _parse_coder_action("ACHAR user.py")[:2] == ("find", "user.py")
     assert _parse_coder_action("PROCURAR TODO")[:2] == ("search", "TODO")
 
 
 def test_parse_delete_replace():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     assert _parse_coder_action("APAGAR old.py")[:2] == ("delete", "old.py")
     assert _parse_coder_action("REMOVER temp.txt")[:2] == ("delete", "temp.txt")
     t, find, rep = _parse_coder_action("SUBSTITUIR foo ==> bar")
@@ -326,7 +326,7 @@ def test_parse_delete_replace():
 
 
 def test_parse_move():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     assert _parse_coder_action("MOVER a.py ==> b.py")[:3] == ("move", "a.py", "b.py")
     assert _parse_coder_action("MOVER a.py b.py")[:3] == ("move", "a.py", "b.py")
     assert _parse_coder_action("RENOMEAR x.py ==> y.py")[:3] == ("move", "x.py", "y.py")
@@ -339,7 +339,7 @@ def test_make_diff_truncamento():
 
 
 def test_parse_coder_tolerante_a_marcadores_e_typos():
-    from app import _parse_coder_action
+    from routers.coder import parse_coder_action as _parse_coder_action
     # numeração de lista e flexão/typo dos verbos
     assert _parse_coder_action("1. LISTAR .")[0] == "list"
     assert _parse_coder_action("- RODRAR pytest")[:2] == ("run", "pytest")

@@ -5,7 +5,7 @@ import json
 import pytest
 
 from src.coder import CoderWorkspace
-from app import _parse_coder_action
+from routers.coder import parse_coder_action as _parse_coder_action
 
 
 @pytest.fixture
