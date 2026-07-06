@@ -52,6 +52,21 @@ async def audit(hours: int = 24, limit: int = 100):
     return {"summary": summary, "events": events}
 
 
+@router.get("/api/memory/recall")
+async def memory_recall(q: str, kind: str = "", limit: int = 4):
+    """Porta única de recuperação de memória (MemoryFabric — Épico 2.1). Consulta
+    a memória semântica (RAG), a base de conhecimento e/ou as lições do Coder num
+    formato único. `kind` vazio = todas; senão 'semantic'|'knowledge'|'lesson'.
+    Torna o tecido de memória inspecionável e reutilizável pelos call-sites."""
+    if not rt.memory:
+        return {"hits": [], "backends": {}}
+    limit = max(1, min(limit, 20))
+    hits = await asyncio.to_thread(rt.memory.recall, q, kind or None, limit)
+    return {"query": q, "kind": kind or "all",
+            "backends": rt.memory.stats(),
+            "hits": [h.to_dict() for h in hits]}
+
+
 @router.get("/api/models")
 async def models_info():
     """Modelos disponíveis no provedor ativo (Ollama ou motor próprio) + qual o

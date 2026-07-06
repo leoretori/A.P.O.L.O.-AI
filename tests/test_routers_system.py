@@ -18,7 +18,31 @@ def _client():
 def test_rotas_registradas():
     paths = {r.path for r in router.routes}
     assert {"/api/perf", "/api/perf/reset", "/api/history",
-            "/api/models", "/api/audit"} <= paths
+            "/api/models", "/api/audit", "/api/memory/recall"} <= paths
+
+
+def test_memory_recall_usa_o_fabric():
+    from src.memory import MemoryHit
+
+    class FakeFabric:
+        def recall(self, q, kind, limit):
+            return [MemoryHit(kind="semantic", title="AsyncIO", text="corrotinas",
+                              source="doc1", score=0.8)]
+        def stats(self):
+            return {"semantic": True, "knowledge": False, "lesson": True}
+    rt.configure(memory=FakeFabric())
+    r = _client().get("/api/memory/recall?q=python&limit=3")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "all"
+    assert body["backends"]["semantic"] is True
+    assert body["hits"][0]["title"] == "AsyncIO" and body["hits"][0]["kind"] == "semantic"
+
+
+def test_memory_recall_sem_fabric_retorna_vazio():
+    rt.configure(memory=None)
+    r = _client().get("/api/memory/recall?q=x")
+    assert r.status_code == 200 and r.json()["hits"] == []
 
 
 def test_audit_agrega_resumo_e_eventos():
