@@ -1,5 +1,5 @@
 // A.P.O.L.O. Service Worker — PWA offline + cache
-const CACHE = 'apolo-v3';
+const CACHE = 'apolo-v4';
 const STATIC = [
   '/',
   '/apolo-icon.svg',
@@ -39,11 +39,16 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // HTML (a página em si) — network-first: o app é atualizado com frequência e
-  // cache-first aqui fazia o navegador mostrar a UI VELHA depois de cada update.
-  // O servidor é local (latência ~0), então buscar da rede não custa nada; o
-  // cache vira só o fallback offline.
-  if (e.request.mode === 'navigate' || url.pathname === '/' || url.pathname.endsWith('.html')) {
+  // Código do próprio app (HTML + nosso JS/CSS) — network-first: o app é
+  // atualizado com frequência e cache-first mostrava a UI/código VELHOS depois
+  // de cada update. Desde que o JS/CSS saiu para arquivos externos (Épico 1.2),
+  // eles precisam do mesmo tratamento que o HTML — senão o SW serve app.js
+  // desatualizado para sempre. O servidor é local (latência ~0), então buscar da
+  // rede não custa nada; o cache vira só o fallback offline.
+  const sameOrigin = url.origin === self.location.origin;
+  const isAppCode = sameOrigin && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'));
+  if (e.request.mode === 'navigate' || url.pathname === '/' ||
+      url.pathname.endsWith('.html') || isAppCode) {
     e.respondWith(
       fetch(e.request).then(res => {
         if (res.ok) {

@@ -605,6 +605,82 @@ class DatabaseManager:
                 "success_rate": round(100 * (total - reverted) / total) if total else None,
                 "recent_rate": recent_rate, "prev_rate": prev_rate, "trend": trend}
 
+    def get_activity_since(self, hours: int = 24, limit: int = 100) -> list[dict]:
+        """Feed unificado de auditoria — 'o que a IA fez nas últimas `hours` horas'.
+        Junta as fontes de atividade autônoma/assistida (aprendizado, tarefas do
+        Coder, execuções de código, notificações e benchmarks) num só fluxo
+        ordenado por tempo (mais recente primeiro). Cada evento tem a forma
+        {ts, kind, icon, title, detail} para o painel de observabilidade."""
+        cutoff = _now() - timedelta(hours=hours)
+        events: list[dict] = []
+
+        def _iso(dt) -> str:
+            return dt.isoformat() if dt else ""
+
+        with Session(self.engine) as s:
+            for r in (s.query(LearnedTopic)
+                      .filter(LearnedTopic.studied_at >= cutoff)
+                      .order_by(LearnedTopic.studied_at.desc()).limit(limit).all()):
+                events.append({"ts": _iso(r.studied_at), "kind": "learn", "icon": "📚",
+                               "title": f"Aprendeu: {r.topic}",
+                               "detail": (r.summary or "")[:200], "url": r.url})
+
+            for r in (s.query(CoderTask)
+                      .filter(CoderTask.created_at >= cutoff)
+                      .order_by(CoderTask.created_at.desc()).limit(limit).all()):
+                bits = []
+                if r.wrote: bits.append("escreveu")
+                if r.ran: bits.append("rodou")
+                if r.reverted: bits.append("revertido")
+                events.append({"ts": _iso(r.created_at), "kind": "coder", "icon": "💻",
+                               "title": f"Coder: {r.task}",
+                               "detail": f"{r.steps} passos · {', '.join(bits) or 'sem alterações'}"
+                                         f" · {r.duration_s}s", "reverted": r.reverted})
+
+            for r in (s.query(Execution)
+                      .filter(Execution.timestamp >= cutoff, Execution.deleted == False)
+                      .order_by(Execution.timestamp.desc()).limit(limit).all()):
+                events.append({"ts": _iso(r.timestamp), "kind": "exec", "icon": "⚙️",
+                               "title": f"Executou código ({r.status})",
+                               "detail": (r.request or "")[:200]})
+
+            for r in (s.query(Notification)
+                      .filter(Notification.created_at >= cutoff)
+                      .order_by(Notification.created_at.desc()).limit(limit).all()):
+                events.append({"ts": _iso(r.created_at), "kind": "notif", "icon": "🔔",
+                               "title": r.message, "detail": r.kind, "url": r.link})
+
+            for r in (s.query(BenchmarkRun)
+                      .filter(BenchmarkRun.ran_at >= cutoff)
+                      .order_by(BenchmarkRun.ran_at.desc()).limit(limit).all()):
+                events.append({"ts": _iso(r.ran_at), "kind": "benchmark", "icon": "🎯",
+                               "title": f"Autoavaliação: {r.avg_score} de nota",
+                               "detail": f"{r.questions} perguntas · {r.avg_latency_ms}ms médios"})
+
+        events.sort(key=lambda e: e["ts"], reverse=True)
+        return events[:limit]
+
+    def activity_summary(self, hours: int = 24) -> dict:
+        """Contagens por tipo de atividade nas últimas `hours` horas — cabeçalho
+        do painel de auditoria ('hoje: 12 estudos, 3 tarefas do Coder…')."""
+        from sqlalchemy import func
+        cutoff = _now() - timedelta(hours=hours)
+        with Session(self.engine) as s:
+            return {
+                "hours": hours,
+                "learned": s.query(func.count(LearnedTopic.id))
+                            .filter(LearnedTopic.studied_at >= cutoff).scalar() or 0,
+                "coder_tasks": s.query(func.count(CoderTask.id))
+                                .filter(CoderTask.created_at >= cutoff).scalar() or 0,
+                "executions": s.query(func.count(Execution.id))
+                               .filter(Execution.timestamp >= cutoff,
+                                       Execution.deleted == False).scalar() or 0,
+                "notifications": s.query(func.count(Notification.id))
+                                  .filter(Notification.created_at >= cutoff).scalar() or 0,
+                "benchmarks": s.query(func.count(BenchmarkRun.id))
+                               .filter(BenchmarkRun.ran_at >= cutoff).scalar() or 0,
+            }
+
     def update_topic_summary(self, topic_id: int, summary: str) -> bool:
         """Substitui a síntese de um tópico aprendido (reparo in-place —
         não cria linha nova no log)."""

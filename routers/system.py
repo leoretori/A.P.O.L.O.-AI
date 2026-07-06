@@ -37,6 +37,21 @@ async def history():
     return rt.db.get_history(limit=50)
 
 
+@router.get("/api/audit")
+async def audit(hours: int = 24, limit: int = 100):
+    """Auditoria de autonomia — 'o que a IA fez nas últimas N horas'. Junta
+    aprendizado, tarefas do Coder, execuções, notificações e autoavaliações num
+    fluxo único. Torna a autonomia do A.P.O.L.O. visível e inspecionável (Épico
+    1.3 / observabilidade). I/O de banco → roda fora do event loop."""
+    hours = max(1, min(hours, 720))          # teto de 30 dias
+    limit = max(1, min(limit, 500))
+    summary, events = await asyncio.gather(
+        asyncio.to_thread(rt.db.activity_summary, hours),
+        asyncio.to_thread(rt.db.get_activity_since, hours, limit),
+    )
+    return {"summary": summary, "events": events}
+
+
 @router.get("/api/models")
 async def models_info():
     """Modelos disponíveis no provedor ativo (Ollama ou motor próprio) + qual o

@@ -171,6 +171,45 @@ def test_export_session_markdown_vazia(db):
     assert md.startswith("# Conversa")
 
 
+# ── Auditoria / observabilidade (Épico 1.3) ───────────────────
+def test_activity_feed_junta_todas_as_fontes(db):
+    db.save_learned_topic("Rust ownership", "http://x", "resumo", "web")
+    db.save_coder_task("refatora foo", model="qwen", steps=3, wrote=True, ran=True)
+    db.save_execution({"request": "print(1)", "result": "1", "status": "success"})
+    db.add_notification("Estudei enquanto você dormia", kind="study")
+    db.save_benchmark_run({"model": "qwen", "avg_score": 8.5, "avg_latency_ms": 900,
+                           "questions": 10, "results": []})
+
+    events = db.get_activity_since(hours=24, limit=100)
+    kinds = {e["kind"] for e in events}
+    assert kinds == {"learn", "coder", "exec", "notif", "benchmark"}
+    # Ordenado por tempo, mais recente primeiro (ts decrescente).
+    assert events == sorted(events, key=lambda e: e["ts"], reverse=True)
+    # Cada evento tem o formato do painel.
+    for e in events:
+        assert {"ts", "kind", "icon", "title", "detail"} <= e.keys()
+
+
+def test_activity_summary_conta_por_tipo(db):
+    db.save_learned_topic("A", "u", "s", "web")
+    db.save_learned_topic("B", "u", "s", "web")
+    db.save_coder_task("t", steps=1)
+    s = db.activity_summary(hours=24)
+    assert s["learned"] == 2
+    assert s["coder_tasks"] == 1
+    assert s["executions"] == 0 and s["benchmarks"] == 0
+
+
+def test_activity_feed_respeita_janela_de_horas(db):
+    db.save_learned_topic("recente", "u", "s", "web")
+    # Uma janela minúscula não deve capturar nada gravado "agora" há >0h?
+    # 'agora' cai dentro de qualquer janela >= algumas horas; então testamos
+    # o teto: nada foi gravado, então 0 horas atrás não pega o passado distante.
+    assert len(db.get_activity_since(hours=24)) == 1
+    # janela válida mínima ainda pega o evento recém-criado
+    assert db.activity_summary(hours=1)["learned"] == 1
+
+
 def test_notificacoes_crud_e_contador(db):
     db.add_notification("estudei X", kind="study", link="http://x")
     db.add_notification("lacuna Y", kind="gap")

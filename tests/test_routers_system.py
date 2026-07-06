@@ -17,7 +17,38 @@ def _client():
 
 def test_rotas_registradas():
     paths = {r.path for r in router.routes}
-    assert {"/api/perf", "/api/perf/reset", "/api/history", "/api/models"} <= paths
+    assert {"/api/perf", "/api/perf/reset", "/api/history",
+            "/api/models", "/api/audit"} <= paths
+
+
+def test_audit_agrega_resumo_e_eventos():
+    class FakeDB:
+        def activity_summary(self, hours):
+            return {"hours": hours, "learned": 2, "coder_tasks": 1}
+        def get_activity_since(self, hours, limit):
+            return [{"ts": "2026-07-05T10:00:00", "kind": "learn", "icon": "📚",
+                     "title": "Aprendeu: Rust", "detail": "x"}]
+    rt.configure(db=FakeDB())
+    r = _client().get("/api/audit?hours=24&limit=50")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["summary"]["learned"] == 2
+    assert body["events"][0]["kind"] == "learn"
+
+
+def test_audit_clampa_parametros():
+    captured = {}
+    class FakeDB:
+        def activity_summary(self, hours):
+            captured["summary_hours"] = hours
+            return {}
+        def get_activity_since(self, hours, limit):
+            captured["hours"] = hours; captured["limit"] = limit
+            return []
+    rt.configure(db=FakeDB())
+    # hours acima do teto (720) e limit acima do teto (500) são clampados.
+    _client().get("/api/audit?hours=99999&limit=99999")
+    assert captured["hours"] == 720 and captured["limit"] == 500
 
 
 def test_perf_snapshot():

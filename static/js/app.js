@@ -1347,6 +1347,54 @@
   function openHealth() { document.getElementById('health-overlay').style.display='flex'; loadHealth(); }
   function closeHealth() { document.getElementById('health-overlay').style.display='none'; }
 
+  // ── Painel de Auditoria (o que a IA fez nas últimas 24h) ─────
+  function openAudit() { document.getElementById('audit-overlay').style.display='flex'; loadAudit(); }
+  function closeAudit() { document.getElementById('audit-overlay').style.display='none'; }
+
+  function _auditWhen(ts) {
+    if (!ts) return '';
+    const d = new Date(ts), diff = (Date.now() - d.getTime()) / 60000;  // minutos
+    if (diff < 1) return 'agora';
+    if (diff < 60) return `há ${Math.round(diff)} min`;
+    if (diff < 1440) return `há ${Math.round(diff/60)}h`;
+    return d.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  async function loadAudit() {
+    const body = document.getElementById('audit-body');
+    const sum = document.getElementById('audit-summary');
+    body.textContent = 'Carregando…'; sum.innerHTML = '';
+    try {
+      const d = await fetch('/api/audit?hours=24&limit=100').then(r=>r.json());
+      const s = d.summary || {};
+      const chips = [
+        ['📚', s.learned, 'estudos'], ['💻', s.coder_tasks, 'tarefas'],
+        ['⚙️', s.executions, 'execuções'], ['🔔', s.notifications, 'avisos'],
+        ['🎯', s.benchmarks, 'autoavaliações'],
+      ].filter(([,n]) => n > 0);
+      sum.innerHTML = chips.length
+        ? chips.map(([ic,n,lbl]) =>
+            `<span style="background:#17171d;border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11.5px;color:#ccc">${ic} <b>${n}</b> ${lbl}</span>`).join('')
+        : '';
+      const ev = d.events || [];
+      if (!ev.length) { body.innerHTML = '<div style="color:#666;text-align:center;padding:24px">Nada registrado nas últimas 24h.</div>'; return; }
+      body.innerHTML = ev.map(e => {
+        const rev = e.reverted ? ' style="opacity:.55"' : '';
+        const url = e.url ? ` <a href="${escHtml(e.url)}" target="_blank" rel="noopener" style="color:#5b9cff">↗</a>` : '';
+        return `<div${rev} style="display:flex;gap:9px;padding:7px 0;border-bottom:1px solid #16161c">
+          <span style="font-size:15px;flex-shrink:0">${e.icon||'•'}</span>
+          <div style="min-width:0;flex:1">
+            <div style="color:#e0e0e0">${escHtml(e.title)}${url}</div>
+            ${e.detail ? `<div style="color:#777;font-size:11px;margin-top:1px">${escHtml(e.detail)}</div>` : ''}
+          </div>
+          <span style="color:#666;font-size:10.5px;white-space:nowrap;flex-shrink:0">${_auditWhen(e.ts)}</span>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      body.innerHTML = '<div style="color:#e66">Falha ao carregar a auditoria.</div>';
+    }
+  }
+
   // ── Painel Analytics ─────────────────────────────────────────
   function openAnalytics() {
     document.getElementById('analytics-overlay').classList.add('open');
