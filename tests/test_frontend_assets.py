@@ -34,3 +34,38 @@ def test_css_servido_pelo_static_mount():
     assert "css" in r.headers["content-type"]
     # Sanidade: as variáveis de tema (que dão a cara do app) vieram junto.
     assert "--bg:" in r.text
+
+
+def test_js_extraido_para_arquivos_externos():
+    for name in ("app.js", "enhancements.js"):
+        js = STATIC / "js" / name
+        assert js.exists(), f"JS deveria estar em static/js/{name}"
+        assert js.stat().st_size > 0
+
+
+def test_index_referencia_js_externo_e_nao_tem_script_inline():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert '/js/app.js' in html and '/js/enhancements.js' in html
+    # Extração completa: nenhum bloco <script> inline sobrou (só <script src=...>).
+    # Todo <script no HTML deve ter atributo src.
+    import re
+    for tag in re.findall(r"<script\b[^>]*>", html):
+        assert "src=" in tag, f"bloco <script> inline não deveria existir: {tag}"
+
+
+def test_js_servido_pelo_static_mount():
+    for name, marker in (("app.js", "marked.setOptions"),
+                         ("enhancements.js", "startLearnSSE")):
+        r = client.get(f"/js/{name}")
+        assert r.status_code == 200
+        assert "javascript" in r.headers["content-type"]
+        assert marker in r.text
+
+
+def test_ordem_de_carregamento_satisfaz_dependencias_de_boot():
+    """O boot de app.js chama _initTabs()/startLearnSSE(), definidas em
+    enhancements.js. Declarações de função NÃO cruzam <script> tags, então
+    enhancements.js precisa carregar ANTES de app.js — senão o boot aborta
+    com ReferenceError (bug latente que a modularização corrigiu)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert html.index("/js/enhancements.js") < html.index("/js/app.js")

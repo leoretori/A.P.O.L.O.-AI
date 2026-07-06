@@ -209,7 +209,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
 | Q1 | M1 | Modularizar app.py | ✅ **app.py < 800** — 22 routers (+`chat`), 0 rotas @app no app.py (só bootstrap/lifespan/scheduler/middleware). app.py 3.213→**485** (–85%). Falta quebrar learner.py/storage.py (851) p/ fechar o épico |
-| Q1 | M1 | Modularizar frontend | 🔨 **CSS extraído** — `<style>` inline (795 linhas) → `static/css/app.css`; index.html 5.401→4.605. UI idêntica (verificado no preview). Falta extrair os 2 blocos `<script>` (~3.960 linhas) em módulos JS |
+| Q1 | M1 | Modularizar frontend | ✅ **CSS + JS extraídos** — `<style>` → `static/css/app.css` (795); os 2 `<script>` → `static/js/app.js` (3.400) + `static/js/enhancements.js` (556). **index.html 5.401→647 (–88%)**, zero código inline. Bônus: a modularização expôs e corrigiu um bug latente de boot (app.js chamava `_initTabs()`/`startLearnSSE()` de enhancements.js antes dele carregar → boot abortava; reordenado). Verificado no preview: tema, tabs, SSE e notificações voltaram a funcionar |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |
 | Q1 | M2 | Memória episódica | ⬜ |

@@ -386,7 +386,12 @@ Apolo_AI/
 │   ├── prompts.py            # System prompt + templates
 │   └── utils.py              # Utilitários
 ├── static/
-│   └── index.html            # Interface web completa
+│   ├── index.html            # Estrutura da página (markup + PWA)
+│   ├── css/
+│   │   └── app.css           # Estilos (temas dark/light/midnight)
+│   └── js/
+│       ├── app.js            # App principal (chat, memória, coder, painéis)
+│       └── enhancements.js   # Melhorias de UI (tabs, hands-free, SSE, mobile)
 ├── data/
 │   ├── apolo.db              # SQLite local
 │   └── chroma_db/            # Vetores ChromaDB
