@@ -1614,44 +1614,6 @@ async def agent(req: ChatRequest):
     )
 
 
-@app.post("/api/orchestrate")
-async def orchestrate_endpoint(req: ChatRequest):
-    """Orquestrador de sub-agentes — decompõe tarefas complexas, delega a
-    especialistas (Researcher / Analyst / Coder) e sintetiza a resposta final.
-    Streaming SSE com eventos: step, agent_start, agent_token, done."""
-    _mark_request()
-    task = sanitize_request(req.message)
-    if learner:
-        learner.add_user_topic(task)
-
-    from src.orchestrator import orchestrate
-
-    async def stream():
-        try:
-            async for ev in orchestrate(
-                task=task,
-                chat_model=CHAT_MODEL,
-                heavy_model=MODEL,
-                keep_light=KEEP_ALIVE,
-                keep_heavy=KEEP_ALIVE_HEAVY,
-                rag=rag,
-                knowledge_db=knowledge_db,
-            ):
-                yield f"data: {json.dumps(ev)}\n\n"
-
-            # Persiste a conversa na sessão
-            # (pega a resposta do último evento 'done' na transmissão — já foi enviado)
-        except Exception as e:
-            logger.error(f"orchestrate: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(
-        _gpu_priority(stream()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
 # com headers corretos e ANTES do mount de /static — senão o mount "/" captura tudo.
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).

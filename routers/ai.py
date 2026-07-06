@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from src import runtime as rt
 from src import chat_common as cc
 from src.coder_state import gpu_priority
+from src.llm import KEEP_ALIVE, KEEP_ALIVE_HEAVY
 from src.utils import sanitize_request
 
 router = APIRouter()
@@ -82,6 +83,41 @@ async def review_code(req: ReviewRequest):
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as e:
             logger.error(f"Erro no review: {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        gpu_priority(stream()),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/api/orchestrate")
+async def orchestrate_endpoint(req: cc.ChatRequest):
+    """Orquestrador de sub-agentes — decompõe tarefas complexas, delega a
+    especialistas (Researcher / Analyst / Coder) e sintetiza a resposta final.
+    Streaming SSE com eventos: step, agent_start, agent_token, done."""
+    cc.mark_request()
+    task = sanitize_request(req.message)
+    if rt.learner:
+        rt.learner.add_user_topic(task)
+
+    from src.orchestrator import orchestrate
+
+    async def stream():
+        try:
+            async for ev in orchestrate(
+                task=task,
+                chat_model=rt.get_chat_model(),
+                heavy_model=rt.model,
+                keep_light=KEEP_ALIVE,
+                keep_heavy=KEEP_ALIVE_HEAVY,
+                rag=rt.rag,
+                knowledge_db=rt.knowledge_db,
+            ):
+                yield f"data: {json.dumps(ev)}\n\n"
+        except Exception as e:
+            logger.error(f"orchestrate: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(

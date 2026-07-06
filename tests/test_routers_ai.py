@@ -77,3 +77,21 @@ def test_research_persiste_conversa():
     # conversa foi persistida (user + assistant) no dict de sessão e no banco
     assert len(sessions["s1"]) == 2
     assert ("assistant", "a resposta") in saved_msgs
+
+
+# ── orchestrate ───────────────────────────────────────────────────
+def test_orchestrate_streama(monkeypatch):
+    import routers.ai as ai_mod
+
+    async def fake_orchestrate(**kwargs):
+        yield {"type": "agent_start", "agent": "researcher"}
+        yield {"type": "done", "answer": "sintese final"}
+
+    # o endpoint faz `from src.orchestrator import orchestrate` → patcha lá
+    monkeypatch.setattr("src.orchestrator.orchestrate", fake_orchestrate)
+    rt.configure(learner=None, rag=None, knowledge_db=None, gpu_gate=None,
+                 model="qwen2.5-coder:14b", get_chat_model=lambda: "qwen2.5-coder:3b")
+    r = _client().post("/api/orchestrate", json={"message": "planeje um app"})
+    assert r.status_code == 200
+    eventos = [json.loads(l[6:]) for l in r.text.splitlines() if l.startswith("data: ")]
+    assert eventos[-1]["answer"] == "sintese final"

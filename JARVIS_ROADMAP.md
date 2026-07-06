@@ -208,7 +208,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
-| Q1 | M1 | Modularizar app.py | 🔨 quase — 19 routers (+`ai`: research/review) + `src/chat_common.py` = 92 rotas fora. Restam só 4 @app (chat/coder-ReAct/agent/orchestrate). app.py 3.213→1.696 (–47%) |
+| Q1 | M1 | Modularizar app.py | 🔨 quase — 19 routers (`ai` agora tem research/review/orchestrate) = 93 rotas fora. Restam só 3 @app (chat/coder-ReAct/agent). app.py 3.213→1.658 (–48%) |
 | Q1 | M1 | Modularizar frontend | ⬜ |
 | Q1 | M1 | Observabilidade/auditoria | ⬜ |
 | Q1 | M2 | MemoryFabric | ⬜ |
