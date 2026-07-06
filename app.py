@@ -15,7 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware   # #3
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from dotenv import load_dotenv
 import ollama as ollama_client
 
@@ -40,7 +39,7 @@ from src.llm import (
 from src.prompts import (
     SYSTEM_PROMPT, GENERATE_PROMPT, PERSONAL_SECTION,
     MEMORY_SECTION, KNOWLEDGE_SECTION, WEB_SECTION,
-    FIX_PROMPT, SESSION_TITLE_PROMPT, FACT_EXTRACT_PROMPT,
+    FIX_PROMPT, FACT_EXTRACT_PROMPT,
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION,
     AGENT_INSTRUCTION, AGENT_MEMORY_SECTION, AGENT_SELFEVAL_PROMPT,
     CODER_SYSTEM, CODER_DOCTRINE, CODER_TREE_SECTION, CODER_PLAN_PROMPT,
@@ -79,6 +78,7 @@ from routers.coder_write import router as coder_write_router
 from routers.coder_ops import router as coder_ops_router
 from routers.coder_run import router as coder_run_router
 from routers.health import router as health_router
+from routers.ai import router as ai_router
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
@@ -199,8 +199,13 @@ VISION_MODEL = ""  # modelo de visão instalado (llava etc.) — resolvido no st
 sessions: dict[str, list] = defaultdict(list)
 # Resumo rolante de conversas longas: {session_id: {"text": str, "upto": int}}
 session_summaries: dict[str, dict] = {}
-# Timestamp da última requisição do usuário (chat/agente) — usado pelo idle learning.
-_last_request_at: float = 0.0
+# ChatRequest, o título de sessão e a marca de atividade do usuário ficam em
+# src/chat_common.py (compartilhados com os routers de IA). Aliases mantêm os
+# usos deste módulo intactos.
+from src.chat_common import (
+    ChatRequest, generate_session_title as _generate_session_title,
+    mark_request as _mark_request, last_request_at as _last_request_at_fn,
+)
 
 
 def _is_complex(question: str) -> bool:
@@ -292,7 +297,8 @@ async def _scheduler_loop():
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:
-                idle = _time.perf_counter() - _last_request_at if _last_request_at > 0 else 0
+                _lra = _last_request_at_fn()
+                idle = _time.perf_counter() - _lra if _lra > 0 else 0
                 if idle > IDLE_TRIGGER:
                     logger.info(f"[idle] {idle:.0f}s sem requisição → iniciando aprendizado autônomo")
                     await learner.start()
@@ -353,6 +359,7 @@ async def lifespan(app: FastAPI):
                  profile=profile, curator=curator, ingestor=ingestor,
                  project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
                  lesson_mem=lesson_mem, gpu_gate=gpu_gate,
+                 reviewer=reviewer, researcher=researcher,
                  get_chat_model=lambda: CHAT_MODEL,
                  get_vision_model=lambda: VISION_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).
@@ -504,14 +511,6 @@ async def _latency_middleware(request: Request, call_next):
         perf_tracker.record(path, ms, is_error=is_error)
 
 
-class ChatRequest(BaseModel):
-    message: str
-    session_id: str = "default"
-    use_web: bool = False
-    smart: bool = False  # usa o modelo 14b (raciocínio mais profundo) em vez do leve
-    image: str = ""      # imagem em base64 (sem prefixo data:) → roteia p/ modelo de visão
-
-
 def _get_session(session_id: str) -> list:
     """Retorna sessão do cache ou carrega do banco."""
     if session_id not in sessions:
@@ -584,27 +583,9 @@ async def _update_session_summary(session_id: str) -> None:
         logger.debug(f"summary: {e}")
 
 
-async def _generate_session_title(session_id: str, first_message: str) -> None:
-    """Gera título curto para a sessão usando LLM — roda em background."""
-    try:
-        prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
-        title = await asyncio.to_thread(
-            chat_resilient,
-            CHAT_MODEL,
-            [{"role": "user", "content": prompt}],
-            keep_alive=KEEP_ALIVE,
-        )
-        title = (title or "").strip()[:80]
-        if title:
-            db.save_session_title(session_id, title)
-    except Exception as e:
-        logger.debug(f"Título de sessão: {e}")
-
-
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
-    global _last_request_at
-    _last_request_at = _time.perf_counter()
+    _mark_request()
     request = sanitize_request(req.message)
     history = _get_session(req.session_id)
 
@@ -888,75 +869,6 @@ async def chat(req: ChatRequest):
 
         except Exception as e:
             logger.error(f"Erro no stream: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-
-    return StreamingResponse(
-        _gpu_priority(stream()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.post("/api/research")
-async def research(req: ChatRequest):
-    """Modo Pesquisa Profunda — raciocínio multi-etapas com memória + web, citado."""
-    global _last_request_at
-    _last_request_at = _time.perf_counter()
-    question = sanitize_request(req.message)
-    if learner:
-        learner.add_user_topic(question)
-
-    async def stream():
-        answer, sources = "", []
-        try:
-            async for ev in researcher.research(question):
-                if ev["type"] == "done":
-                    answer = ev.get("answer", "")
-                    sources = ev.get("sources", [])
-                yield f"data: {json.dumps(ev)}\n\n"
-        except Exception as e:
-            logger.error(f"Erro na pesquisa: {e}", exc_info=True)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-            return
-
-        # Persiste a conversa (mesmo formato do chat) e salva na base de conhecimento
-        if answer:
-            is_first = len(sessions[req.session_id]) == 0
-            sessions[req.session_id].append({"role": "user", "content": question})
-            sessions[req.session_id].append({"role": "assistant", "content": answer})
-            db.save_message(req.session_id, "user", question)
-            db.save_message(req.session_id, "assistant", answer)
-            if is_first:
-                asyncio.create_task(_generate_session_title(req.session_id, question))
-            if knowledge_db:
-                asyncio.create_task(asyncio.to_thread(
-                    knowledge_db.save,
-                    f"Pesquisa profunda: {question[:120]}",
-                    f"research://apolo/{abs(hash(question)) & 0xFFFFFFFF:08x}",
-                    answer, "synthesis",
-                ))
-
-    return StreamingResponse(
-        _gpu_priority(stream()),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-class ReviewRequest(BaseModel):
-    code: str
-    language: str = "auto"
-
-
-@app.post("/api/review")
-async def review_code(req: ReviewRequest):
-    """Code Review — revisa o código com apoio do conhecimento acumulado."""
-    async def stream():
-        try:
-            async for ev in reviewer.review(req.code, req.language):
-                yield f"data: {json.dumps(ev)}\n\n"
-        except Exception as e:
-            logger.error(f"Erro no review: {e}", exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
     return StreamingResponse(
@@ -1543,8 +1455,7 @@ async def _agent_recall(query: str, limit: int = 3) -> str:
 async def agent(req: ChatRequest):
     """Modo Agente (ReAct-lite): o A.P.O.L.O. escreve código Python, EXECUTA de
     verdade e usa o resultado real para responder — cálculos/lógica ficam exatos."""
-    global _last_request_at
-    _last_request_at = _time.perf_counter()
+    _mark_request()
     question = sanitize_request(req.message)
     if learner:
         learner.add_user_topic(question)
@@ -1708,8 +1619,7 @@ async def orchestrate_endpoint(req: ChatRequest):
     """Orquestrador de sub-agentes — decompõe tarefas complexas, delega a
     especialistas (Researcher / Analyst / Coder) e sintetiza a resposta final.
     Streaming SSE com eventos: step, agent_start, agent_token, done."""
-    global _last_request_at
-    _last_request_at = _time.perf_counter()
+    _mark_request()
     task = sanitize_request(req.message)
     if learner:
         learner.add_user_topic(task)
@@ -1763,6 +1673,7 @@ app.include_router(coder_write_router)
 app.include_router(coder_ops_router)
 app.include_router(coder_run_router)
 app.include_router(health_router)
+app.include_router(ai_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
