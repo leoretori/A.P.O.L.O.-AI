@@ -6,13 +6,15 @@ from src.briefing import build_briefing, _greeting, _join_natural, _plural
 
 
 class FakeDB:
-    def __init__(self, learned=None, schedules=None, unread=0):
+    def __init__(self, learned=None, schedules=None, unread=0, reminders=None):
         self._learned = learned if learned is not None else []
         self._schedules = schedules if schedules is not None else []
         self._unread = unread
+        self._reminders = reminders if reminders is not None else []
     def get_learned_since(self, hours): return self._learned
     def list_schedules(self): return self._schedules
     def unread_count(self): return self._unread
+    def list_reminders(self, pending_only=True, limit=5): return self._reminders
 
 
 class FakeEpisodic:
@@ -80,3 +82,11 @@ def test_briefing_singular_um_topico():
     db = FakeDB(learned=[{"topic": "redis"}])
     b = build_briefing(db=db, now=datetime(2026, 7, 6, 9))
     assert "1 tópico novo" in b["text"]
+
+
+def test_briefing_inclui_lembretes():
+    db = FakeDB(reminders=[{"text": "revisar o PR", "due_at": None},
+                           {"text": "ligar pro médico", "due_at": None}])
+    b = build_briefing(db=db, now=datetime(2026, 7, 6, 9))
+    assert [r["text"] for r in b["reminders"]] == ["revisar o PR", "ligar pro médico"]
+    assert "Você me pediu para lembrar: revisar o PR e ligar pro médico." in b["text"]

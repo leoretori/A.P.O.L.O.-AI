@@ -11,17 +11,19 @@ from sqlalchemy.orm import Session  # noqa: F401 (re-export p/ `from src.storage
 from src.storage_models import (  # noqa: F401
     Base, RELEARN_DAYS, _now, _parse_dt,
     Execution, SessionMessage, SessionMeta, Notification, ScheduledStudy,
-    LearnedTopic, Reaction, CoderTask, BenchmarkRun, Episode,
+    LearnedTopic, Reaction, CoderTask, BenchmarkRun, Episode, Reminder,
 )
 from src.storage_conversations import ConversationsMixin
 from src.storage_learning import LearningMixin
 from src.storage_analytics import AnalyticsMixin
 from src.storage_episodes import EpisodesMixin
+from src.storage_reminders import RemindersMixin
 
 logger = logging.getLogger(__name__)
 
 
-class DatabaseManager(ConversationsMixin, LearningMixin, AnalyticsMixin, EpisodesMixin):
+class DatabaseManager(ConversationsMixin, LearningMixin, AnalyticsMixin,
+                      EpisodesMixin, RemindersMixin):
     def __init__(self, database_url: str = "sqlite:///data/apolo.db"):
         self.engine = create_engine(database_url, echo=False)
         Base.metadata.create_all(self.engine)

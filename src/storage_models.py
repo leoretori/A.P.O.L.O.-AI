@@ -133,6 +133,19 @@ class BenchmarkRun(Base):
     results_json = Column(Text)   # JSON com detalhes por pergunta
 
 
+class Reminder(Base):
+    """Lembrete/follow-up (M4, Épico 4.2): compromisso detectado numa conversa
+    ('me lembra de X') ou criado à mão. O A.P.O.L.O. resurface no momento certo."""
+    __tablename__ = "reminders"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    text       = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=_now)
+    due_at     = Column(DateTime, index=True)   # quando resurfacear (opcional)
+    session_id = Column(String(36))             # conversa de origem
+    done       = Column(Boolean, default=False)
+    notified   = Column(Boolean, default=False)  # já avisado ao vencer?
+
+
 class Episode(Base):
     """Memória episódica/autobiográfica (M2): cada conversa vira um episódio
     resumido e DATADO ('2026-07-06: fechamos o Épico 2.1'). Base do recall

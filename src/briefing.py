@@ -63,6 +63,14 @@ def build_briefing(db=None, episodic=None, learner=None,
         except Exception as e:
             logger.debug(f"briefing schedules: {e}")
 
+    # ── Lembretes pendentes (follow-ups) ──
+    reminders: list[dict] = []
+    if db:
+        try:
+            reminders = db.list_reminders(pending_only=True, limit=5)
+        except Exception as e:
+            logger.debug(f"briefing reminders: {e}")
+
     # ── Pendências (notificações não lidas) ──
     unread = 0
     if db:
@@ -71,7 +79,8 @@ def build_briefing(db=None, episodic=None, learner=None,
         except Exception as e:
             logger.debug(f"briefing unread: {e}")
 
-    text = _compose_text(greeting, len(learned), top_sectors, episodes, schedules, unread)
+    text = _compose_text(greeting, len(learned), top_sectors, episodes,
+                         schedules, reminders, unread)
     return {
         "greeting": greeting,
         "generated_at": now.isoformat(),
@@ -81,13 +90,15 @@ def build_briefing(db=None, episodic=None, learner=None,
                      for e in episodes],
         "schedules_today": [{"topic": s.get("topic"), "time": s.get("time_of_day")}
                             for s in schedules],
+        "reminders": [{"text": r.get("text"), "due_at": r.get("due_at")}
+                      for r in reminders],
         "unread_notifications": unread,
         "text": text,
     }
 
 
 def _compose_text(greeting: str, learned_count: int, top_sectors: list,
-                  episodes: list, schedules: list, unread: int) -> str:
+                  episodes: list, schedules: list, reminders: list, unread: int) -> str:
     from src.topics import SECTOR_LABELS
     parts = [f"{greeting}!"]
 
@@ -109,10 +120,14 @@ def _compose_text(greeting: str, learned_count: int, top_sectors: list,
         topics = [s.get("topic", "") for s in schedules][:3]
         parts.append(f"Na sua agenda de estudos: " + _join_natural(topics) + ".")
 
+    if reminders:
+        rtexts = [r.get("text", "") for r in reminders][:3]
+        parts.append("Você me pediu para lembrar: " + _join_natural(rtexts) + ".")
+
     if unread:
         parts.append(f"Você tem {_plural(unread, 'notificação não lida', 'notificações não lidas')}.")
 
-    if learned_count == 0 and not episodes and not schedules and not unread:
+    if learned_count == 0 and not episodes and not schedules and not reminders and not unread:
         parts.append("Nada de novo por aqui — estou pronto quando você quiser.")
 
     return " ".join(parts)

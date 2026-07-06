@@ -90,6 +90,25 @@ async def _maybe_extract_fact(message: str) -> None:
         logger.debug(f"fact extract: {e}")
 
 
+async def _maybe_extract_reminder(message: str, session_id: str = "") -> None:
+    """Anota lembretes que o usuário pediu na mensagem ('me lembra de X') —
+    background, determinístico (regex, sem LLM). O A.P.O.L.O. resurfaceia depois."""
+    if not rt.db:
+        return
+    try:
+        from src.reminders import extract_reminders
+        for r in extract_reminders(message):
+            rid = await asyncio.to_thread(
+                rt.db.save_reminder, r["text"], r["due_at"], session_id)
+            if rid:
+                logger.info(f"[reminder] lembrete anotado: {r['text'][:60]}")
+                await asyncio.to_thread(
+                    rt.db.add_notification,
+                    f"⏰ Anotei: {r['text'][:80]}", "reminder", "")
+    except Exception as e:
+        logger.debug(f"reminder extract: {e}")
+
+
 async def _update_session_summary(session_id: str) -> None:
     """Resume as mensagens antigas de uma conversa longa (background, não bloqueia).
     A próxima resposta passa a contar com o resumo no system prompt."""
@@ -375,6 +394,8 @@ async def chat(req: cc.ChatRequest):
 
             # Aprende um fato pessoal sobre o usuário, se houver (background, não bloqueia)
             asyncio.create_task(_maybe_extract_fact(request))
+            # Anota lembretes pedidos na mensagem ("me lembra de X") — background
+            asyncio.create_task(_maybe_extract_reminder(request, req.session_id))
 
             # Conversa longa: atualiza o resumo rolante (background) quando ficar defasado.
             hist_now = rt.sessions[req.session_id]

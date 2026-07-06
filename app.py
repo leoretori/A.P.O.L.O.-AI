@@ -257,6 +257,15 @@ async def _scheduler_loop():
                 if res.get("consolidated"):
                     logger.info(f"[sono] {res['consolidated']} conversa(s) viraram memória de longo prazo")
 
+            # Follow-ups (M4 4.2): resurface lembretes vencidos como notificação.
+            try:
+                for rem in await asyncio.to_thread(db.due_reminders):
+                    db.add_notification(f"⏰ Lembrete: {rem['text'][:120]}", kind="reminder")
+                    db.mark_reminder_notified(rem["id"])
+                    logger.info(f"[reminder] vencido → avisado: {rem['text'][:60]}")
+            except Exception as e:
+                logger.debug(f"[reminder] resurface: {e}")
+
             # Briefing diário (M4 4.1): a partir de BRIEFING_HOUR, uma vez por dia,
             # o A.P.O.L.O. te aborda primeiro com o resumo do dia (vira notificação;
             # o front pode falá-lo). Guarda a data p/ não repetir.
