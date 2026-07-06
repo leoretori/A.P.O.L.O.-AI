@@ -58,19 +58,24 @@ def get_session(session_id: str) -> list:
 
 
 async def agent_recall(query: str, limit: int = 3) -> str:
-    """Memória de longo prazo do agente — soluções/conhecimento já produzidos (RAG)."""
-    if not rt.rag:
-        return ""
+    """Memória de longo prazo do agente — soluções/conhecimento já produzidos.
+    Passa pelo MemoryFabric (porta única, M2): recupera da memória semântica (RAG).
+    Se o fabric ainda não foi injetado, cai para um wrapper direto sobre rt.rag."""
+    mem = rt.memory
+    if mem is None:
+        if not rt.rag:
+            return ""
+        from src.memory import MemoryFabric
+        mem = MemoryFabric(rag=rt.rag)
     try:
-        hits = await asyncio.to_thread(rt.rag.recall, query, limit)
+        hits = await asyncio.to_thread(mem.recall, query, "semantic", limit)
     except Exception:
         return ""
     parts = []
     for h in hits or []:
-        if h.get("relevance") is not None and h["relevance"] < 0.15:
+        if h.score is not None and h.score < 0.15:
             continue
-        title = h.get("title") or "memória"
-        parts.append(f"**{title}**\n{(h.get('snippet') or '')[:400]}")
+        parts.append(f"**{h.title or 'memória'}**\n{(h.text or '')[:400]}")
     return "\n\n---\n\n".join(parts)
 
 

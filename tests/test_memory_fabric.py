@@ -125,3 +125,39 @@ def test_recall_text_formata_bloco_para_prompt():
 def test_stats_reporta_backends_conectados():
     assert _fabric().stats() == {"semantic": True, "knowledge": True, "lesson": True}
     assert MemoryFabric().stats() == {"semantic": False, "knowledge": False, "lesson": False}
+
+
+# ── Migração de call-site: agent_recall passa pelo fabric ─────
+def test_agent_recall_usa_o_fabric(monkeypatch):
+    """agent_recall (usado pelo Modo Agente e pelo CONSULTAR do Coder) agora
+    recupera via MemoryFabric.recall('semantic')."""
+    import asyncio
+    from src import chat_common as cc
+    from src import runtime as rt
+
+    rt.configure(memory=MemoryFabric(rag=FakeRag()))
+    out = asyncio.run(cc.agent_recall("python", limit=2))
+    assert "AsyncIO" in out and "corrotinas" in out
+
+
+def test_agent_recall_filtra_baixa_relevancia(monkeypatch):
+    import asyncio
+    from src import chat_common as cc
+    from src import runtime as rt
+
+    class LowRelRag:
+        def recall(self, q, n):
+            return [{"title": "ruído", "snippet": "irrelevante", "relevance": 0.05}]
+    rt.configure(memory=MemoryFabric(rag=LowRelRag()))
+    assert asyncio.run(cc.agent_recall("x")) == ""   # < 0.15 → descartado
+
+
+def test_agent_recall_fallback_sem_fabric(monkeypatch):
+    """Sem rt.memory (fabric não injetado), cai para um wrapper sobre rt.rag."""
+    import asyncio
+    from src import chat_common as cc
+    from src import runtime as rt
+
+    rt.configure(memory=None, rag=FakeRag())
+    out = asyncio.run(cc.agent_recall("python"))
+    assert "AsyncIO" in out
