@@ -376,13 +376,19 @@ Apolo_AI/
 │   ├── curator.py            # 🧹 Curador de Memória — dedup do conhecimento
 │   ├── profile.py            # 👤 Memória pessoal sobre o usuário (JSON)
 │   ├── learner.py            # Pipeline + Auto-Currículo (loop de autonomia)
+│   ├── learner_types.py      # Tipos do pipeline + prompts de sumarização
+│   ├── learner_synthesis.py  # Síntese cross-domain (agrupa domínios, gera queries)
 │   ├── research.py           # 🔬 Pesquisa Profunda (plano adaptativo → pesquisa → síntese citada → autocrítica → persiste)
 │   ├── reviewer.py           # 🔍 Code Review Agent (recall + revisão por severidade)
 │   ├── coder.py              # 💻 A.P.O.L.O. Coder — workspace isolado (FS+shell), diff, undo, busca, streaming
 │   ├── rerank.py             # 🎯 Reranker híbrido compartilhado (vetorial + lexical + recência + dedup)
 │   ├── llm.py                # ⚡ Ollama: keep_alive, streaming sem bloquear o loop, warmup
 │   ├── gpu_gate.py           # 🦾 Prioridade de GPU ao usuário sobre o aprendizado de fundo
-│   ├── storage.py            # SQLite: execuções, sessões, tópicos
+│   ├── storage.py            # SQLite (fachada): compõe os mixins abaixo
+│   ├── storage_models.py     # Modelos ORM (execuções, sessões, tópicos, …)
+│   ├── storage_conversations.py # Execuções, conversas, notificações, agendamentos
+│   ├── storage_learning.py   # Tópicos aprendidos, diário do Coder, auditoria
+│   ├── storage_analytics.py  # Analytics de uso, benchmark, reações
 │   ├── knowledge.py          # Supabase: base de conhecimento (+ insights p/ a Mente)
 │   ├── rag.py                # ChromaDB: RAG local
 │   ├── web_search.py         # DuckDuckGo + fetch de páginas

@@ -208,7 +208,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 | Trimestre | Mês | Épico | Status |
 |-----------|-----|-------|--------|
-| Q1 | M1 | Modularizar app.py | ✅ **app.py < 800** — 22 routers (+`chat`), 0 rotas @app no app.py (só bootstrap/lifespan/scheduler/middleware). app.py 3.213→**485** (–85%). Falta quebrar learner.py/storage.py (851) p/ fechar o épico |
+| Q1 | M1 | Modularizar app.py | ✅ **completo (DoD: nenhum .py > 800)** — 22 routers (+`chat`), 0 rotas @app no app.py (só bootstrap/lifespan/scheduler/middleware). app.py 3.213→**485** (–85%). `storage.py` 927→27 (fachada de mixins: models/conversations/learning/analytics) e `learner.py` 851→687 (extraídos `learner_types`/`learner_synthesis`). Maior .py agora: 686 |
 | Q1 | M1 | Modularizar frontend | ✅ **CSS + JS extraídos** — `<style>` → `static/css/app.css` (795); os 2 `<script>` → `static/js/app.js` (3.400) + `static/js/enhancements.js` (556). **index.html 5.401→647 (–88%)**, zero código inline. Bônus: a modularização expôs e corrigiu um bug latente de boot (app.js chamava `_initTabs()`/`startLearnSSE()` de enhancements.js antes dele carregar → boot abortava; reordenado). Verificado no preview: tema, tabs, SSE e notificações voltaram a funcionar |
 | Q1 | M1 | Observabilidade/auditoria | ✅ **completo** — (1) painel "🕒 Atividade (24h)" (`/api/audit`) com feed unificado; (2) **logging estruturado** (`src/logging_setup.py`, `LOG_FORMAT=json` → 1 linha JSON/evento c/ campos extra); (3) **`/api/health` com build** (versão/git-sha/uptime via `src/build_info.py`), exibido no rodapé do painel Saúde. Robustez: JS/CSS agora `Cache-Control: no-cache` (middleware) + SW network-first — senão o usuário via UI/código velho após updates (sw.js mantém `no-store`) |
 | Q1 | M2 | MemoryFabric | ⬜ |
@@ -220,6 +220,8 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 
 *(a tabela cresce conforme avançamos; itens viram ✅ com o commit que os entrega)*
 
+> **🏁 M1 (Arquitetura & Observabilidade) — 100% concluído (2026-07-06).** Monólitos quebrados (backend em routers+mixins, frontend em CSS/JS externos), observabilidade e auditoria no ar, e a DoD batida: nenhum arquivo Python > 800 linhas; suíte verde (630); UI idêntica ao usuário. Próximo: **M2 — Tecido de Memória Unificado**.
+
 ---
 
-*Documento vivo. Última atualização: 2026-07-05.*
+*Documento vivo. Última atualização: 2026-07-06.*
