@@ -243,6 +243,15 @@ async def _scheduler_loop():
                     db.add_notification(
                         f"✅ Ollama voltou — chat e sumarização no modelo leve ({CHAT_MODEL})",
                         kind="info")
+
+            # Consolidação de memória ("sono", Épico 2.3): a cada ~30 min, resume
+            # conversas já encerradas em episódios datados — o gatilho automático
+            # que faltava. Evita rodar enquanto o aprendizado de fundo usa o LLM
+            # (ambos disputam o Ollama leve); o GpuGate ainda prioriza o usuário.
+            if rt.episodic and tick % 30 == 0 and not (learner and learner.running):
+                res = await asyncio.to_thread(rt.episodic.consolidate)
+                if res.get("consolidated"):
+                    logger.info(f"[sono] {res['consolidated']} conversa(s) viraram memória de longo prazo")
         except Exception as e:
             logger.debug(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)

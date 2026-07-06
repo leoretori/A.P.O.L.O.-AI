@@ -19,7 +19,18 @@ def test_rotas_registradas():
     paths = {r.path for r in router.routes}
     assert {"/api/perf", "/api/perf/reset", "/api/history", "/api/models",
             "/api/audit", "/api/memory/recall", "/api/memory/episodes",
-            "/api/memory/episodes/record"} <= paths
+            "/api/memory/episodes/record", "/api/memory/consolidate"} <= paths
+
+
+def test_memory_consolidate_dispara_a_episodica():
+    class FakeEpisodic:
+        def consolidate(self, **kw):
+            return {"consolidated": 2, "titles": ["a", "b"], "kw": kw}
+    rt.configure(episodic=FakeEpisodic())
+    r = _client().post("/api/memory/consolidate", json={"inactive_minutes": 60})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["consolidated"] == 2 and body["kw"]["inactive_minutes"] == 60
 
 
 def test_memory_recall_usa_o_fabric():

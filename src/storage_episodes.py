@@ -6,9 +6,10 @@ tempo — base do recall temporal ('o que fizemos ontem?')."""
 import json
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from src.storage_models import _now, Episode
+from src.storage_models import _now, Episode, SessionMessage
 
 
 class EpisodesMixin:
@@ -62,6 +63,26 @@ class EpisodesMixin:
                     .order_by(Episode.occurred_at.desc())
                     .limit(limit).all())
             return [_episode_dict(r) for r in rows]
+
+    def sessions_pending_episode(self, inactive_before: datetime,
+                                 min_messages: int = 4, limit: int = 20) -> list[dict]:
+        """Sessões prontas para virar episódio: inativas desde antes de
+        `inactive_before`, com pelo menos `min_messages` mensagens e que ainda
+        NÃO têm episódio. Base da consolidação noturna (Épico 2.3)."""
+        with Session(self.engine) as s:
+            done = {sid for (sid,) in s.query(Episode.session_id)
+                    .filter(Episode.session_id.isnot(None)).all()}
+            rows = (s.query(SessionMessage.session_id,
+                            func.max(SessionMessage.timestamp).label("last"),
+                            func.count(SessionMessage.id).label("cnt"))
+                    .group_by(SessionMessage.session_id)
+                    .having(func.count(SessionMessage.id) >= min_messages)
+                    .having(func.max(SessionMessage.timestamp) < inactive_before)
+                    .all())
+        out = [{"session_id": sid, "last_active": last, "message_count": cnt}
+               for sid, last, cnt in rows if sid and sid not in done]
+        out.sort(key=lambda x: str(x["last_active"]), reverse=True)
+        return out[:limit]
 
     def search_episodes(self, query: str, limit: int = 10) -> list[dict]:
         """Busca textual simples (LIKE) em título e resumo dos episódios."""

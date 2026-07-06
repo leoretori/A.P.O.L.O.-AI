@@ -97,6 +97,19 @@ async def memory_record_episode(payload: dict):
     return {"ok": ep is not None, "episode": ep}
 
 
+@router.post("/api/memory/consolidate")
+async def memory_consolidate(payload: dict | None = None):
+    """Dispara a consolidação de memória ("sono", Épico 2.3): resume conversas já
+    encerradas em episódios datados. O scheduler faz isso sozinho a cada ~30 min;
+    aqui fica exposto para rodar sob demanda. `inactive_minutes` opcional."""
+    if not rt.episodic:
+        return {"consolidated": 0, "titles": []}
+    kw = {}
+    if payload and isinstance(payload.get("inactive_minutes"), int):
+        kw["inactive_minutes"] = max(1, payload["inactive_minutes"])
+    return await asyncio.to_thread(lambda: rt.episodic.consolidate(**kw))
+
+
 @router.get("/api/models")
 async def models_info():
     """Modelos disponíveis no provedor ativo (Ollama ou motor próprio) + qual o

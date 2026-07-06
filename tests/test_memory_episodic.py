@@ -1,13 +1,15 @@
 """Memória episódica/autobiográfica (M2, Épico 2.2): episódios datados +
 recall temporal ('o que a gente fez ontem?'). Cobre parsing de frases de tempo,
 persistência (DatabaseManager) e a orquestração da EpisodicMemory."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.orm import Session as SASession
 
 from src.storage import DatabaseManager
+from src.storage_models import SessionMessage
 from src.memory import EpisodicMemory
-from src.memory.episodic import parse_when, _parse_episode
+from src.memory.episodic import parse_when, _parse_episode, _to_local_naive
 
 
 NOW = datetime(2026, 7, 6, 12, 0)   # segunda-feira
@@ -121,3 +123,58 @@ def test_recall_phrase_nao_temporal_retorna_none(db):
 
 def test_record_sem_db_e_seguro():
     assert EpisodicMemory(db=None).record("s1", MSGS) is None
+
+
+# ── Consolidação "sono" (Épico 2.3) ───────────────────────────
+def _seed_session(db, sid, when, n=4):
+    with SASession(db.engine) as s:
+        for i in range(n):
+            m = SessionMessage(session_id=sid, role="user" if i % 2 == 0 else "assistant",
+                               content=f"{sid} msg {i}")
+            m.timestamp = when
+            s.add(m)
+        s.commit()
+
+
+def test_sessions_pending_episode_filtra_por_inatividade_e_tamanho(db):
+    old = datetime.now(timezone.utc) - timedelta(hours=5)
+    recent = datetime.now(timezone.utc)
+    _seed_session(db, "antiga", old, n=4)
+    _seed_session(db, "recente", recent, n=4)
+    _seed_session(db, "curta", old, n=2)          # poucas mensagens
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=180)
+    pend = db.sessions_pending_episode(cutoff, min_messages=4)
+    ids = {p["session_id"] for p in pend}
+    assert ids == {"antiga"}                       # só a inativa e longa o bastante
+
+
+def test_consolidate_transforma_conversas_encerradas_em_episodios(db):
+    old = datetime.now(timezone.utc) - timedelta(hours=5)
+    _seed_session(db, "antiga", old, n=4)
+    _seed_session(db, "recente", datetime.now(timezone.utc), n=4)
+    res = _em(db).consolidate(inactive_minutes=180)
+    assert res["consolidated"] == 1
+    assert db.get_episode_for_session("antiga") is not None
+    assert db.get_episode_for_session("recente") is None
+
+
+def test_consolidate_e_idempotente(db):
+    old = datetime.now(timezone.utc) - timedelta(hours=5)
+    _seed_session(db, "antiga", old, n=4)
+    em = _em(db)
+    assert em.consolidate(inactive_minutes=180)["consolidated"] == 1
+    assert em.consolidate(inactive_minutes=180)["consolidated"] == 0   # já tem episódio
+
+
+def test_consolidate_sem_db_e_seguro():
+    assert EpisodicMemory(db=None).consolidate() == {"consolidated": 0, "titles": []}
+
+
+def test_to_local_naive_converte_utc_para_local_naive():
+    utc = datetime(2026, 7, 5, 23, 30, tzinfo=timezone.utc)
+    local = _to_local_naive(utc)
+    assert local.tzinfo is None                    # naive, no frame de parse_when
+    # e é o mesmo instante convertido para o fuso local
+    assert local == utc.astimezone().replace(tzinfo=None)
+    assert _to_local_naive(None) is None
+    assert _to_local_naive("2026-07-05T10:00:00").tzinfo is None

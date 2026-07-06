@@ -11,7 +11,7 @@ frases naturais ("ontem", "semana passada") em intervalos de datas.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger("apolo.memory.episodic")
 
@@ -87,6 +87,30 @@ class EpisodicMemory:
             return []
         return self.db.recent_episodes(limit)
 
+    # ── Consolidação ("sono") ─────────────────────────────────
+    def consolidate(self, inactive_minutes: int = 180, min_messages: int = 4,
+                    max_sessions: int = 10) -> dict:
+        """Varre conversas encerradas (inativas há `inactive_minutes`) e ainda sem
+        episódio, e as resume automaticamente — o gatilho que faltava no 2.2.
+        Inspirado na consolidação de memória do sono: transforma o corriqueiro
+        (mensagens soltas) em memória de longo prazo (episódios datados).
+        Retorna {'consolidated': n, 'titles': [...]}."""
+        if not self.db:
+            return {"consolidated": 0, "titles": []}
+        from src.storage_models import _now
+        cutoff = _now() - timedelta(minutes=inactive_minutes)
+        pending = self.db.sessions_pending_episode(cutoff, min_messages, max_sessions)
+        titles: list[str] = []
+        for p in pending:
+            messages = self.db.load_session(p["session_id"])
+            occurred = _to_local_naive(p.get("last_active"))
+            ep = self.record(p["session_id"], messages, occurred_at=occurred)
+            if ep:
+                titles.append(ep["title"])
+        if titles:
+            logger.info(f"[episodic] consolidação: {len(titles)} episódio(s) novo(s)")
+        return {"consolidated": len(titles), "titles": titles}
+
     def search(self, query: str, limit: int = 10) -> list[dict]:
         if not self.db:
             return []
@@ -118,6 +142,24 @@ def _parse_episode(raw: str) -> tuple[str, str]:
         first = next((l.strip() for l in raw.splitlines() if l.strip()), "")
         title = first[:200]
     return title[:300], summary[:2000]
+
+
+def _to_local_naive(value) -> datetime | None:
+    """Normaliza um timestamp do banco (datetime aware/naive ou string ISO) para
+    hora LOCAL naive — o mesmo referencial que `parse_when` usa (datetime.now()),
+    para que 'ontem' caia no dia certo mesmo com mensagens gravadas em UTC."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:                 # naive → assume UTC (como _now grava)
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone().replace(tzinfo=None)
 
 
 def _default_summarize(prompt: str) -> str:
