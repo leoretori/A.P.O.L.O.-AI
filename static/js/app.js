@@ -1099,11 +1099,17 @@
       else badge.classList.remove('show');
       const list = document.getElementById('notif-list');
       if (!d.items.length) { list.innerHTML = '<div class="notif-empty">Nada por aqui ainda.<br>O A.P.O.L.O. avisa o que fizer sozinho.</div>'; return; }
-      list.innerHTML = d.items.map(n=>`
-        <div class="notif-item ${n.read?'':'unread'}">
-          ${escHtml(n.message)}
+      // Prioridade (M4 4.3): borda de destaque p/ o que importa; ×N para avisos
+      // colapsados (ex.: "📚 Estudei 5 tópicos" em vez de 5 linhas de ruído).
+      list.innerHTML = d.items.map(n=>{
+        const cnt = (n.count||1) > 1 ? ` <span style="opacity:.55;font-size:11px">×${n.count}</span>` : '';
+        const accent = (n.priority||0) >= 3 ? 'border-left:2px solid #fbbf24;padding-left:8px'
+                     : (n.priority||0) >= 2 ? 'border-left:2px solid #5b9cff;padding-left:8px' : '';
+        return `<div class="notif-item ${n.read?'':'unread'}" style="${accent}">
+          ${escHtml(n.message)}${cnt}
           <div class="nt-time">${_relTime(n.created_at)}</div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     } catch {}
   }
 

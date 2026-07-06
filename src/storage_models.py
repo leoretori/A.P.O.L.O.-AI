@@ -64,11 +64,15 @@ class Notification(Base):
     """Aviso do A.P.O.L.O. sobre o que ele fez sozinho — torna a autonomia visível."""
     __tablename__ = "notifications"
     id         = Column(Integer, primary_key=True, autoincrement=True)
-    kind       = Column(String(30), default="info")   # study | gap | synthesis | info
+    kind       = Column(String(30), default="info")   # study | gap | synthesis | info | reminder | briefing
     message    = Column(Text, nullable=False)
     link       = Column(Text)                          # opcional (ex.: url do estudo)
     read       = Column(Boolean, default=False)
     created_at = Column(DateTime, default=_now)
+    # Relevância (M4 4.3): prioridade (0=ruído de fundo … 3=importante) e contagem
+    # de eventos colapsados (avisos de baixa prioridade viram 1 só, com count).
+    priority   = Column(Integer, default=1)
+    count      = Column(Integer, default=1)
 
 
 class ScheduledStudy(Base):

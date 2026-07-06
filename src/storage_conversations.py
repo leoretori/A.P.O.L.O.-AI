@@ -177,12 +177,30 @@ class ConversationsMixin:
     NOTIF_KEEP = 200  # notificações são efêmeras → mantém só as mais recentes
 
     def add_notification(self, message: str, kind: str = "info", link: str = "") -> dict:
+        """Cria um aviso já com PRIORIDADE por tipo (M4 4.3). Tipos de baixa
+        prioridade (ex.: 'study') COLAPSAM num único aviso rolante — se já há um
+        não-lido do mesmo tipo na janela, incrementa a contagem em vez de spammar."""
+        from datetime import timedelta
+        from src.notifications import priority_for, collapses, collapsed_message, COLLAPSE_WINDOW_MIN
+        message = message[:500]
+        prio = priority_for(kind)
         with Session(self.engine) as s:
-            row = Notification(message=message[:500], kind=kind, link=link or None)
+            if collapses(kind):
+                cutoff = _now() - timedelta(minutes=COLLAPSE_WINDOW_MIN)
+                recent = (s.query(Notification)
+                          .filter(Notification.kind == kind, Notification.read == False,
+                                  Notification.created_at >= cutoff)
+                          .order_by(Notification.created_at.desc()).first())
+                if recent:
+                    recent.count += 1
+                    recent.message = collapsed_message(kind, recent.count, message)
+                    recent.created_at = _now()      # sobe para o topo
+                    recent.priority = prio
+                    s.commit()
+                    return _notif_dict(recent)
+            row = Notification(message=message, kind=kind, link=link or None, priority=prio)
             s.add(row); s.commit()
-            result = {"id": row.id, "kind": row.kind, "message": row.message,
-                      "link": row.link, "read": False,
-                      "created_at": row.created_at.isoformat()}
+            result = _notif_dict(row)
             # Poda: remove o excedente além das NOTIF_KEEP mais recentes.
             ids = [r.id for r in (s.query(Notification.id)
                                   .order_by(Notification.created_at.desc())
@@ -193,14 +211,18 @@ class ConversationsMixin:
                 s.commit()
             return result
 
-    def list_notifications(self, limit: int = 30, unread_only: bool = False) -> list[dict]:
+    def list_notifications(self, limit: int = 30, unread_only: bool = False,
+                           min_priority: int = 0) -> list[dict]:
+        """Avisos recentes. `min_priority` filtra o ruído de fundo (0 mostra tudo;
+        1+ esconde os 'study' colapsados de prioridade 0 — o modo 'que importam')."""
         with Session(self.engine) as s:
             q = s.query(Notification)
             if unread_only:
                 q = q.filter(Notification.read == False)
+            if min_priority > 0:
+                q = q.filter(Notification.priority >= min_priority)
             rows = q.order_by(Notification.created_at.desc()).limit(limit).all()
-            return [{"id": r.id, "kind": r.kind, "message": r.message, "link": r.link,
-                     "read": r.read, "created_at": r.created_at.isoformat()} for r in rows]
+            return [_notif_dict(r) for r in rows]
 
     def unread_count(self) -> int:
         with Session(self.engine) as s:
@@ -344,3 +366,12 @@ class ConversationsMixin:
             if removed:
                 s.commit()
         return removed
+
+
+def _notif_dict(r) -> dict:
+    return {
+        "id": r.id, "kind": r.kind, "message": r.message, "link": r.link,
+        "read": r.read, "created_at": r.created_at.isoformat() if r.created_at else None,
+        "priority": r.priority if r.priority is not None else 1,
+        "count": r.count if r.count is not None else 1,
+    }

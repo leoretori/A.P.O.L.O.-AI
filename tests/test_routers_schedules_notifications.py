@@ -31,7 +31,7 @@ class FakeDB:
         return True
 
     # notifications
-    def list_notifications(self, limit, unread_only):
+    def list_notifications(self, limit, unread_only, min_priority=0):
         return [{"message": "oi"}]
 
     def unread_count(self):

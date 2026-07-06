@@ -16,9 +16,11 @@ router = APIRouter()
 
 
 @router.get("/api/notifications")
-async def list_notifications():
-    """Avisos do A.P.O.L.O. (autonomia visível) + contador de não-lidas."""
-    items = await asyncio.to_thread(rt.db.list_notifications, 30, False)
+async def list_notifications(min_priority: int = 0):
+    """Avisos do A.P.O.L.O. (autonomia visível) + contador de não-lidas. Cada aviso
+    traz `priority` (0=ruído … 3=importante) e `count` (eventos colapsados);
+    `min_priority=1+` esconde o ruído de fundo (o modo 'que importam' — M4 4.3)."""
+    items = await asyncio.to_thread(rt.db.list_notifications, 30, False, min_priority)
     unread = await asyncio.to_thread(rt.db.unread_count)
     return {"items": items, "unread": unread}
 
