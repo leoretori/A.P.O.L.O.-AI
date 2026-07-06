@@ -65,8 +65,8 @@ async def boot_data():
     proj = rt.project_mem.get_active() if rt.project_mem else None
 
     from src.system_cache import stats as _sc_stats
-    from src.whisper_stt import is_available as _stt_ok
-    from src.tts import is_available as _tts_ok
+    from src.whisper_stt import is_available as _stt_ok, is_ready as _stt_ready
+    from src import tts as _tts
 
     return {
         "ok": True,
@@ -77,7 +77,9 @@ async def boot_data():
         "sessions": sess_r,
         "active_project": proj,
         "stt": _stt_ok(),
-        "tts_engine": "edge-tts" if _tts_ok() else "browser",
+        "stt_ready": _stt_ready(),
+        "tts_engine": _tts.active_engine(),
+        "tts_local": _tts.is_local(),
         "system_cache": _sc_stats(),
     }
 
@@ -167,10 +169,11 @@ async def health():
         out["learner"] = {"running": False}
 
     # STT local (Whisper), TTS (Piper local / edge nuvem) e ingestão de documentos
-    from src.whisper_stt import is_available as _stt_available
+    from src.whisper_stt import is_available as _stt_available, is_ready as _stt_ready
     from src import tts as _tts
     _tts_info = _tts.engine_info()
     out["stt"] = _stt_available()
+    out["stt_ready"] = _stt_ready()             # modelo já carregado (sem cold-start)
     out["tts_engine"] = _tts_info["engine"]     # 'piper' | 'edge-tts' | 'browser'
     out["tts_local"] = _tts_info["local"]       # honesto: só Piper é 100% local
     out["tts_voices"] = _tts_info["voices"]

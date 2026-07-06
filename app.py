@@ -339,6 +339,18 @@ async def lifespan(app: FastAPI):
             pass
     asyncio.create_task(_warmup_chroma())
 
+    # STT sempre pronto (M3 3.2): pré-carrega o Whisper para a 1ª ditada não pagar
+    # o cold-start de carregar o modelo (segundos no CPU). Atrasa 12s p/ não
+    # competir com o warmup do LLM. Desligar com STT_WARMUP=0.
+    async def _warmup_stt():
+        await asyncio.sleep(12)
+        from src.whisper_stt import warmup as _stt_warmup, is_available as _stt_ok
+        if _stt_ok() and os.getenv("STT_WARMUP", "1") != "0":
+            ok = await asyncio.to_thread(_stt_warmup, os.getenv("WHISPER_MODEL", "base"))
+            if ok:
+                logger.info("[stt] Whisper pré-carregado — ditado sem cold-start")
+    asyncio.create_task(_warmup_stt())
+
     # #7 Batch de notificações — enfileira escritas e persiste em batches de 2s.
     # Evita abrir uma sessão SQLAlchemy por notificação no learner.
     _notif_queue: list[dict] = []

@@ -18,11 +18,30 @@ _model_size: str | None = None
 
 
 def is_available() -> bool:
-    """Verifica se faster-whisper está instalado."""
+    """Verifica se faster-whisper está instalado (o motor de STT existe)."""
     try:
         import faster_whisper  # noqa: F401
         return True
     except ImportError:
+        return False
+
+
+def is_ready() -> bool:
+    """True se o modelo já está CARREGADO na memória — a 1ª transcrição sai sem
+    cold-start (STT 'sempre pronto', M3 Épico 3.2)."""
+    return _model is not None
+
+
+def warmup(size: str = "base") -> bool:
+    """Pré-carrega o modelo Whisper no boot, para a primeira ditada não pagar o
+    custo de carregar o modelo (segundos no CPU). Retorna True se ficou pronto."""
+    if not is_available():
+        return False
+    try:
+        _load(size)
+        return True
+    except Exception as e:
+        logger.warning(f"[stt] warmup falhou: {e}")
         return False
 
 

@@ -518,7 +518,7 @@ pytest tests/ -v
 
 ### Próximas Fases
 ### ✅ Fase 3 — Percepção e Voz (Jun 2026)
-- [x] **Whisper STT local** — `src/whisper_stt.py` + `POST /api/stt`; o botão 🎤 usa Whisper local (faster-whisper) se instalado, Web Speech API como fallback. `/api/health` expõe `stt: true/false` para o frontend detectar. Instalar: `pip install faster-whisper` (modelos: tiny/base/small, via `WHISPER_MODEL`) ✅
+- [x] **Whisper STT local — sempre pronto** — `src/whisper_stt.py` + `POST /api/stt`; o botão 🎤 e o modo mãos-livres usam Whisper local (faster-whisper) se instalado, Web Speech API como fallback. **O modelo é pré-carregado no boot** (`warmup()`, task atrasada 12s; `STT_WARMUP=0` desliga) — a primeira ditada não paga o cold-start de carregar o modelo (~15s no CPU). `/api/health` e `/api/boot` expõem `stt` (motor existe) e `stt_ready` (modelo carregado). Instalar: `pip install faster-whisper` (modelos: tiny/base/small, via `WHISPER_MODEL`). Épico 3.2 do M3 ✅
 - [x] **DOCX support** — `extract_docx_text()` em `src/ingest.py`; parses parágrafos + tabelas (requer `pip install python-docx`). Tratado em `/api/ingest` como base64 binário igual ao PDF ✅
 - [x] **Drag-and-drop** — soltar arquivos (docs ou imagens) diretamente no campo de entrada; `#input-wrap` fica verde ao arrastar; imagens vão para visão, documentos para ingestão ✅
 - [x] **Multi-arquivo** — botão 📎 aceita múltiplos arquivos de uma vez; ingere sequencialmente e exibe contagem final ✅
