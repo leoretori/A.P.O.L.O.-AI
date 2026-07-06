@@ -39,6 +39,8 @@ researcher: Any = None
 executor: Any = None
 # Tecido de memória unificado (MemoryFabric) — a porta única sobre rag+base+lições.
 memory: Any = None
+# Memória episódica/autobiográfica (M2, Épico 2.2) — conversas datadas.
+episodic: Any = None
 # Dicts mutáveis compartilhados com o chat (mutados in-place, nunca reatribuídos):
 # o router lê a MESMA referência que o chat muta.
 sessions: Any = None

@@ -17,8 +17,9 @@ def _client():
 
 def test_rotas_registradas():
     paths = {r.path for r in router.routes}
-    assert {"/api/perf", "/api/perf/reset", "/api/history",
-            "/api/models", "/api/audit", "/api/memory/recall"} <= paths
+    assert {"/api/perf", "/api/perf/reset", "/api/history", "/api/models",
+            "/api/audit", "/api/memory/recall", "/api/memory/episodes",
+            "/api/memory/episodes/record"} <= paths
 
 
 def test_memory_recall_usa_o_fabric():
@@ -43,6 +44,42 @@ def test_memory_recall_sem_fabric_retorna_vazio():
     rt.configure(memory=None)
     r = _client().get("/api/memory/recall?q=x")
     assert r.status_code == 200 and r.json()["hits"] == []
+
+
+def test_memory_episodes_recall_temporal():
+    class FakeEpisodic:
+        def recall_phrase(self, when, limit):
+            return [{"title": "fechamos o épico 2.1", "occurred_at": "2026-07-05T10:00:00"}]
+        def search(self, q, limit): return []
+        def recent(self, limit): return []
+    rt.configure(episodic=FakeEpisodic(), db=None)
+    r = _client().get("/api/memory/episodes?when=ontem")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 1
+    assert body["episodes"][0]["title"] == "fechamos o épico 2.1"
+
+
+def test_memory_episodes_frase_nao_temporal_cai_para_busca():
+    class FakeEpisodic:
+        def recall_phrase(self, when, limit): return None      # não-temporal
+        def search(self, q, limit): return [{"title": "achado por texto"}]
+        def recent(self, limit): return []
+    rt.configure(episodic=FakeEpisodic(), db=None)
+    r = _client().get("/api/memory/episodes?when=memoryfabric")
+    assert r.json()["episodes"][0]["title"] == "achado por texto"
+
+
+def test_memory_record_episode():
+    class FakeEpisodic:
+        def record(self, sid, messages, when=None):
+            return {"id": 1, "title": "gravado", "session_id": sid}
+    class FakeDB:
+        def load_session(self, sid): return [{"role": "user", "content": "oi"}]
+    rt.configure(episodic=FakeEpisodic(), db=FakeDB())
+    r = _client().post("/api/memory/episodes/record", json={"session_id": "s1"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert r.json()["episode"]["title"] == "gravado"
 
 
 def test_audit_agrega_resumo_e_eventos():

@@ -123,8 +123,47 @@ def test_recall_text_formata_bloco_para_prompt():
 
 
 def test_stats_reporta_backends_conectados():
-    assert _fabric().stats() == {"semantic": True, "knowledge": True, "lesson": True}
-    assert MemoryFabric().stats() == {"semantic": False, "knowledge": False, "lesson": False}
+    assert _fabric().stats() == {"semantic": True, "knowledge": True,
+                                 "lesson": True, "episode": False}
+    assert MemoryFabric().stats() == {"semantic": False, "knowledge": False,
+                                      "lesson": False, "episode": False}
+
+
+# ── Memória episódica no fabric (M2 2.2) ──────────────────────
+class FakeEpisodic:
+    def search(self, query, limit):
+        return [{"title": "fechamos o épico", "summary": "recall unificado",
+                 "session_id": "s1", "occurred_at": "2026-07-05T10:00:00", "tags": ["m2"]}]
+    def recall_phrase(self, phrase, limit=50):
+        if "ontem" in phrase:
+            return self.search(phrase, limit)
+        return None
+    def record(self, session_id, messages, when=None):
+        return {"id": 1, "title": "gravado"}
+
+
+def test_recall_when_traz_episodios_por_frase_temporal():
+    f = MemoryFabric(episodic=FakeEpisodic())
+    hits = f.recall_when("o que fizemos ontem?")
+    assert len(hits) == 1
+    assert hits[0].kind == "episode" and hits[0].title == "fechamos o épico"
+    assert hits[0].when == "2026-07-05T10:00:00" and hits[0].tags == ["m2"]
+
+
+def test_recall_when_sem_episodica_retorna_vazio():
+    assert MemoryFabric().recall_when("ontem") == []
+
+
+def test_recall_kind_episode_faz_busca_textual():
+    f = MemoryFabric(episodic=FakeEpisodic())
+    hits = f.recall("épico", kind="episode")
+    assert hits[0].kind == "episode"
+
+
+def test_record_episode_delega_para_a_episodica():
+    f = MemoryFabric(episodic=FakeEpisodic())
+    assert f.record_episode("s1", [{}, {}])["title"] == "gravado"
+    assert MemoryFabric().record_episode("s1", []) is None
 
 
 # ── Migração de call-site: agent_recall passa pelo fabric ─────

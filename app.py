@@ -35,7 +35,7 @@ from src.llm import (
 from src.coder import CoderWorkspace
 from src.lessons import LessonMemory
 from src.project_memory import ProjectMemory
-from src.memory import MemoryFabric
+from src.memory import MemoryFabric, EpisodicMemory
 from src.model_select import pick_chat_model, pick_vision_model
 from src.routing import is_complex
 from src import runtime as rt
@@ -280,15 +280,18 @@ async def lifespan(app: FastAPI):
     lesson_mem = LessonMemory(path=os.getenv("LESSONS_PATH", "data/lessons.db"))
     # Publica os singletons para os routers modularizados (M1). Enquanto a migração
     # não termina, eles continuam como globais aqui — mesma referência de objeto.
-    # Tecido de memória unificado (M2): uma porta só sobre RAG + base + lições.
-    memory = MemoryFabric(rag=rag, knowledge=knowledge_db, lessons=lesson_mem)
+    # Tecido de memória unificado (M2): uma porta só sobre RAG + base + lições +
+    # memória episódica/autobiográfica (conversas datadas, recall temporal).
+    episodic = EpisodicMemory(db=db)
+    memory = MemoryFabric(rag=rag, knowledge=knowledge_db, lessons=lesson_mem,
+                          episodic=episodic)
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
                  project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
                  lesson_mem=lesson_mem, gpu_gate=gpu_gate,
                  reviewer=reviewer, researcher=researcher, executor=executor,
-                 memory=memory,
+                 memory=memory, episodic=episodic,
                  get_chat_model=lambda: CHAT_MODEL,
                  get_vision_model=lambda: VISION_MODEL)
     # Limpa títulos órfãos (sessões cujas mensagens já foram apagadas).

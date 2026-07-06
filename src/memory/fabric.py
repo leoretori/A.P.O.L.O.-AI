@@ -57,10 +57,11 @@ def _doc_id(source: str, text: str) -> str:
 
 
 class MemoryFabric:
-    def __init__(self, rag=None, knowledge=None, lessons=None):
+    def __init__(self, rag=None, knowledge=None, lessons=None, episodic=None):
         self.rag = rag
         self.knowledge = knowledge
         self.lessons = lessons
+        self.episodic = episodic   # memória temporal/autobiográfica (M2, Épico 2.2)
 
     # ── Escrita ───────────────────────────────────────────────
     def remember(self, text: str, kind: str = "semantic", *,
@@ -137,7 +138,25 @@ class MemoryFabric:
                 text=h.get("lesson", ""), when=h.get("created_at"),
                 tags=[h.get("kind")] if h.get("kind") else [],
             ) for h in self.lessons.relevant(query, limit)]
+        if kind == "episode" and self.episodic:
+            return [_episode_hit(e) for e in self.episodic.search(query, limit)]
         return []
+
+    # ── Recall temporal (memória autobiográfica) ──────────────
+    def recall_when(self, phrase: str, limit: int = 50) -> list[MemoryHit]:
+        """Recupera episódios por uma frase temporal ('ontem', 'semana passada').
+        A porta única para 'o que a gente fez ...?'. Retorna [] se não houver
+        memória episódica ou a frase não for temporal."""
+        if not self.episodic:
+            return []
+        eps = self.episodic.recall_phrase(phrase, limit)
+        return [_episode_hit(e) for e in (eps or [])]
+
+    def record_episode(self, session_id: str, messages: list[dict], when=None) -> dict | None:
+        """Resume uma sessão num episódio datado (delegado à memória episódica)."""
+        if not self.episodic:
+            return None
+        return self.episodic.record(session_id, messages, when)
 
     def recall_text(self, query: str, kind: str | None = None, limit: int = 4) -> str:
         """Bloco de contexto pronto para injetar num prompt (Markdown enxuto)."""
@@ -156,7 +175,16 @@ class MemoryFabric:
             "semantic": self.rag is not None,
             "knowledge": self.knowledge is not None,
             "lesson": self.lessons is not None,
+            "episode": self.episodic is not None,
         }
+
+
+def _episode_hit(e: dict) -> MemoryHit:
+    return MemoryHit(
+        kind="episode", title=e.get("title", ""),
+        text=e.get("summary", ""), source=e.get("session_id") or "",
+        when=e.get("occurred_at"), tags=e.get("tags") or [],
+    )
 
 
 def _split_tags(raw) -> list[str]:

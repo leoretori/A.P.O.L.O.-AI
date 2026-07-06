@@ -132,3 +132,17 @@ class BenchmarkRun(Base):
     questions    = Column(Integer)
     results_json = Column(Text)   # JSON com detalhes por pergunta
 
+
+class Episode(Base):
+    """Memória episódica/autobiográfica (M2): cada conversa vira um episódio
+    resumido e DATADO ('2026-07-06: fechamos o Épico 2.1'). Base do recall
+    temporal — 'o que a gente fez ontem/semana passada?'."""
+    __tablename__ = "episodes"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(36), index=True)   # sessão de origem (evita duplicar)
+    occurred_at = Column(DateTime, default=_now, index=True)  # quando o episódio aconteceu
+    title      = Column(Text, nullable=False)     # frase curta ("fechamos o Épico 2.1")
+    summary    = Column(Text, default="")         # resumo mais longo do que rolou
+    tags       = Column(Text, default="")         # JSON de tags
+    created_at = Column(DateTime, default=_now)
+

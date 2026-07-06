@@ -67,6 +67,36 @@ async def memory_recall(q: str, kind: str = "", limit: int = 4):
             "hits": [h.to_dict() for h in hits]}
 
 
+@router.get("/api/memory/episodes")
+async def memory_episodes(when: str = "", limit: int = 20):
+    """Memória episódica/autobiográfica (M2, Épico 2.2). Com `when` (frase
+    temporal: 'ontem', 'semana passada', 'últimos 7 dias') recupera os episódios
+    daquela janela — responde 'o que a gente fez ...?'. Sem `when`, os recentes."""
+    if not rt.episodic:
+        return {"episodes": [], "when": when}
+    limit = max(1, min(limit, 100))
+    if when.strip():
+        eps = await asyncio.to_thread(rt.episodic.recall_phrase, when, limit)
+        if eps is None:                       # frase não-temporal → busca textual
+            eps = await asyncio.to_thread(rt.episodic.search, when, limit)
+    else:
+        eps = await asyncio.to_thread(rt.episodic.recent, limit)
+    return {"when": when or "recentes", "count": len(eps), "episodes": eps}
+
+
+@router.post("/api/memory/episodes/record")
+async def memory_record_episode(payload: dict):
+    """Resume uma sessão de conversa num episódio datado. `session_id` obrigatório;
+    as mensagens vêm do banco. Base do Épico 2.3 (consolidação noturna) chamará
+    isto automaticamente; aqui fica exposto para registro manual/verificação."""
+    session_id = (payload or {}).get("session_id", "")
+    if not rt.episodic or not session_id:
+        return {"ok": False, "reason": "sem memória episódica ou session_id"}
+    messages = await asyncio.to_thread(rt.db.load_session, session_id) if rt.db else []
+    ep = await asyncio.to_thread(rt.episodic.record, session_id, messages or [])
+    return {"ok": ep is not None, "episode": ep}
+
+
 @router.get("/api/models")
 async def models_info():
     """Modelos disponíveis no provedor ativo (Ollama ou motor próprio) + qual o
