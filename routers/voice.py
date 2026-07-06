@@ -37,19 +37,23 @@ async def stt_transcribe(request: Request):
 
 
 @router.get("/api/tts")
-async def tts_endpoint(text: str = "", voice: str = "pt-BR-FranciscaNeural"):
-    """TTS de alta qualidade via edge-tts (vozes neurais PT-BR).
-    Retorna áudio MP3 em streaming — o frontend toca via Audio API.
-    Fallback: speechSynthesis do navegador (browser) quando não instalado."""
-    from src.tts import is_available, synthesize
-    if not is_available():
-        return JSONResponse({"error": "edge-tts não instalado", "hint": "pip install edge-tts"},
-                            status_code=503)
+async def tts_endpoint(text: str = "", voice: str = ""):
+    """Síntese de fala pelo engine ativo — Piper (local) se instalado, senão
+    edge-tts (nuvem); o frontend toca via Audio API. O tipo de mídia acompanha o
+    engine (WAV no Piper, MP3 no edge). `browser` → 503 e o front usa speechSynthesis.
+    Cabeçalho X-TTS-Engine informa qual engine respondeu (e se é local)."""
+    from src import tts
+    if not tts.is_available():
+        return JSONResponse({"error": "nenhum engine de TTS no servidor",
+                             "hint": "pip install piper-tts (local) ou edge-tts (nuvem)",
+                             "engine": "browser"}, status_code=503)
     clean = (text or "").strip()
     if not clean:
         return JSONResponse({"error": "texto vazio"}, status_code=400)
+    engine = tts.active_engine()
     return StreamingResponse(
-        synthesize(clean, voice),
-        media_type="audio/mpeg",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        tts.synthesize(clean, voice or None),
+        media_type=tts.media_type(),
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "X-TTS-Engine": engine, "X-TTS-Local": str(tts.is_local()).lower()},
     )

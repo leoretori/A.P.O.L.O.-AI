@@ -166,17 +166,21 @@ async def health():
     else:
         out["learner"] = {"running": False}
 
-    # STT local (Whisper), TTS (edge-tts) e ingestão de documentos
+    # STT local (Whisper), TTS (Piper local / edge nuvem) e ingestão de documentos
     from src.whisper_stt import is_available as _stt_available
-    from src.tts import is_available as _tts_available, VOICES as _tts_voices
+    from src import tts as _tts
+    _tts_info = _tts.engine_info()
     out["stt"] = _stt_available()
-    out["tts_engine"] = "edge-tts" if _tts_available() else "browser"
-    out["tts_voices"] = list(_tts_voices.keys()) if _tts_available() else []
+    out["tts_engine"] = _tts_info["engine"]     # 'piper' | 'edge-tts' | 'browser'
+    out["tts_local"] = _tts_info["local"]       # honesto: só Piper é 100% local
+    out["tts_voices"] = _tts_info["voices"]
     out["features"] = {
         "docx": True,
         "pdf": True,
         "whisper": out["stt"],
-        "edge_tts": _tts_available(),
+        "tts": _tts_info["available"],
+        "tts_piper": _tts.tts_piper.is_available(),
+        "edge_tts": _tts.tts_edge.is_available(),
         "hands_free": True,
         "drag_drop": True,
     }

@@ -1,46 +1,93 @@
-"""TTS local via edge-tts (opcional).
+"""TTS do A.P.O.L.O. — fachada que escolhe o engine de voz (M3, Épico 3.1).
 
-Vozes neurais de alta qualidade (mesmo nível do Azure TTS) sem custo e
-sem GPU — edge-tts usa a infraestrutura do Microsoft Edge offline.
+Ordem de preferência (soberania primeiro):
+  1. Piper  → 100% LOCAL, roda no CPU (o caminho soberano)
+  2. edge-tts → nuvem da Microsoft (fallback de qualidade)
+  3. browser → speechSynthesis do navegador (fallback do frontend)
 
-Instalar: pip install edge-tts
-Vozes PT-BR disponíveis:
-  pt-BR-FranciscaNeural  (feminino, padrão)
-  pt-BR-AntonioNeural    (masculino)
+`TTS_ENGINE` (env) força um engine: 'piper' | 'edge' | 'auto' (padrão).
+Se o engine forçado não estiver disponível, cai para a resolução automática.
 
-Se não instalado, o frontend usa speechSynthesis do navegador como fallback.
+Mantém a API que o resto do app já usava (`is_available`, `synthesize`,
+`VOICES`, `DEFAULT_VOICE`) e acrescenta metadados para reportar HONESTAMENTE se a
+voz é local (`is_local`, `engine_info`) — fecha a mentira do L1 (o código antigo
+dizia que edge-tts era "local"/"offline", e não é).
 """
+import os
 
-import logging
+from src import tts_edge, tts_piper
 
-logger = logging.getLogger(__name__)
+_ENGINES = {"piper": tts_piper, "edge-tts": tts_edge}
 
-DEFAULT_VOICE = "pt-BR-FranciscaNeural"
-VOICES = {
-    "feminino": "pt-BR-FranciscaNeural",
-    "masculino": "pt-BR-AntonioNeural",
-}
+# Compat: o nome do engine edge continua exportando os rótulos de voz padrão.
+DEFAULT_VOICE = tts_edge.DEFAULT_VOICE
+
+
+def active_engine() -> str:
+    """Resolve o engine ativo: 'piper' | 'edge-tts' | 'browser'."""
+    pref = os.getenv("TTS_ENGINE", "auto").strip().lower()
+    if pref in ("piper",) and tts_piper.is_available():
+        return "piper"
+    if pref in ("edge", "edge-tts") and tts_edge.is_available():
+        return "edge-tts"
+    # auto (ou forçado indisponível): prioriza o LOCAL, depois nuvem, depois browser.
+    if tts_piper.is_available():
+        return "piper"
+    if tts_edge.is_available():
+        return "edge-tts"
+    return "browser"
+
+
+def _module(engine: str):
+    return _ENGINES.get(engine)
 
 
 def is_available() -> bool:
-    try:
-        import edge_tts  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    """True se há um engine de servidor (Piper ou edge). 'browser' não conta —
+    esse é o fallback do frontend, sem áudio do servidor."""
+    return active_engine() != "browser"
 
 
-async def synthesize(text: str, voice: str = DEFAULT_VOICE):
-    """Gerador assíncrono de chunks de áudio MP3 via edge-tts.
+def is_local() -> bool:
+    """True só quando a voz é 100% local (Piper). edge-tts é nuvem."""
+    return active_engine() == "piper"
 
-    Yields bytes diretamente — para ser usado em StreamingResponse.
-    Limita a 3000 chars para não travar o pipeline de voz.
-    """
-    import edge_tts
-    text = (text or "").strip()[:3000]
-    if not text:
+
+def media_type() -> str:
+    m = _module(active_engine())
+    return getattr(m, "MEDIA_TYPE", "audio/mpeg") if m else "audio/mpeg"
+
+
+def voices() -> dict:
+    """Vozes do engine ativo (rótulo → id). Piper expõe via função (o modelo pode
+    aparecer em runtime); edge via dict."""
+    m = _module(active_engine())
+    if not m:
+        return {}
+    v = getattr(m, "VOICES", {})
+    return v() if callable(v) else v
+
+
+# Compat com quem importa VOICES direto (rótulos são iguais entre engines).
+VOICES = tts_edge.VOICES
+
+
+def engine_info() -> dict:
+    """Metadados para o /api/health — QUAL engine e se é soberano (local)."""
+    e = active_engine()
+    return {
+        "engine": e,
+        "local": e == "piper",
+        "available": e != "browser",
+        "voices": list(voices().keys()),
+    }
+
+
+async def synthesize(text: str, voice: str | None = None):
+    """Sintetiza `text` pelo engine ativo, entregando bytes de áudio (async gen).
+    O tipo de mídia varia por engine — use `media_type()` no StreamingResponse."""
+    m = _module(active_engine())
+    if not m:
         return
-    communicate = edge_tts.Communicate(text, voice)
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            yield chunk["data"]
+    async for chunk in m.synthesize(text, voice):
+        yield chunk

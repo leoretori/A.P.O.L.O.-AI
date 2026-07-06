@@ -215,7 +215,7 @@ O maior multiplicador do projeto é uma **GPU**. Sem ela, estes ficam limitados:
 | Q1 | M2 | Memória episódica | ✅ — tabela `episodes` + `EpisodicMemory` (`src/memory/episodic.py`): resume sessão em episódio (LLM) e recall por janela de tempo, traduzindo "ontem"/"semana passada"/"últimos N dias" (`parse_when`). Fabric: `recall_when(frase)` + kind `episode`; endpoints `GET/POST /api/memory/episodes`. **DoD batida**: "o que fizemos ontem?" retorna episódio correto e datado |
 | Q1 | M2 | Consolidação noturna | ✅ **gatilho automático ("sono")** — `EpisodicMemory.consolidate()` varre conversas ENCERRADAS (inativas há N min) e ainda sem episódio e as resume sozinho (`db.sessions_pending_episode`); idempotente. Roda no `_scheduler_loop` a cada ~30 min (pausa se o aprendizado de fundo estiver usando o LLM). Endpoint `POST /api/memory/consolidate` p/ sob demanda. `_to_local_naive` alinha o fuso p/ "ontem" cair no dia certo. Fecha o M2 |
 | Q1 | M2 | Consolidação noturna | ⬜ |
-| Q1 | M3 | TTS local (Piper) | ⬜ |
+| Q1 | M3 | TTS local (Piper) | 🔨 **engine soberano + honestidade** — TTS virou fachada (`src/tts.py`) que prefere **Piper (100% local, CPU)** sobre edge-tts (nuvem): `active_engine()`/`is_local()`/`media_type()`, `TTS_ENGINE` força um. `src/tts_piper.py` (novo engine, WAV) + `src/tts_edge.py` (nuvem, MP3, fallback). `/api/tts` manda `X-TTS-Engine`/`X-TTS-Local`; `/api/health` reporta `tts_engine`+`tts_local` (fim da mentira L1: o código dizia edge="local"). Verificado: fallback p/ edge funciona e se declara nuvem. Falta p/ fechar: usuário instalar `piper-tts` + modelo PT-BR e medir latência no CPU (🔒 HW) |
 | Q1 | M3 | STT sempre pronto | ⬜ |
 | Q1 | M3 | Loop conversacional | ⬜ |
 
