@@ -1672,7 +1672,12 @@
           rows + `<div style="margin-top:7px;text-align:right"><button onclick="fetch('/api/perf/reset',{method:'POST'}).then(()=>loadHealth())" style="background:none;border:1px solid #2a2a33;color:#888;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:10px">Zerar métricas</button></div>`);
       }
 
-      body.innerHTML = ollamaCard + learnerCard + recallCard + perfCard + dbCard + sbCard;
+      const b = h.build || {};
+      const buildFooter = b.version
+        ? `<div style="text-align:center;color:#666;font-size:10.5px;margin-top:6px">
+             A.P.O.L.O. v${escHtml(b.version)} · <span title="commit em execução">${escHtml(b.git_sha||'—')}</span> · no ar há ${escHtml(b.uptime_human||'—')}</div>`
+        : '';
+      body.innerHTML = ollamaCard + learnerCard + recallCard + perfCard + dbCard + sbCard + buildFooter;
     } catch (e) {
       body.innerHTML = '<span style="color:#f87171">Falha ao carregar saúde do sistema</span>';
     }

@@ -82,6 +82,16 @@ def test_painel_de_auditoria_esta_ligado():
         assert fn in app_js
 
 
+def test_js_css_tem_cache_control_no_cache():
+    """StaticFiles manda ETag mas não Cache-Control → navegador cacheia por
+    heurística e serve código velho após update. O middleware força `no-cache`
+    (revalida via ETag, barato) no JS/CSS do app — garante UI fresca."""
+    for path in ("/js/app.js", "/css/app.css", "/js/enhancements.js"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert r.headers.get("cache-control") == "no-cache", path
+
+
 def test_sw_nao_serve_js_css_do_app_desatualizado():
     """Com JS/CSS em arquivos externos (Épico 1.2), o service worker precisa
     tratá-los como network-first — senão o cache-first serve código velho para

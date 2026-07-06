@@ -70,3 +70,6 @@ def test_health_agrega(monkeypatch):
     assert body["supabase"] == {"enabled": False}
     assert body["learner"]["running"] is True
     assert body["knowledge_backend"] == "none"
+    # Épico 1.3: /api/health expõe versão/uptime/git p/ saber qual código roda.
+    assert set(body["build"]) >= {"version", "git_sha", "uptime_seconds", "uptime_human"}
+    assert isinstance(body["build"]["uptime_seconds"], int)

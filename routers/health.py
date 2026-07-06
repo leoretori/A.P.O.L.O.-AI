@@ -87,7 +87,8 @@ async def health():
     """Painel de saúde — estado consolidado do A.P.O.L.O. num só lugar.
     Os blocos são independentes e fazem I/O de rede (Ollama, Supabase, embeddings),
     então rodam em paralelo (`asyncio.gather`) — antes era tudo sequencial."""
-    out: dict = {"ok": True}
+    from src.build_info import build_info
+    out: dict = {"ok": True, "build": build_info()}
     chat_model = rt.get_chat_model()
     heavy_model = rt.model
     vision_model = rt.get_vision_model()

@@ -71,11 +71,9 @@ for _stream in (sys.stdout, sys.stderr):
 
 # #4 Logging otimizado: app fica em INFO, libs barulhentas em WARNING.
 # httpx/httpcore geram 1 log por requisição de rede — em produção são dezenas/min.
-# LOG_LEVEL=DEBUG restaura tudo para debug.
-_LOG_LEVEL = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
-logging.basicConfig(level=_LOG_LEVEL, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-for _noisy in ("httpx", "httpcore", "watchfiles", "chromadb.telemetry"):
-    logging.getLogger(_noisy).setLevel(logging.WARNING)
+# LOG_LEVEL=DEBUG restaura tudo para debug; LOG_FORMAT=json liga logs estruturados.
+from src.logging_setup import configure_logging
+_LOG_FORMAT = configure_logging()
 logger = logging.getLogger(__name__)
 
 MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
@@ -351,9 +349,12 @@ async def lifespan(app: FastAPI):
     sm = f" — sumarização: {SUMMARIZE_MODEL}" if SUMMARIZE_MODEL != MODEL else ""
     cm = f" — chat: {CHAT_MODEL}" if CHAT_MODEL != MODEL else ""
     vm = f" — visão: {VISION_MODEL}" if VISION_MODEL else " — visão: (instale 'ollama pull llava')"
+    from src.build_info import APP_VERSION, git_sha
     logger.info(
-        f"A.P.O.L.O. pronto — modelo: {MODEL}{cm}{sm}{vm} — keep_alive={KEEP_ALIVE} "
-        f"— 7 agentes + auto-currículo + pesquisa profunda + code review + visão"
+        f"A.P.O.L.O. pronto — v{APP_VERSION} ({git_sha()}) — modelo: {MODEL}{cm}{sm}{vm} "
+        f"— keep_alive={KEEP_ALIVE} — logs={_LOG_FORMAT} "
+        f"— 7 agentes + auto-currículo + pesquisa profunda + code review + visão",
+        extra={"event": "boot", "version": APP_VERSION, "git_sha": git_sha()},
     )
     yield
     # Encerra learner e agendador ao desligar
@@ -436,6 +437,24 @@ async def _latency_middleware(request: Request, call_next):
         ms = (_time.perf_counter() - t0) * 1000
         # Agrupa por rota "lógica" (sem query string).
         perf_tracker.record(path, ms, is_error=is_error)
+
+
+@app.middleware("http")
+async def _asset_revalidation_middleware(request: Request, call_next):
+    """Força revalidação do JS/CSS do próprio app. O StaticFiles manda ETag mas
+    NÃO manda Cache-Control, então o navegador aplica cache heurístico e serve
+    código VELHO sem revalidar depois de um update (problema que apareceu quando
+    o JS saiu inline → arquivos externos no Épico 1.2). `no-cache` permite cachear
+    mas obriga a checar o ETag a cada carga — barato (servidor local, resposta 304
+    quando nada mudou) e garante que a UI nova chegue no usuário."""
+    response = await call_next(request)
+    path = request.url.path
+    # Não sobrescreve políticas já definidas (ex.: /sw.js manda `no-store` no
+    # router de assets — o service worker NUNCA pode ser cacheado).
+    if ((path.endswith(".js") or path.endswith(".css"))
+            and "cache-control" not in response.headers):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
