@@ -13,6 +13,10 @@ SYNTHESIS_EVERY   = 6    # dispara síntese a cada N itens salvos
 # em vez de queimar o currículo inteiro descartando tópico por tópico.
 LLM_DOWN_BACKOFF  = float(os.getenv("LLM_DOWN_BACKOFF", 30))
 MAX_CONTENT_CHARS = 3500 # limita conteúdo enviado ao LLM (mais rápido)
+# Teto para a persistência de UM item (SQLite + Supabase + RAG). Impede que uma
+# escrita lenta em rede ruim segure o pipeline (o save roda em background, mas
+# sem teto uma pendência acumula threads do pool e pode congelar o aprendizado).
+PERSIST_TIMEOUT   = float(os.getenv("PERSIST_TIMEOUT", 45))
 
 
 @dataclass

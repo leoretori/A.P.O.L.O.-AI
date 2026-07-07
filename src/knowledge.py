@@ -1,6 +1,7 @@
 """Base de conhecimento persistente no Supabase."""
 
 import logging
+import os
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 
@@ -60,7 +61,23 @@ def _domain_of(url: str) -> str:
 class SupabaseKnowledge:
     def __init__(self, url: str, key: str):
         from supabase import create_client
-        self.client = create_client(url, key)
+        # Timeout EXPLÍCITO no cliente: sem ele, o default (120 s) × retry (3×) deixa
+        # uma escrita travada segurando uma thread do pool compartilhado por até ~6 min.
+        # Como o summarizer do learner usa o MESMO pool (asyncio.to_thread), escritas
+        # penduradas em rede ruim ESGOTAM o pool e CONGELAM o aprendizado (bug real:
+        # "estudou 45 e travou"). O circuit breaker não protegia disso — ele só conta
+        # exceções, não pendências. Com timeout curto, a chamada falha rápido → o breaker
+        # abre → rejeição imediata; nada segura thread. Ajustável via SUPABASE_TIMEOUT.
+        timeout = int(os.getenv("SUPABASE_TIMEOUT", "15"))
+        try:
+            from supabase import ClientOptions
+            self.client = create_client(url, key, options=ClientOptions(
+                postgrest_client_timeout=timeout,
+                storage_client_timeout=timeout,
+            ))
+        except Exception:
+            # Versão antiga sem ClientOptions — segue sem timeout explícito.
+            self.client = create_client(url, key)
         # Telemetria de upload — para saber se o conhecimento está subindo de verdade.
         self.saved_ok = 0
         self.save_errors = 0

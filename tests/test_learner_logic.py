@@ -1,8 +1,11 @@
 """Testes das funções puras do learner (auto-currículo)."""
 
 import asyncio
+import time
 
+import src.learner as learner_mod
 from src.learner import _extract_self_queries, LearningEngine
+from src.learner_types import FetchedItem, LearnedItem
 
 
 def test_enqueue_pula_topicos_ja_estudados():
@@ -52,6 +55,64 @@ def test_dedup_ignora_pontuacao_e_caixa():
     s = "QUERY: Redis pub/sub patterns\nQUERY: redis pub sub patterns?"
     r = _extract_self_queries(s)
     assert len(r) == 1
+
+
+def test_persist_nao_trava_com_save_lento(monkeypatch):
+    """Regressão do 'estudou 45 e travou': uma escrita lenta (Supabase em rede
+    ruim) NÃO pode segurar o _persist. Com PERSIST_TIMEOUT curto, ele desiste e
+    segue — em vez de pendurar o pipeline (e esgotar o pool de threads)."""
+    monkeypatch.setattr(learner_mod, "PERSIST_TIMEOUT", 0.2)
+
+    class _SlowKnowledge:
+        def save(self, *a, **k):
+            time.sleep(1.0)          # simula Supabase pendurado (bloqueia a thread)
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = None
+    eng.knowledge_db = _SlowKnowledge()
+    eng.rag = None
+
+    item = LearnedItem(topic="X", url="u", summary="s" * 200,
+                       category="web", agent_name="a")
+
+    async def _run():
+        # Mede DENTRO do loop — asyncio.run() no fim ainda junta a thread do save
+        # (que segue no time.sleep), então o tempo do _persist tem de ser medido aqui.
+        t0 = time.perf_counter()
+        await eng._persist(item)
+        return time.perf_counter() - t0
+
+    elapsed = asyncio.run(_run())
+    # Voltou por causa do timeout (~0.2s), MUITO antes do save de 1s terminar.
+    assert elapsed < 0.8
+
+
+def test_summarize_worker_sobrevive_a_erro_no_process():
+    """Blindagem contra o 'travou e não conseguiu mais': se _process_item lança,
+    o worker NÃO pode morrer (senão a fila lota e os fetchers congelam). Ele
+    solta o item do in-flight e segue para o próximo."""
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.running = True
+    eng._fetch_queue = asyncio.Queue(maxsize=12)
+    eng._inflight = {"x"}
+    calls = {"n": 0}
+
+    async def boom(item):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("explodiu no 1º item")
+        eng.running = False           # 2º item: encerra o loop de forma limpa
+
+    eng._process_item = boom
+
+    async def run():
+        eng._fetch_queue.put_nowait(FetchedItem("x", "u", "c" * 200, "web", "a"))
+        eng._fetch_queue.put_nowait(FetchedItem("y", "u", "c" * 200, "web", "a"))
+        await asyncio.wait_for(eng._summarize_worker(), timeout=5)
+
+    asyncio.run(run())
+    assert calls["n"] == 2                 # sobreviveu ao 1º erro e processou o 2º
+    assert "x" not in eng._inflight        # release após o erro
 
 
 def test_normaliza_espacos_internos():

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
     FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
+    PERSIST_TIMEOUT,
     FetchedItem, LearnedItem,
     SUMMARIZE_PROMPT, SUMMARIZE_PROMPT_GERAL, GENERAL_CATEGORIES,
 )
@@ -317,16 +318,22 @@ class LearningEngine:
         while self.running:
             # Prioridades (apenas no fetcher-web):
             #   1º tópico do usuário  2º currículo auto-dirigido do A.P.O.L.O.
+            # Blindado: erro aqui não pode matar o fetcher (senão essa fonte de
+            # tópicos morre em silêncio e o aprendizado míngua).
             if agent is self._search_agent:
-                if not self._user_queue.empty():
-                    topic = self._user_queue.get_nowait()
-                    await self._fetch_and_enqueue_search(topic, "user_question", agent.name)
-                    continue
-                if not self._self_queue.empty():
-                    topic = self._self_queue.get_nowait()
-                    self._self_directed_count += 1
-                    await self._fetch_and_enqueue_search(topic, "self_directed", "auto_curriculum")
-                    continue
+                try:
+                    if not self._user_queue.empty():
+                        topic = self._user_queue.get_nowait()
+                        await self._fetch_and_enqueue_search(topic, "user_question", agent.name)
+                        continue
+                    if not self._self_queue.empty():
+                        topic = self._self_queue.get_nowait()
+                        self._self_directed_count += 1
+                        await self._fetch_and_enqueue_search(topic, "self_directed", "auto_curriculum")
+                        continue
+                except Exception as e:
+                    logger.debug(f"[{agent.name}] priority fetch error: {e}")
+                    await asyncio.sleep(1)
 
             # Fetch normal do agente
             try:
@@ -400,13 +407,26 @@ class LearningEngine:
                 self._release(topic)
 
     async def _summarize_worker(self) -> None:
-        """Único consumidor do Ollama — serializa LLM para evitar contenção."""
+        """Único consumidor do Ollama — serializa LLM para evitar contenção.
+        Blindado: uma exceção em _process_item NÃO pode matar o worker (se morresse,
+        ninguém drena a fila → fetchers bloqueiam no put → CONGELAMENTO permanente,
+        exatamente o 'travou e não conseguiu mais')."""
         while self.running:
             try:
                 item = await asyncio.wait_for(self._fetch_queue.get(), timeout=5.0)
             except asyncio.TimeoutError:
                 continue
-            await self._process_item(item)
+            except Exception as e:
+                logger.warning(f"[summarizer] erro ao pegar item: {e}")
+                await asyncio.sleep(1)
+                continue
+            try:
+                await self._process_item(item)
+            except Exception as e:
+                # Não deixa o item preso in-flight e segue vivo.
+                logger.warning(f"[summarizer] _process_item falhou ({item.topic[:40]}): {e}")
+                self._release(item.topic)
+                await asyncio.sleep(1)
 
     async def _process_item(self, item: FetchedItem) -> None:
         """Sumariza um item. Falhou? NÃO salva conteúdo cru como 'conhecimento':
@@ -463,15 +483,48 @@ class LearningEngine:
             self._active_summarizing = ""
 
     async def _save_worker(self) -> None:
-        """Worker de controle — só mantém o loop vivo e emite logs de status."""
+        """Worker de controle — mantém o loop vivo, emite status e DETECTA STALL.
+        Um pipeline que para de progredir em silêncio foi exatamente o bug 'estudou
+        45 e travou'; aqui ele grita (WARNING + 1 notificação) com o diagnóstico."""
+        prev_saved = prev_fetched = -1
+        stalled_cycles = 0
+        stall_notified = False
         while self.running:
             await asyncio.sleep(30)
-            if self.running:
-                q = self._fetch_queue.qsize()
-                logger.info(
-                    f"A.P.O.L.O. pipeline — fila:{q} | salvos:{self._saved_count} | "
-                    f"buscados:{self._fetched_count}"
+            if not self.running:
+                break
+            q = self._fetch_queue.qsize()
+            logger.info(
+                f"A.P.O.L.O. pipeline — fila:{q} | salvos:{self._saved_count} | "
+                f"buscados:{self._fetched_count}"
+            )
+            # Sem progresso (nem salvou, nem buscou) desde o último ciclo?
+            no_progress = (self._saved_count == prev_saved and
+                           self._fetched_count == prev_fetched)
+            prev_saved, prev_fetched = self._saved_count, self._fetched_count
+            if no_progress:
+                stalled_cycles += 1
+            else:
+                stalled_cycles = 0
+                stall_notified = False
+            # ~2 min parado com o motor ligado → algo travou; exponha a causa provável.
+            if stalled_cycles >= 4:
+                causa = ("Ollama fora do ar" if self._llm_down else
+                         "fila cheia (summarizer preso)" if q >= FETCH_QUEUE_MAX else
+                         "sem tópicos novos (agentes esgotados / rede)")
+                logger.warning(
+                    f"[pipeline] ⚠️ SEM PROGRESSO há ~{stalled_cycles * 30}s — "
+                    f"provável: {causa} | fila:{q} in-flight:{len(self._inflight)} "
+                    f"llm_down:{self._llm_down} self_q:{self._self_queue.qsize()}"
                 )
+                if self.db and not stall_notified:
+                    stall_notified = True
+                    try:
+                        self.db.add_notification(
+                            f"⚠️ Aprendizado sem progresso — {causa}. Verifique.",
+                            kind="info")
+                    except Exception:
+                        pass
 
     async def _save_and_record(self, item: LearnedItem) -> None:
         try:
@@ -657,20 +710,28 @@ class LearningEngine:
                 [sector],  # tag de setor → alimenta o breakdown da Mente
             ))
         if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in results:
-                if isinstance(r, Exception):
-                    logger.debug(f"persist error: {r}")
+            # Teto de tempo: uma escrita lenta (ex.: Supabase em rede ruim) NUNCA pode
+            # segurar o pipeline. Os clientes já têm timeout próprio (SUPABASE_TIMEOUT);
+            # este wait_for é a 2ª linha de defesa contra pendurar o pipeline.
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True), timeout=PERSIST_TIMEOUT)
+                for r in results:
+                    if isinstance(r, Exception):
+                        logger.debug(f"persist error: {r}")
+            except asyncio.TimeoutError:
+                logger.warning(f"[persist] escrita excedeu {PERSIST_TIMEOUT:.0f}s — "
+                               f"segue sem travar ({item.topic[:50]})")
         if self.rag and item.summary:
             try:
                 # doc_id estável por tópico (não pela URL): re-estudar faz UPSERT,
                 # então o índice de recall não acumula duplicatas do mesmo assunto.
                 key = item.topic.strip().lower()
                 doc_id = f"{item.agent_name}_{hash(key) & 0xFFFFFFFF:08x}"
-                await asyncio.to_thread(
+                await asyncio.wait_for(asyncio.to_thread(
                     self.rag.add_example,
                     f"# {item.topic}\nFonte: {item.url}\n\n{item.summary}", doc_id,
-                )
+                ), timeout=PERSIST_TIMEOUT)
             except Exception as e:
                 logger.debug(f"rag error: {e}")
 
