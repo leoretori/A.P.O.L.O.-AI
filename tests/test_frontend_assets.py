@@ -105,6 +105,16 @@ def test_painel_de_auditoria_esta_ligado():
         assert fn in app_js
 
 
+def test_verificacao_anti_alucinacao_ligada():
+    """M7 7.2 — respostas factuais passam por /api/verify e, se não estiverem
+    ancoradas na base, ganham um aviso de incerteza (.verify-chip)."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert "function verifyAndBadge" in app_js and "/api/verify" in app_js
+    assert "verifyAndBadge(aiWrap, text, acc)" in app_js   # chamado ao finalizar
+    assert ".verify-chip" in css
+
+
 def test_wake_word_ui_ligada():
     """M5 5.1 — o botão 👂 e a escuta contínua que chama /api/wake/detect e
     despacha o comando por /api/agency/ask precisam estar no frontend."""

@@ -1978,6 +1978,27 @@
     speechSynthesis.speak(u);
   }
 
+  // ── Verificação anti-alucinação (M7 7.2) ──────────────────────
+  // Depois de uma resposta FACTUAL, pergunta ao /api/verify se ela está ancorada
+  // na base. Só mostra um aviso quando NÃO está (baixa correspondência ou sem
+  // fonte) — sem poluir quando a resposta tem lastro. Nunca bloqueia o chat.
+  async function verifyAndBadge(aiWrap, question, answer) {
+    if (!aiWrap || !answer || answer.length < 40) return;
+    try {
+      const v = await fetch('/api/verify', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question, answer }),
+      }).then(r => r.json());
+      if (!v.checked || !v.note) return;             // não-factual ou bem ancorado
+      const content = aiWrap.querySelector('.content');
+      if (!content || content.querySelector('.verify-chip')) return;
+      const chip = document.createElement('div');
+      chip.className = 'verify-chip';
+      chip.textContent = v.note + (v.sources_count ? ` (base: ${v.sources_count} fonte(s))` : '');
+      content.appendChild(chip);
+    } catch { /* verificação é best-effort */ }
+  }
+
   function buildSpeakButton(text) {
     if (!('speechSynthesis' in window)) return null;
     const b = document.createElement('button');
@@ -2260,6 +2281,7 @@
             scrollBottom();
           } else if (data.type === 'done') {
             finalizeAiMessage(aiWrap, data);
+            verifyAndBadge(aiWrap, text, acc);   // M7 7.2: sinaliza incerteza factual
           } else if (data.type === 'error') {
             aiWrap.querySelector('.content').innerHTML =
               `<div style="color:#f87171;font-size:13px;padding:6px 0">⚠ ${escHtml(data.message)}</div>`;
