@@ -102,6 +102,14 @@ class LearningEngine:
         # Um replenish gera tópicos NOVOS via LLM. Flag evita gerar em paralelo.
         self._replenishing = False
 
+        # Serializa TODA inferência do learner (summarize + síntese + replenish).
+        # O pipeline se diz "único consumidor do Ollama", mas a síntese (14b) e o
+        # replenish rodavam via create_task EM PARALELO com o summarizer (3b) →
+        # numa máquina 16GB CPU-only os dois modelos inferindo juntos travam tudo
+        # (thrash de RAM/CPU) e TODO tópico estoura o timeout. O lock garante um de
+        # cada vez — cada chamada roda a plena velocidade em vez de as duas patinarem.
+        self._llm_lock = asyncio.Lock()
+
         # Filas do pipeline
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
         self._user_queue:  asyncio.Queue[str]         = asyncio.Queue()
@@ -628,14 +636,15 @@ class LearningEngine:
         try:
             if self.gpu_gate:
                 await self.gpu_gate.wait_for_idle()
-            synthesis = await asyncio.wait_for(
-                asyncio.to_thread(
-                    chat_resilient, self.model,
-                    [{"role": "user", "content": prompt}],
-                    keep_alive=KEEP_ALIVE,
-                ),
-                timeout=180.0,
-            )
+            async with self._llm_lock:          # não concorre com o summarizer (3b)
+                synthesis = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        chat_resilient, self.model,
+                        [{"role": "user", "content": prompt}],
+                        keep_alive=KEEP_ALIVE,
+                    ),
+                    timeout=180.0,
+                )
             url = f"synthesis://apolo/{self._saved_count:04d}"
             item = LearnedItem(
                 topic=topic_label, url=url, summary=synthesis,
@@ -657,7 +666,7 @@ class LearningEngine:
             # custo extra de LLM, fechando o loop de autonomia/automelhoria.
             self._enqueue_self_studies(_extract_self_queries(synthesis))
         except Exception as e:
-            logger.warning(f"[synthesizer] Erro: {e}")
+            logger.warning(f"[synthesizer] Erro: {type(e).__name__}: {e}")
         finally:
             self._synthesis_agent.active = False
             self._synthesis_agent.current_topic = ""
@@ -684,13 +693,14 @@ class LearningEngine:
             )
             if self.gpu_gate:
                 await self.gpu_gate.wait_for_idle()
-            out = await asyncio.wait_for(
-                asyncio.to_thread(
-                    chat_resilient, self.summarize_model,
-                    [{"role": "user", "content": prompt}], keep_alive=KEEP_ALIVE,
-                ),
-                timeout=90.0,
-            )
+            async with self._llm_lock:          # não concorre com summarize/síntese
+                out = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        chat_resilient, self.summarize_model,
+                        [{"role": "user", "content": prompt}], keep_alive=KEEP_ALIVE,
+                    ),
+                    timeout=90.0,
+                )
             topics = _parse_topic_lines(out)
             before = self._self_queue.qsize()
             self._enqueue_self_studies(topics)
@@ -705,7 +715,7 @@ class LearningEngine:
                 except Exception:
                     pass
         except Exception as e:
-            logger.warning(f"[curriculo] replenish falhou: {e}")
+            logger.warning(f"[curriculo] replenish falhou: {type(e).__name__}: {e}")
         finally:
             self._replenishing = False
 
@@ -744,14 +754,15 @@ class LearningEngine:
         try:
             if self.gpu_gate:
                 await self.gpu_gate.wait_for_idle()
-            out = await asyncio.wait_for(
-                asyncio.to_thread(
-                    chat_resilient, self.summarize_model,
-                    [{"role": "user", "content": prompt}],
-                    keep_alive=KEEP_ALIVE,
-                ),
-                timeout=120.0,
-            )
+            async with self._llm_lock:          # 1 inferência do learner por vez
+                out = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        chat_resilient, self.summarize_model,
+                        [{"role": "user", "content": prompt}],
+                        keep_alive=KEEP_ALIVE,
+                    ),
+                    timeout=120.0,
+                )
             self._llm_down = False
             self._llm_down_notified = False
             return out if out and len(out.strip()) >= 80 else None

@@ -113,14 +113,54 @@ def test_replenish_curriculum_gera_temas_quando_esgota(monkeypatch):
     eng.summarize_model = "x"
     eng._replenishing = False
     eng._next_studies = []
-    eng._self_queue = asyncio.Queue(maxsize=24)
 
-    asyncio.run(eng._replenish_curriculum())
+    async def run():
+        eng._llm_lock = asyncio.Lock()
+        eng._self_queue = asyncio.Queue(maxsize=24)
+        await eng._replenish_curriculum()
+
+    asyncio.run(run())
 
     fila = []
     while not eng._self_queue.empty():
         fila.append(eng._self_queue.get_nowait())
     assert "Sistemas distribuídos" in fila and "Filosofia estoica" in fila
+
+
+def test_llm_lock_serializa_inferencias(monkeypatch):
+    """Regressão do 'estudou muito e travou de vez': o lock impede que summarize
+    (3b) e síntese (14b) infiram AO MESMO TEMPO — numa 16GB CPU-only isso travava
+    tudo (thrash) e todo tópico estourava o timeout. Nunca >1 inferência simultânea."""
+    import threading
+    state = {"cur": 0, "max": 0}
+    guard = threading.Lock()
+
+    def fake(model, messages, **k):
+        with guard:
+            state["cur"] += 1
+            state["max"] = max(state["max"], state["cur"])
+        time.sleep(0.1)
+        with guard:
+            state["cur"] -= 1
+        return "x" * 100
+
+    monkeypatch.setattr(learner_mod, "chat_resilient", fake)
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.gpu_gate = None
+    eng.summarize_model = "m"
+    eng._llm_down = False
+    eng._llm_down_notified = False
+
+    async def run():
+        eng._llm_lock = asyncio.Lock()           # liga ao loop em execução
+        await asyncio.gather(*[
+            eng._summarize(f"t{i}", "conteúdo suficientemente longo " * 20, "web")
+            for i in range(4)
+        ])
+
+    asyncio.run(run())
+    assert state["max"] == 1                      # nunca 2 inferências ao mesmo tempo
 
 
 def test_summarize_worker_sobrevive_a_erro_no_process():
