@@ -11,6 +11,7 @@ haver uma ferramenta que os use (o usuário pode autorizar previamente).
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -31,7 +32,17 @@ class Tool:
     name: str
     scope: str                       # "" = seguro, sem permissão especial
     description: str
-    handler: Callable[[dict], dict]
+    handler: Callable[..., dict]     # handler(args) OU handler(args, ctx)
+
+
+@dataclass
+class ToolContext:
+    """Contexto passado a handlers que o aceitam (2º parâmetro). Carrega o `db`
+    e a `note` do grant do escopo — para files.read a note é a ALLOWLIST de
+    pastas: o grant abre a capacidade, a note delimita ONDE ela pode agir."""
+    db: object | None = None
+    scope: str = ""
+    note: str = ""
 
 
 _REGISTRY: dict[str, Tool] = {}
@@ -57,6 +68,17 @@ def _summarize(obj) -> str:
     return s[:400]
 
 
+def _invoke(handler: Callable[..., dict], args: dict, ctx: "ToolContext") -> dict:
+    """Chama o handler com ou sem contexto, conforme a assinatura dele — assim
+    ferramentas simples continuam `handler(args)` e as que precisam da allowlist
+    declaram `handler(args, ctx)`. Retrocompatível com todos os handlers antigos."""
+    try:
+        n = len(inspect.signature(handler).parameters)
+    except (TypeError, ValueError):
+        n = 1
+    return handler(args, ctx) if n >= 2 else handler(args)
+
+
 def run_tool(name: str, args: dict | None, db=None) -> dict:
     """Executa uma ferramenta pelo caminho seguro: consentimento → auditoria →
     execução (ou negação). `db` fornece is_permission_granted/log_tool."""
@@ -68,8 +90,16 @@ def run_tool(name: str, args: dict | None, db=None) -> dict:
     result = None
     error = None
     if granted:
+        # note do grant = allowlist (ex.: pastas autorizadas p/ files.read)
+        note = ""
+        if db is not None and tool.scope:
+            try:
+                note = db.permission_note(tool.scope)
+            except Exception:
+                note = ""
+        ctx = ToolContext(db=db, scope=tool.scope, note=note)
         try:
-            result = tool.handler(args or {})
+            result = _invoke(tool.handler, args or {}, ctx)
         except Exception as e:
             error = str(e)[:300]
             logger.warning(f"[tool] {name} falhou: {e}")

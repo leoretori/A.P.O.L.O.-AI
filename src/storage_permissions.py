@@ -43,6 +43,12 @@ class PermissionsMixin:
             row = s.get(Permission, scope)
             return bool(row and row.granted)
 
+    def permission_note(self, scope: str) -> str:
+        """Note do grant — para files.read é a allowlist de pastas autorizadas."""
+        with Session(self.engine) as s:
+            row = s.get(Permission, (scope or "").strip())
+            return (row.note or "") if row else ""
+
     def list_permissions(self) -> list[dict]:
         with Session(self.engine) as s:
             return [_perm_dict(r) for r in s.query(Permission).all()]

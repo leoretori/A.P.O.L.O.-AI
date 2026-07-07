@@ -5,10 +5,11 @@ agenda, e-mail) chegam nos Épicos 6.2/6.3 e exigem consentimento por escopo.
 from datetime import datetime
 
 from src.tools.registry import (
-    SCOPES, Tool, all_tools, get, register, run_tool,
+    SCOPES, Tool, ToolContext, all_tools, get, register, run_tool,
 )
 
-__all__ = ["SCOPES", "Tool", "register", "get", "all_tools", "run_tool"]
+__all__ = ["SCOPES", "Tool", "ToolContext", "register", "get",
+           "all_tools", "run_tool"]
 
 
 # ── Ferramentas embutidas seguras (scope "" = sem permissão) ──
@@ -27,3 +28,8 @@ def _clock(args: dict) -> dict:
 
 register(Tool(name="clock", scope="", description="Hora e data locais",
               handler=_clock))
+
+
+# ── Ferramentas de leitura do mundo (exigem consentimento por escopo) ──
+# Importar registra files.search / files.read (scope files.read, Épico 6.2).
+from src.tools import files  # noqa: E402,F401

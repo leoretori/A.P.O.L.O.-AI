@@ -80,6 +80,18 @@ def test_painel_de_permissoes_esta_ligado():
         assert fn in app_js
 
 
+def test_grant_files_read_pede_a_pasta_autorizada():
+    """M6 6.2 — autorizar 'files.read' precisa capturar QUAL pasta (a allowlist,
+    enviada como note). O caminho não pode ser inlinado no onclick (backslash do
+    Windows quebraria a string), então o toggle busca a note em _permScopes."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert "_grantFilesRead" in app_js and "_permScopes" in app_js
+    # o grant de files.read manda a note (pasta) no corpo
+    assert "scope:'files.read', note:" in app_js
+    # ramo específico do files.read no toggle (pede a pasta em vez de grant seco)
+    assert "scope === 'files.read'" in app_js
+
+
 def test_painel_de_auditoria_esta_ligado():
     """Épico 1.3 — o painel 'Atividade (24h)' precisa do botão no HTML e das
     funções de abertura/carregamento no JS."""
