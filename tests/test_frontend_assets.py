@@ -115,6 +115,14 @@ def test_verificacao_anti_alucinacao_ligada():
     assert ".verify-chip" in css
 
 
+def test_roteador_de_tarefa_ligado():
+    """M7 7.1 — comando de agência curto é roteado por /api/route → /api/agency/ask
+    (sem gastar o LLM), antes do envio normal ao chat."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert "function _tryAgencyCommand" in app_js and "/api/route" in app_js
+    assert "await _tryAgencyCommand(text)" in app_js
+
+
 def test_wake_word_ui_ligada():
     """M5 5.1 — o botão 👂 e a escuta contínua que chama /api/wake/detect e
     despacha o comando por /api/agency/ask precisam estar no frontend."""

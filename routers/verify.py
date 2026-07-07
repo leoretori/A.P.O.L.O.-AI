@@ -1,7 +1,8 @@
-"""Verificação anti-alucinação (M7, Épico 7.2).
+"""Raciocínio confiável (M7): roteamento de tarefa (7.1) + verificação (7.2).
 
-POST /api/verify {question, answer} → recupera fontes da base (RAG/MemoryFabric)
-e mede se a resposta está ANCORADA nelas, sinalizando incerteza. Determinístico.
+POST /api/route  {text}            → classifica a mensagem em tool/heavy/light
+POST /api/verify {question,answer} → mede se a resposta factual tem lastro na base
+Ambos determinísticos.
 """
 import asyncio
 
@@ -9,8 +10,16 @@ from fastapi import APIRouter
 
 from src import runtime as rt
 from src import verify as V
+from src.routing import route_task
 
 router = APIRouter()
+
+
+@router.post("/api/route")
+async def route_message(payload: dict):
+    """M7 7.1 — decide a rota de execução (ferramenta vs modelo leve vs pesado),
+    poupando CPU e evitando mandar 'que horas são' para o 14b."""
+    return route_task((payload or {}).get("text", ""))
 
 
 def _recall_sources(question: str, limit: int = 4) -> list[dict]:

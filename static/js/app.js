@@ -2166,6 +2166,34 @@
     return div;
   }
 
+  // M7 7.1 — Roteador de tarefa: se a mensagem é um COMANDO de agência curto
+  // (relógio/agenda/e-mail/arquivos), responde pela porteira de permissão SEM
+  // gastar o LLM (mandar "que horas são" pro 14b é desperdício). Retorna true se
+  // tratou. O /api/route é conservador (só comando curto e não-complexo).
+  async function _tryAgencyCommand(text) {
+    let r;
+    try {
+      r = await fetch('/api/route', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text})}).then(x=>x.json());
+    } catch { return false; }
+    if (!r || r.route !== 'tool') return false;
+    addUserMessage(text);
+    const wrap = createAiMessage();
+    try {
+      const ans = await fetch('/api/agency/ask', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text})}).then(x=>x.json());
+      wrap.querySelector('#sl')?.remove();
+      wrap.querySelector('.stream-text')?.remove();
+      wrap.querySelector('.content').innerHTML = renderMd(ans.answer || 'Não entendi o pedido.');
+    } catch {
+      wrap.querySelector('.content').innerHTML =
+        '<div style="color:#f87171;font-size:13px">Falha ao executar o comando.</div>';
+    }
+    lastUserText = text; lastImage = '';
+    scrollBottom();
+    return true;
+  }
+
   async function sendMessage() {
     if (busy) return;
     const input = document.getElementById('input');
@@ -2195,6 +2223,12 @@
     // Ensinar um link: "/learn <url>" ou uma URL sozinha → ingere em vez de conversar
     const urlMatch = text.match(/^\/learn\s+(\S+)/i) || (/^https?:\/\/\S+$/i.test(text) ? [null, text] : null);
     if (urlMatch) { input.value = ''; input.style.height = 'auto'; return ingestUrl(urlMatch[1]); }
+
+    // M7 7.1 — comando de agência (sem web/smart explícito)? Trata sem o LLM.
+    if (!useWeb && !useSmart && await _tryAgencyCommand(text)) {
+      input.value = ''; input.style.height = 'auto';
+      return;
+    }
 
     const needsWeb = useWeb || /^\/web\s/.test(text) ||
       /(última versão|release notes|changelog|como instalar|docs? oficial|novidade|lançament)/i.test(text);

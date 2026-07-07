@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import re
 
-_RE_CLOCK = re.compile(r"que horas|que dia (é|e)|hora (certa|agora|é)|"
-                       r"qual (é )?(a )?hora|data de hoje", re.I)
+_RE_CLOCK = re.compile(r"que horas\b(?!\s+(?:de|da|do|em|para|pra|no|na))|"
+                       r"que dia (é|e) hoje|hora (certa|agora)|"
+                       r"qual (é )?(a )?hora( (é|e|são|sao))?|data de hoje", re.I)
 _RE_EMAIL = re.compile(r"\be-?mails?\b|caixa de entrada|inbox", re.I)
 _RE_AGENDA = re.compile(r"\bagenda\b|\bcalend[aá]rio\b|compromisso|"
                         r"reuni[aã]o|\beventos?\b|o que (eu )?tenho", re.I)

@@ -39,3 +39,38 @@ def is_complex(question: str) -> bool:
     # Senão, exige acúmulo de pistas suaves em uma pergunta com alguma substância.
     soft = sum(1 for c in SOFT_CUES if c in q)
     return soft >= 2 and words >= 12
+
+
+# Comando de agência só é roteado como 'tool' se for CURTO e direto — evita
+# sequestrar uma pergunta longa que por acaso casa um regex de intenção.
+_MAX_TOOL_WORDS = 10
+
+
+def route_task(text: str) -> dict:
+    """Classifica a mensagem numa ROTA de execução, poupando CPU:
+      - 'tool'  : comando de agência curto (relógio/agenda/e-mail/arquivos) → run_tool, SEM LLM
+      - 'heavy' : pergunta complexa → modelo 14b
+      - 'light' : conversa/pergunta simples → modelo leve
+    Também marca `factual` (candidata à verificação anti-alucinação do 7.2).
+    Imports preguiçosos: mantém este módulo de baixo nível sem efeitos de import."""
+    t = (text or "").strip()
+    if not t:
+        return {"route": "light", "model": "light", "tool": None,
+                "factual": False, "reason": "vazio"}
+
+    from src.tools.intent import detect_intent
+    from src.verify import is_factual_question
+
+    intent = detect_intent(t)
+    words = len(t.split())
+    # Rota de ferramenta só para comando curto e não-complexo (conservador).
+    if intent and words <= _MAX_TOOL_WORDS and not is_complex(t):
+        return {"route": "tool", "model": None, "tool": intent[0],
+                "args": intent[1], "factual": False,
+                "reason": f"comando de ferramenta ({intent[0]})"}
+
+    heavy = is_complex(t)
+    return {"route": "heavy" if heavy else "light",
+            "model": "heavy" if heavy else "light", "tool": None,
+            "factual": is_factual_question(t),
+            "reason": "pergunta complexa" if heavy else "pergunta simples/conversa"}

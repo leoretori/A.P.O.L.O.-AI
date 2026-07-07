@@ -8,8 +8,42 @@ from fastapi.testclient import TestClient
 from app import app
 from src import verify as V
 from src import runtime as rt
+from src.routing import route_task
 
 client = TestClient(app)
+
+
+# ── Roteador de tarefa (M7 7.1) ───────────────────────────────
+def test_route_comando_curto_vai_para_tool():
+    r = route_task("que horas são?")
+    assert r["route"] == "tool" and r["tool"] == "clock"
+    r2 = route_task("o que tenho na agenda amanhã")
+    assert r2["route"] == "tool" and r2["tool"] == "calendar.events"
+
+
+def test_route_pergunta_complexa_vai_para_heavy():
+    r = route_task("compare as trade-offs de arquitetura monolítica versus microsserviços")
+    assert r["route"] == "heavy"
+
+
+def test_route_conversa_simples_vai_para_light():
+    r = route_task("oi, tudo bem?")
+    assert r["route"] == "light" and r["tool"] is None
+
+
+def test_route_nao_sequestra_pergunta_longa_que_casa_regex():
+    # "que horas" no meio de uma pergunta longa NÃO deve virar comando de relógio.
+    r = route_task("na sua opinião, que horas de trabalho por dia são saudáveis e por quê?")
+    assert r["route"] != "tool"
+
+
+def test_route_marca_factual():
+    assert route_task("o que é entropia?")["factual"] is True
+
+
+def test_endpoint_route():
+    d = client.post("/api/route", json={"text": "que horas são"}).json()
+    assert d["route"] == "tool" and d["tool"] == "clock"
 
 
 # ── Classificação factual vs não-factual ──────────────────────
