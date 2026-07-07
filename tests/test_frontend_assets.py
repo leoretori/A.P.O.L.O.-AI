@@ -80,16 +80,18 @@ def test_painel_de_permissoes_esta_ligado():
         assert fn in app_js
 
 
-def test_grant_files_read_pede_a_pasta_autorizada():
-    """M6 6.2 — autorizar 'files.read' precisa capturar QUAL pasta (a allowlist,
-    enviada como note). O caminho não pode ser inlinado no onclick (backslash do
-    Windows quebraria a string), então o toggle busca a note em _permScopes."""
+def test_grant_escopos_de_caminho_pedem_a_allowlist():
+    """M6 6.2/6.3 — autorizar 'files.read' (pasta) e 'calendar.read' (.ics) precisa
+    capturar QUAL caminho (a allowlist, enviada como note). Caminhos do Windows têm
+    '\\' e não podem ser inlinados no onclick, então o toggle busca a note em
+    _permScopes e roteia os escopos-de-caminho por _grantScopePath."""
     app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
-    assert "_grantFilesRead" in app_js and "_permScopes" in app_js
-    # o grant de files.read manda a note (pasta) no corpo
-    assert "scope:'files.read', note:" in app_js
-    # ramo específico do files.read no toggle (pede a pasta em vez de grant seco)
-    assert "scope === 'files.read'" in app_js
+    assert "_grantScopePath" in app_js and "_permScopes" in app_js
+    # ambos os escopos-de-caminho estão no mapa que dispara o prompt de caminho
+    assert "'files.read'" in app_js and "'calendar.read'" in app_js
+    assert "_SCOPE_PATH" in app_js
+    # o grant manda a note (caminho) no corpo
+    assert "scope, note: path" in app_js
 
 
 def test_painel_de_auditoria_esta_ligado():

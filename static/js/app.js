@@ -1366,6 +1366,12 @@
   // se fossem inlinados no onclick — então o toggle busca a note por escopo aqui.
   let _permScopes = [];
 
+  // Escopos cuja note é um CAMINHO (allowlist): a autorização pede o caminho.
+  const _SCOPE_PATH = {
+    'files.read':    { icon: '📁', ask: 'Qual pasta o A.P.O.L.O. pode LER? (somente leitura, confinado a ela)\nEx.: C:\\Users\\leore\\Documents\\Notas' },
+    'calendar.read': { icon: '📅', ask: 'Caminho do arquivo de agenda .ics que ele pode LER:\nEx.: C:\\Users\\leore\\Documents\\agenda.ics' },
+  };
+
   async function loadPermissions() {
     const body = document.getElementById('perm-body');
     body.textContent = 'Carregando…';
@@ -1374,17 +1380,18 @@
       _permScopes = d.scopes || [];
       if (!_permScopes.length) { body.innerHTML = '<div style="color:#666">Nenhuma capacidade disponível.</div>'; return; }
       body.innerHTML = _permScopes.map(s => {
-        // Para files.read a note é a pasta autorizada — mostra qual, e um atalho p/ trocar.
-        const folder = (s.scope === 'files.read' && s.granted && s.note)
-          ? `<div style="color:#a78bfa;font-size:10.5px;margin-top:3px;word-break:break-all">📁 ${escHtml(s.note)}
-               <span onclick="editFilesFolder()" style="color:#666;cursor:pointer;margin-left:6px">✎ trocar</span></div>`
+        // Escopos de caminho mostram a note (pasta/.ics autorizado) + atalho p/ trocar.
+        const cfg = _SCOPE_PATH[s.scope];
+        const note = (cfg && s.granted && s.note)
+          ? `<div style="color:#a78bfa;font-size:10.5px;margin-top:3px;word-break:break-all">${cfg.icon} ${escHtml(s.note)}
+               <span onclick="editScopePath('${escHtml(s.scope)}')" style="color:#666;cursor:pointer;margin-left:6px">✎ trocar</span></div>`
           : '';
         return `
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #16161c">
           <div style="min-width:0">
             <div style="color:#e0e0e0"><code style="color:#5b9cff">${escHtml(s.scope)}</code></div>
             <div style="color:#777;font-size:11px">${escHtml(s.label)}</div>
-            ${folder}
+            ${note}
           </div>
           <button onclick="togglePermission('${escHtml(s.scope)}', ${s.granted})"
             style="flex-shrink:0;border:1px solid ${s.granted?'#4ade80':'#2a2a33'};background:${s.granted?'rgba(74,222,128,.12)':'#1a1a22'};color:${s.granted?'#4ade80':'#aaa'};border-radius:7px;padding:4px 12px;cursor:pointer;font-size:11.5px">
@@ -1395,23 +1402,23 @@
     } catch { body.innerHTML = '<div style="color:#e66">Falha ao carregar as permissões.</div>'; }
   }
 
-  // Grava o grant files.read com a pasta autorizada (note = allowlist).
-  async function _grantFilesRead(prefill) {
-    const folder = window.prompt(
-      'Qual pasta o A.P.O.L.O. pode LER? (somente leitura, confinado a ela)\n' +
-      'Ex.: C:\\Users\\leore\\Documents\\Notas', prefill || '');
-    if (folder === null) return false;                 // cancelou
-    const path = folder.trim();
-    if (!path) { showIngestToast('⚠️ Informe uma pasta para autorizar a leitura.'); return false; }
+  // Grava o grant de um escopo-de-caminho com a note = allowlist (pasta ou .ics).
+  async function _grantScopePath(scope, prefill) {
+    const cfg = _SCOPE_PATH[scope];
+    if (!cfg) return false;
+    const val = window.prompt(cfg.ask, prefill || '');
+    if (val === null) return false;                     // cancelou
+    const path = val.trim();
+    if (!path) { showIngestToast('⚠️ Informe um caminho para autorizar.'); return false; }
     await fetch('/api/permissions/grant', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({scope:'files.read', note: path})});
-    showIngestToast(`🔐 Leitura autorizada em: ${escHtml(path)}`);
+      body: JSON.stringify({scope, note: path})});
+    showIngestToast(`🔐 Autorizado: ${escHtml(scope)} → ${escHtml(path)}`);
     return true;
   }
 
-  function editFilesFolder() {
-    const cur = (_permScopes.find(x => x.scope === 'files.read') || {}).note || '';
-    _grantFilesRead(cur).then(ok => { if (ok) loadPermissions(); });
+  function editScopePath(scope) {
+    const cur = (_permScopes.find(x => x.scope === scope) || {}).note || '';
+    _grantScopePath(scope, cur).then(ok => { if (ok) loadPermissions(); });
   }
 
   async function togglePermission(scope, granted) {
@@ -1423,9 +1430,9 @@
       loadPermissions();
       return;
     }
-    // Conceder. files.read precisa da pasta autorizada (allowlist).
-    if (scope === 'files.read') {
-      const ok = await _grantFilesRead((_permScopes.find(x => x.scope === scope) || {}).note || '');
+    // Escopos de caminho (files.read/calendar.read) pedem a pasta/arquivo (allowlist).
+    if (_SCOPE_PATH[scope]) {
+      const ok = await _grantScopePath(scope, (_permScopes.find(x => x.scope === scope) || {}).note || '');
       if (ok) loadPermissions();
       return;
     }
