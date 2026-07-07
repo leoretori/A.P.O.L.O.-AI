@@ -4,7 +4,7 @@ import asyncio
 import time
 
 import src.learner as learner_mod
-from src.learner import _extract_self_queries, LearningEngine
+from src.learner import _extract_self_queries, _parse_topic_lines, LearningEngine
 from src.learner_types import FetchedItem, LearnedItem
 
 
@@ -85,6 +85,42 @@ def test_persist_nao_trava_com_save_lento(monkeypatch):
     elapsed = asyncio.run(_run())
     # Voltou por causa do timeout (~0.2s), MUITO antes do save de 1s terminar.
     assert elapsed < 0.8
+
+
+def test_parse_topic_lines_limpa_lista_do_llm():
+    txt = "Aqui estão:\n1. Arquitetura hexagonal\n- Guerra dos Trinta Anos\nx\n* Fotônica aplicada"
+    r = _parse_topic_lines(txt)
+    assert "Arquitetura hexagonal" in r and "Guerra dos Trinta Anos" in r
+    assert all(len(t) >= 6 and " " in t for t in r)
+    assert not any(t.lower().startswith("aqui") for t in r)   # preâmbulo fora
+
+
+def test_replenish_curriculum_gera_temas_quando_esgota(monkeypatch):
+    """Rotação esgotada (tudo já estudado) → o LLM gera temas NOVOS e eles entram
+    na fila auto-dirigida, destravando o 'não está conseguindo estudar'."""
+    # o LLM 'responde' uma lista de temas novos
+    monkeypatch.setattr(learner_mod, "chat_resilient",
+                        lambda *a, **k: "1. Sistemas distribuídos\n2. Filosofia estoica\n3. Genética molecular")
+
+    class _DB:
+        def get_learning_history(self, n): return [{"topic": "Docker"}, {"topic": "Redis"}]
+        def is_topic_studied(self, t): return False       # tudo é novo
+        def add_notification(self, *a, **k): pass
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = _DB()
+    eng.gpu_gate = None
+    eng.summarize_model = "x"
+    eng._replenishing = False
+    eng._next_studies = []
+    eng._self_queue = asyncio.Queue(maxsize=24)
+
+    asyncio.run(eng._replenish_curriculum())
+
+    fila = []
+    while not eng._self_queue.empty():
+        fila.append(eng._self_queue.get_nowait())
+    assert "Sistemas distribuídos" in fila and "Filosofia estoica" in fila
 
 
 def test_summarize_worker_sobrevive_a_erro_no_process():

@@ -37,6 +37,22 @@ from src.learner_synthesis import (  # noqa: F401 (re-exporta p/ compat)
 )
 
 
+def _parse_topic_lines(text: str) -> list[str]:
+    """Extrai tópicos de uma lista gerada por LLM (1 por linha). Tira bullets/
+    numeração/aspas e o preâmbulo típico ('Aqui estão...', 'Claro:'). Mantém só
+    frases plausíveis (tem espaço, 6–120 chars)."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        s = re.sub(r"^[\s\-\*•\d\.\)#>]+", "", line).strip().strip("\"'`").strip()
+        low = s.lower()
+        if not (6 <= len(s) <= 120) or " " not in s:
+            continue
+        if low.startswith(("aqui", "claro", "segue", "abaixo", "estes", "esses")):
+            continue
+        out.append(s)
+    return out[:15]
+
+
 class LearningEngine:
     """Motor de aprendizado com pipeline IO/CPU sobrepostos."""
 
@@ -82,6 +98,9 @@ class LearningEngine:
         # culpa do tópico: o summarizer pausa em vez de descartar o currículo.
         self._llm_down = False
         self._llm_down_notified = False
+        # Rotação de listas fixas esgotada (tudo já estudado na janela de RELEARN_DAYS)?
+        # Um replenish gera tópicos NOVOS via LLM. Flag evita gerar em paralelo.
+        self._replenishing = False
 
         # Filas do pipeline
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
@@ -507,6 +526,16 @@ class LearningEngine:
             else:
                 stalled_cycles = 0
                 stall_notified = False
+            # ~1 min sem progresso e a fila auto-dirigida vazia → provável ROTAÇÃO
+            # ESGOTADA (tudo já estudado). Gera currículo novo via LLM p/ destravar
+            # (não espera os 2 min do WARNING — recuperação é melhor que só avisar).
+            # Reincide a cada ~1 min enquanto parado (se uma geração vier vazia, tenta
+            # de novo); o flag _replenishing evita sobreposição.
+            if (stalled_cycles >= 2 and stalled_cycles % 2 == 0
+                    and self._self_queue.empty()
+                    and not self._llm_down and not self._replenishing):
+                logger.info("[curriculo] rotação parece esgotada — gerando temas novos…")
+                asyncio.create_task(self._replenish_curriculum())
             # ~2 min parado com o motor ligado → algo travou; exponha a causa provável.
             if stalled_cycles >= 4:
                 causa = ("Ollama fora do ar" if self._llm_down else
@@ -632,6 +661,53 @@ class LearningEngine:
         finally:
             self._synthesis_agent.active = False
             self._synthesis_agent.current_topic = ""
+
+    async def _replenish_curriculum(self) -> None:
+        """Rotação de listas fixas ESGOTADA (tudo já estudado na janela) e a fila
+        auto-dirigida vazia? Gera tópicos NOVOS via LLM a partir do que já sabe e
+        os injeta na fila. Sem isto, com as listas esgotadas o pipeline fica em
+        `buscados:0` para sempre (o famoso 'não está conseguindo estudar')."""
+        if self._replenishing or not self.db:
+            return
+        self._replenishing = True
+        try:
+            history = await asyncio.to_thread(self.db.get_learning_history, 40)
+            conhecidos = [h.get("topic", "") for h in history if h.get("topic")]
+            amostra = "; ".join(conhecidos[:30])[:1500]
+            prompt = (
+                "Sou um currículo de autoaprendizado contínuo. Já estudei, entre outros:\n"
+                f"{amostra}\n\n"
+                "Liste 12 tópicos NOVOS e ESPECÍFICOS que eu ainda não estudei, para "
+                "aprofundar ou expandir esse conhecimento — misture tecnologia e "
+                "conhecimento geral (ciência, história, saúde, arte...). "
+                "Um por linha, sem numeração, sem explicação."
+            )
+            if self.gpu_gate:
+                await self.gpu_gate.wait_for_idle()
+            out = await asyncio.wait_for(
+                asyncio.to_thread(
+                    chat_resilient, self.summarize_model,
+                    [{"role": "user", "content": prompt}], keep_alive=KEEP_ALIVE,
+                ),
+                timeout=90.0,
+            )
+            topics = _parse_topic_lines(out)
+            before = self._self_queue.qsize()
+            self._enqueue_self_studies(topics)
+            added = self._self_queue.qsize() - before
+            logger.info(f"[curriculo] rotação esgotada → LLM gerou {len(topics)} "
+                        f"temas, {added} novos entraram na fila")
+            if self.db and added:
+                try:
+                    self.db.add_notification(
+                        f"🌱 Currículo renovado: {added} temas novos para estudar",
+                        kind="info")
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"[curriculo] replenish falhou: {e}")
+        finally:
+            self._replenishing = False
 
     def _enqueue_self_studies(self, queries: list[str]) -> None:
         """Injeta na fila auto-dirigida os tópicos que o A.P.O.L.O. decidiu estudar."""
