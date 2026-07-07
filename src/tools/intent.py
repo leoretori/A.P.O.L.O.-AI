@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 
+_RE_CLOCK = re.compile(r"que horas|que dia (é|e)|hora (certa|agora|é)|"
+                       r"qual (é )?(a )?hora|data de hoje", re.I)
 _RE_EMAIL = re.compile(r"\be-?mails?\b|caixa de entrada|inbox", re.I)
 _RE_AGENDA = re.compile(r"\bagenda\b|\bcalend[aá]rio\b|compromisso|"
                         r"reuni[aã]o|\beventos?\b|o que (eu )?tenho", re.I)
@@ -25,6 +27,8 @@ def detect_intent(text: str) -> tuple[str, dict] | None:
     t = (text or "").strip()
     if not t:
         return None
+    if _RE_CLOCK.search(t):
+        return "clock", {}
     m = _RE_READ.search(t)
     if m:
         return "files.read", {"path": m.group("path").strip().strip('"').strip("'")}
@@ -79,7 +83,14 @@ def _fmt_files_read(res: dict) -> str:
     return f"{res.get('path','')}:\n\n{head}{trunc}"
 
 
+def _fmt_clock(res: dict) -> str:
+    return (f"Agora são {res.get('time', '?')}, {res.get('weekday', '')}-feira "
+            f"({res.get('date', '')}).").replace("sábado-feira", "sábado") \
+        .replace("domingo-feira", "domingo")
+
+
 _FORMATTERS = {
+    "clock": _fmt_clock,
     "email.recent": _fmt_email,
     "calendar.events": _fmt_calendar,
     "files.search": _fmt_files_search,

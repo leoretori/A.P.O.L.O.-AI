@@ -2082,6 +2082,58 @@
     }
   }
 
+  // ── Palavra de ativação (M5 5.1): "Apolo, ..." sem tocar no PC ──
+  // Escuta contínua (Web Speech) → /api/wake/detect (detecção LOCAL, determinística)
+  // → despacha o comando por /api/agency/ask e FALA a resposta. Barge-in: uma nova
+  // ativação corta a fala anterior (speak() cancela se já estiver falando).
+  let _wakeRecog = null, _wakeOn = false, _wakeBusy = false;
+
+  function toggleWakeWord() {
+    const btn = document.getElementById('wake-btn');
+    if (_wakeOn) { _wakeOn = false; try { _wakeRecog && _wakeRecog.stop(); } catch {}
+      if (btn) btn.classList.remove('rec'); showIngestToast('👂 Palavra de ativação desligada.'); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { showIngestToast('⚠ Seu navegador não suporta escuta contínua (use Chrome/Edge).'); return; }
+    _wakeOn = true;
+    if (btn) btn.classList.add('rec');
+    showIngestToast('👂 Ouvindo… diga "Apolo, que horas são?"');
+    _startWakeRecog(SR);
+  }
+
+  function _startWakeRecog(SR) {
+    _wakeRecog = new SR();
+    _wakeRecog.lang = 'pt-BR'; _wakeRecog.continuous = true; _wakeRecog.interimResults = false;
+    _wakeRecog.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) _wakeHeard(e.results[i][0].transcript);
+      }
+    };
+    // Recognition contínuo cai sozinho de tempos em tempos → reinicia enquanto ligado.
+    _wakeRecog.onend = () => { if (_wakeOn) { try { _wakeRecog.start(); } catch {} } };
+    _wakeRecog.onerror = (ev) => { if (ev.error === 'not-allowed') { _wakeOn = false;
+      document.getElementById('wake-btn')?.classList.remove('rec');
+      showIngestToast('⚠ Permita o microfone para a palavra de ativação.'); } };
+    try { _wakeRecog.start(); } catch {}
+  }
+
+  async function _wakeHeard(transcript) {
+    if (_wakeBusy) return;
+    try {
+      const d = await fetch('/api/wake/detect', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text: transcript})}).then(r=>r.json());
+      if (!d.woke) return;
+      _wakeBusy = true;
+      if (!d.command) { showIngestToast('👂 Sim? Pode falar.'); _wakeBusy = false; return; }
+      // Despacha o comando pela ponte de agência (mesma porteira de permissão).
+      const ans = await fetch('/api/agency/ask', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({text: d.command})}).then(r=>r.json());
+      const msg = ans.answer || 'Não entendi o pedido.';
+      showIngestToast('🗣️ ' + escHtml(msg), 12000);
+      speak(msg);                          // barge-in embutido: corta fala anterior
+    } catch { /* ignora — segue ouvindo */ }
+    finally { setTimeout(() => { _wakeBusy = false; }, 500); }
+  }
+
   function buildSources(sources) {
     const div = document.createElement('div');
     div.className = 'web-sources';

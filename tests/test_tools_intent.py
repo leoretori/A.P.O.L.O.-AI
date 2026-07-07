@@ -35,9 +35,22 @@ def test_detecta_arquivos():
     assert detect_intent("busca arquivos sobre imposto")[0] == "files.search"
 
 
+def test_detecta_relogio():
+    # DoD do M5: "Apolo, que horas são?" → ferramenta clock (sem permissão).
+    assert detect_intent("que horas são?") == ("clock", {})
+    assert detect_intent("que dia é hoje") == ("clock", {})
+
+
 def test_nao_entende_conversa_normal():
     assert detect_intent("qual a capital da França?") is None
     assert detect_intent("") is None
+
+
+def test_ask_relogio_sem_permissao_funciona(client):
+    # clock tem scope "" → responde sem grant (bom p/ o DoD do wake word).
+    d = client.post("/api/agency/ask", json={"text": "que horas são?"}).json()
+    assert d["ok"] is True and d["tool"] == "clock"
+    assert "são" in d["answer"] or ":" in d["answer"]
 
 
 # ── Formatação ────────────────────────────────────────────────

@@ -105,6 +105,17 @@ def test_painel_de_auditoria_esta_ligado():
         assert fn in app_js
 
 
+def test_wake_word_ui_ligada():
+    """M5 5.1 — o botão 👂 e a escuta contínua que chama /api/wake/detect e
+    despacha o comando por /api/agency/ask precisam estar no frontend."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'onclick="toggleWakeWord()"' in html and 'id="wake-btn"' in html
+    for marker in ("function toggleWakeWord", "/api/wake/detect", "/api/agency/ask",
+                   "continuous = true"):
+        assert marker in app_js
+
+
 def test_applylearnstatus_existe_para_o_stream_sse():
     """O painel de aprendizado é alimentado pelo push SSE:
     startLearnSSE() (enhancements.js) chama applyLearnStatus(payload). Se essa
