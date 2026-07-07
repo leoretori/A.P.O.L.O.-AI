@@ -9,12 +9,27 @@ import asyncio
 
 from fastapi import APIRouter
 
+from src import factcheck as F
 from src import runtime as rt
 from src import verify as V
 from src.consistency import self_consistent_answer
 from src.routing import route_task
 
 router = APIRouter()
+
+
+@router.post("/api/factcheck")
+async def factcheck(payload: dict):
+    """M8 8.2 — corrobora os FATOS (datas/quantidades) de um texto contra o que o
+    A.P.O.L.O. já sabe sobre o tópico. Sinaliza os que não batem."""
+    topic = (payload or {}).get("topic", "").strip()
+    text = (payload or {}).get("text", "").strip()
+    if not text:
+        return {"ok": False, "error": "texto vazio"}
+    sources = await asyncio.to_thread(_recall_sources, topic or text)
+    known = [s.get("content", "") for s in sources]
+    return {"ok": True, "topic": topic, "sources_count": len(sources),
+            **F.corroboration(text, known)}
 
 
 @router.post("/api/consistency")

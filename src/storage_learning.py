@@ -59,6 +59,15 @@ class LearningMixin:
         with Session(self.engine) as s:
             return s.query(ReviewSchedule).count()
 
+    def get_topic_summary(self, topic: str) -> str | None:
+        """Síntese mais recente já salva para o tópico (M8 8.2: comparar fatos ao
+        re-estudar). None se nunca estudado."""
+        with Session(self.engine) as s:
+            row = (s.query(LearnedTopic)
+                   .filter(LearnedTopic.topic == topic)
+                   .order_by(LearnedTopic.studied_at.desc()).first())
+            return row.summary if row else None
+
     def is_url_studied(self, url: str) -> bool:
         """Evita re-estudar a mesma URL — mas libera após RELEARN_DAYS (refresh)."""
         with Session(self.engine) as s:

@@ -20,6 +20,7 @@ from src.agents import (
     DocCrawlerAgent, WebSearchAgent, TrendAgent, SynthesisAgent, GitHubAgent,
     EncyclopediaAgent, BookAgent,
 )
+from src import factcheck
 from src import spaced
 from src.llm import KEEP_ALIVE, chat_resilient
 from src.storage_models import _now as _now_utc
@@ -572,11 +573,20 @@ class LearningEngine:
                         pass
 
     async def _save_and_record(self, item: LearnedItem) -> None:
+        # M8 8.2: guarda a síntese anterior deste tópico (se houver) p/ comparar fatos.
+        old_summary = None
+        if self.db:
+            try:
+                old_summary = await asyncio.to_thread(self.db.get_topic_summary, item.topic)
+            except Exception:
+                old_summary = None
         try:
             await self._persist(item)
             self._record_activity(item)
             self._saved_count += 1
             await self._ensure_review_scheduled(item.topic)   # M8 8.1: agenda revisão
+            if old_summary:                                    # M8 8.2: contradição?
+                self._check_fact_drift(item.topic, old_summary, item.summary)
         finally:
             # Só aqui o tópico sai do in-flight: a partir de agora ele consta como
             # "estudado" no banco, então os fetchers não o pegam de novo.
@@ -585,6 +595,20 @@ class LearningEngine:
         # Dispara síntese cross-domain a cada N itens
         if self._saved_count % SYNTHESIS_EVERY == 0:
             asyncio.create_task(self._run_deep_synthesis())
+
+    def _check_fact_drift(self, topic: str, old: str, new: str) -> None:
+        """M8 8.2: re-estudou um tópico e uma DATA mudou → possível contradição.
+        Avisa o usuário (não bloqueia o aprendizado). Sem LLM."""
+        try:
+            d = factcheck.numeric_drift(old, new)
+            if d["drift"]:
+                logger.info(f"[factcheck] deriva em '{topic[:40]}': "
+                            f"{d['dropped']} → {d['added']}")
+                if self.db:
+                    self.db.add_notification(
+                        f"⚠️ Fato mudou em '{topic[:50]}' — {d['note']}", kind="info")
+        except Exception as e:
+            logger.debug(f"[factcheck] {topic[:40]}: {e}")
 
     # ── Repetição espaçada + recall ativo (M8 8.1) ────────────
     async def _ensure_review_scheduled(self, topic: str) -> None:
