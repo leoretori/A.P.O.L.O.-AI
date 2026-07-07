@@ -79,30 +79,30 @@ async def fetch_page_text(url: str) -> str:
     Wikipédia é tratada via API oficial (o HTML retorna 403 para bots)."""
     try:
         client = _get_http_client()
-        if True:  # mantém indentação do bloco original sem quebrar lógica
-            wiki_api = _wikipedia_api(url)
-            if wiki_api:
-                # A Wikimedia exige User-Agent com URL/contato (senão 403 por política de bots).
-                resp = await client.get(wiki_api, headers={
-                    "User-Agent": "ApoloAI/1.0 (https://github.com/apolo-ai; autonomous learning agent)",
-                    "Accept": "application/json",
-                })
-                if resp.status_code != 200:
-                    return ""
-                return _extract_wikipedia_text(resp.json())[:MAX_CONTENT_CHARS]
-
-            resp = await client.get(url, headers=headers)
+        wiki_api = _wikipedia_api(url)
+        if wiki_api:
+            # A Wikimedia exige User-Agent com URL/contato (senão 403 por política de bots).
+            resp = await client.get(wiki_api, headers={
+                "User-Agent": "ApoloAI/1.0 (https://github.com/apolo-ai; autonomous learning agent)",
+                "Accept": "application/json",
+            })
             if resp.status_code != 200:
                 return ""
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]):
-                tag.decompose()
-            lines = [
-                l.strip()
-                for l in soup.get_text(separator="\n").splitlines()
-                if len(l.strip()) > 40
-            ]
-            return "\n".join(lines)[:MAX_CONTENT_CHARS]
+            return _extract_wikipedia_text(resp.json())[:MAX_CONTENT_CHARS]
+
+        # O cliente persistente (_get_http_client) já envia o User-Agent padrão.
+        resp = await client.get(url)
+        if resp.status_code != 200:
+            return ""
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "iframe"]):
+            tag.decompose()
+        lines = [
+            l.strip()
+            for l in soup.get_text(separator="\n").splitlines()
+            if len(l.strip()) > 40
+        ]
+        return "\n".join(lines)[:MAX_CONTENT_CHARS]
     except Exception as e:
         logger.debug(f"Fetch failed {url}: {e}")
         return ""
