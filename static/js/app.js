@@ -2166,28 +2166,35 @@
     return div;
   }
 
-  // M7 7.1 — Roteador de tarefa: se a mensagem é um COMANDO de agência curto
-  // (relógio/agenda/e-mail/arquivos), responde pela porteira de permissão SEM
-  // gastar o LLM (mandar "que horas são" pro 14b é desperdício). Retorna true se
-  // tratou. O /api/route é conservador (só comando curto e não-complexo).
+  // M7 7.1 / M8 8.3 — Roteador de tarefa: comando de agência curto (relógio/
+  // agenda/e-mail/arquivos) ou pergunta de CONEXÃO ("como X se conecta com Y?")
+  // são respondidos SEM gastar o LLM. Retorna true se tratou.
   async function _tryAgencyCommand(text) {
     let r;
     try {
       r = await fetch('/api/route', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({text})}).then(x=>x.json());
     } catch { return false; }
-    if (!r || r.route !== 'tool') return false;
+    if (!r || (r.route !== 'tool' && r.route !== 'connect')) return false;
     addUserMessage(text);
     const wrap = createAiMessage();
     try {
-      const ans = await fetch('/api/agency/ask', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({text})}).then(x=>x.json());
+      let answer;
+      if (r.route === 'connect') {
+        const c = await fetch('/api/graph/connect?a=' + encodeURIComponent(r.a) +
+          '&b=' + encodeURIComponent(r.b)).then(x=>x.json());
+        answer = c.answer || 'Não achei uma conexão.';
+      } else {
+        const ans = await fetch('/api/agency/ask', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({text})}).then(x=>x.json());
+        answer = ans.answer || 'Não entendi o pedido.';
+      }
       wrap.querySelector('#sl')?.remove();
       wrap.querySelector('.stream-text')?.remove();
-      wrap.querySelector('.content').innerHTML = renderMd(ans.answer || 'Não entendi o pedido.');
+      wrap.querySelector('.content').innerHTML = renderMd(answer);
     } catch {
       wrap.querySelector('.content').innerHTML =
-        '<div style="color:#f87171;font-size:13px">Falha ao executar o comando.</div>';
+        '<div style="color:#f87171;font-size:13px">Falha ao responder.</div>';
     }
     lastUserText = text; lastImage = '';
     scrollBottom();

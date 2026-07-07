@@ -7,8 +7,19 @@ from sqlalchemy.orm import Session
 
 from src.storage_models import (
     _now, RELEARN_DAYS, Execution, Notification,
-    LearnedTopic, CoderTask, BenchmarkRun, ReviewSchedule,
+    LearnedTopic, CoderTask, BenchmarkRun, ReviewSchedule, TopicEdge,
 )
+
+
+def _canon(a: str, b: str) -> tuple[str, str]:
+    """Ordena o par para guardar a aresta 1× (grafo não-direcionado)."""
+    a, b = (a or "").strip(), (b or "").strip()
+    return (a, b) if a <= b else (b, a)
+
+
+def _edge_dict(r) -> dict:
+    return {"a": r.a, "b": r.b, "weight": r.weight,
+            "shared": [c for c in (r.shared or "").split(";") if c]}
 
 
 def _review_dict(r) -> dict:
@@ -58,6 +69,60 @@ class LearningMixin:
     def count_reviews(self) -> int:
         with Session(self.engine) as s:
             return s.query(ReviewSchedule).count()
+
+    # ── Grafo de conhecimento (M8 8.3) ────────────────────────
+    def add_edge(self, a: str, b: str, weight: float, shared: list[str]) -> None:
+        """Cria/atualiza a aresta entre dois tópicos (ordem canônica). Ignora
+        laço trivial (a == b) ou peso zero."""
+        a, b = _canon(a, b)
+        if not a or not b or a == b:
+            return
+        with Session(self.engine) as s:
+            row = s.get(TopicEdge, (a, b))
+            if not row:
+                row = TopicEdge(a=a, b=b)
+                s.add(row)
+            row.weight = round(float(weight), 3)
+            row.shared = ";".join(dict.fromkeys(shared or []))[:800]
+            row.updated_at = _now()
+            s.commit()
+
+    def get_edge(self, a: str, b: str) -> dict | None:
+        a, b = _canon(a, b)
+        with Session(self.engine) as s:
+            row = s.get(TopicEdge, (a, b))
+            return _edge_dict(row) if row else None
+
+    def neighbors(self, topic: str, limit: int = 12) -> list[dict]:
+        """Tópicos ligados a `topic`, mais fortes primeiro. Cada item:
+        {topic, weight, shared}."""
+        topic = (topic or "").strip()
+        with Session(self.engine) as s:
+            rows = (s.query(TopicEdge)
+                    .filter((TopicEdge.a == topic) | (TopicEdge.b == topic))
+                    .order_by(TopicEdge.weight.desc()).limit(limit).all())
+            out = []
+            for r in rows:
+                other = r.b if r.a == topic else r.a
+                out.append({"topic": other, "weight": r.weight,
+                            "shared": [c for c in (r.shared or "").split(";") if c]})
+            return out
+
+    def find_bridge(self, a: str, b: str) -> dict | None:
+        """Ponte de 2 saltos: um tópico ligado A AMBOS. Retorna
+        {bridge, a_shared, b_shared} do melhor (maior peso somado) ou None."""
+        na = {n["topic"]: n for n in self.neighbors(a, 50)}
+        nb = {n["topic"]: n for n in self.neighbors(b, 50)}
+        commons = set(na) & set(nb) - {a, b}
+        if not commons:
+            return None
+        best = max(commons, key=lambda z: na[z]["weight"] + nb[z]["weight"])
+        return {"bridge": best, "a_shared": na[best]["shared"],
+                "b_shared": nb[best]["shared"]}
+
+    def count_edges(self) -> int:
+        with Session(self.engine) as s:
+            return s.query(TopicEdge).count()
 
     def get_topic_summary(self, topic: str) -> str | None:
         """Síntese mais recente já salva para o tópico (M8 8.2: comparar fatos ao

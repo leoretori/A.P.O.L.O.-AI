@@ -21,6 +21,7 @@ from src.agents import (
     EncyclopediaAgent, BookAgent,
 )
 from src import factcheck
+from src import graph
 from src import spaced
 from src.llm import KEEP_ALIVE, chat_resilient
 from src.storage_models import _now as _now_utc
@@ -587,6 +588,7 @@ class LearningEngine:
             await self._ensure_review_scheduled(item.topic)   # M8 8.1: agenda revisão
             if old_summary:                                    # M8 8.2: contradição?
                 self._check_fact_drift(item.topic, old_summary, item.summary)
+            await self._link_related(item.topic, item.summary)  # M8 8.3: grafo
         finally:
             # Só aqui o tópico sai do in-flight: a partir de agora ele consta como
             # "estudado" no banco, então os fetchers não o pegam de novo.
@@ -595,6 +597,30 @@ class LearningEngine:
         # Dispara síntese cross-domain a cada N itens
         if self._saved_count % SYNTHESIS_EVERY == 0:
             asyncio.create_task(self._run_deep_synthesis())
+
+    async def _link_related(self, topic: str, summary: str) -> None:
+        """M8 8.3: liga o tópico recém-aprendido aos tópicos recentes com que ele
+        MAIS compartilha conceitos → arestas do grafo de conhecimento. Sem LLM."""
+        if not self.db or not summary:
+            return
+        try:
+            history = await asyncio.to_thread(self.db.get_learning_history, 40)
+        except Exception:
+            return
+        scored = []
+        for h in history:
+            other = h.get("topic")
+            if not other or other == topic:
+                continue
+            s = graph.strength(summary, h.get("summary") or "")
+            if s >= 0.1:                        # limiar mínimo de conexão
+                scored.append((s, other, graph.shared_concepts(summary, h.get("summary") or "")))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        for s, other, shared in scored[:5]:     # liga aos 5 mais relacionados
+            try:
+                await asyncio.to_thread(self.db.add_edge, topic, other, s, shared)
+            except Exception:
+                pass
 
     def _check_fact_drift(self, topic: str, old: str, new: str) -> None:
         """M8 8.2: re-estudou um tópico e uma DATA mudou → possível contradição.

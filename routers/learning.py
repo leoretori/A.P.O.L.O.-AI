@@ -15,6 +15,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from src import graph
 from src import runtime as rt
 from src.topics import classify_sector, SECTOR_LABELS
 
@@ -115,6 +116,40 @@ async def learning_timeline(days: int = 14):
     if not rt.db:
         return []
     return await asyncio.to_thread(rt.db.get_learning_timeline, days)
+
+
+@router.get("/api/graph/connect")
+async def graph_connect(a: str = "", b: str = "", q: str = ""):
+    """M8 8.3 — 'como X se conecta com Y?'. Responde pelos conceitos que os dois
+    tópicos compartilham; se não há laço direto, procura uma PONTE (tópico ligado
+    aos dois). Aceita a/b OU q='como X se conecta com Y'."""
+    if q and not (a and b):
+        parsed = graph.parse_connect_question(q)
+        if parsed:
+            a, b = parsed
+    a, b = (a or "").strip(), (b or "").strip()
+    if not a or not b:
+        return {"ok": False, "error": "informe a e b (ou q='como X se conecta com Y')"}
+    if not rt.db:
+        return {"ok": False, "error": "sem banco"}
+    sa = await asyncio.to_thread(rt.db.get_topic_summary, a) or a
+    sb = await asyncio.to_thread(rt.db.get_topic_summary, b) or b
+    bridge = None
+    if not graph.shared_concepts(sa, sb):
+        br = await asyncio.to_thread(rt.db.find_bridge, a, b)
+        if br:
+            bridge = (br["bridge"], br["a_shared"], br["b_shared"])
+    return {"ok": True, "a": a, "b": b, **graph.explain(a, sa, b, sb, bridge)}
+
+
+@router.get("/api/graph/neighbors")
+async def graph_neighbors(topic: str = "", limit: int = 12):
+    """Tópicos ligados a `topic` no grafo de conhecimento (M8 8.3)."""
+    if not rt.db or not topic.strip():
+        return {"topic": topic, "neighbors": [], "total_edges": 0}
+    ns = await asyncio.to_thread(rt.db.neighbors, topic.strip(), limit)
+    total = await asyncio.to_thread(rt.db.count_edges)
+    return {"topic": topic, "neighbors": ns, "total_edges": total}
 
 
 @router.get("/api/learning/reviews")

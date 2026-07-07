@@ -58,8 +58,16 @@ def route_task(text: str) -> dict:
         return {"route": "light", "model": "light", "tool": None,
                 "factual": False, "reason": "vazio"}
 
+    from src.graph import parse_connect_question
     from src.tools.intent import detect_intent
     from src.verify import is_factual_question
+
+    # "como X se conecta com Y?" → grafo de conhecimento (M8 8.3), sem LLM.
+    conn = parse_connect_question(t)
+    if conn:
+        return {"route": "connect", "model": None, "tool": None,
+                "a": conn[0], "b": conn[1], "factual": False,
+                "reason": "pergunta de conexão entre tópicos"}
 
     intent = detect_intent(t)
     words = len(t.split())

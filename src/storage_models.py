@@ -111,6 +111,17 @@ class ReviewSchedule(Base):
     last_reviewed = Column(DateTime)
 
 
+class TopicEdge(Base):
+    """Aresta do grafo de conhecimento (M8, Épico 8.3): dois tópicos ligados pelos
+    conceitos que compartilham. Guardada em ordem canônica (a <= b), 1 por par."""
+    __tablename__ = "topic_edges"
+    a          = Column(Text, primary_key=True)
+    b          = Column(Text, primary_key=True)
+    weight     = Column(Float, default=0.0)     # força da conexão (Jaccard)
+    shared     = Column(Text, default="")       # conceitos em comum (separados por ;)
+    updated_at = Column(DateTime, default=_now)
+
+
 class Reaction(Base):
     """Feedback do usuário sobre respostas (👍/👎) — alimenta métricas de qualidade."""
     __tablename__ = "reactions"

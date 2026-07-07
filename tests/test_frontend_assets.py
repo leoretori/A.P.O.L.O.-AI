@@ -121,6 +121,8 @@ def test_roteador_de_tarefa_ligado():
     app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
     assert "function _tryAgencyCommand" in app_js and "/api/route" in app_js
     assert "await _tryAgencyCommand(text)" in app_js
+    # M8 8.3: pergunta de conexão ("como X se conecta com Y") → /api/graph/connect
+    assert "'connect'" in app_js and "/api/graph/connect" in app_js
 
 
 def test_wake_word_ui_ligada():
