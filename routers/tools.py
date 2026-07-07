@@ -14,6 +14,7 @@ from fastapi import APIRouter
 
 from src import runtime as rt
 from src.tools import SCOPES, all_tools, run_tool
+from src.tools.intent import detect_intent, format_answer
 
 router = APIRouter()
 
@@ -68,6 +69,36 @@ async def run(payload: dict):
     if not name:
         return {"ok": False, "error": "nome da ferramenta ausente"}
     return await asyncio.to_thread(run_tool, name, args, rt.db)
+
+
+@router.post("/api/agency/ask")
+async def agency_ask(payload: dict):
+    """Ponte linguagem-natural → ferramenta (M6 DoD). Detecta a intenção
+    ('resuma meus e-mails de hoje', 'o que tenho na agenda amanhã', 'lê o arquivo
+    X'), executa pela porteira (consentimento + auditoria) e formata a resposta.
+    Desacoplado do chat — não interfere na conversa nem no aprendizado."""
+    text = (payload or {}).get("text", "").strip()
+    if not text:
+        return {"ok": False, "error": "texto vazio"}
+    intent = detect_intent(text)
+    if not intent:
+        return {"ok": False, "understood": False,
+                "answer": "Ainda não sei fazer isso. Posso ler seus e-mails, sua "
+                          "agenda (.ics) e arquivos de pastas autorizadas."}
+    name, args = intent
+    res = await asyncio.to_thread(run_tool, name, args, rt.db)
+    if res.get("denied"):
+        label = res.get("scope_label", res.get("scope", ""))
+        return {"ok": False, "understood": True, "denied": True, "tool": name,
+                "scope": res.get("scope"),
+                "answer": f"Preciso da sua permissão para isso ({label}). Abra 🔐 "
+                          f"Permissões e autorize '{res.get('scope')}'."}
+    if not res.get("ok"):
+        return {"ok": False, "understood": True, "tool": name,
+                "answer": f"Não consegui: {res.get('error', 'erro desconhecido')}"}
+    return {"ok": True, "understood": True, "tool": name,
+            "answer": format_answer(name, res.get("result", {})),
+            "result": res.get("result", {})}
 
 
 @router.get("/api/tools/audit")
