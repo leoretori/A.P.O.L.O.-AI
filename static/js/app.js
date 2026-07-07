@@ -119,40 +119,45 @@
     if (btnStop)  { btnStop.disabled = !isLearning; }
   }
 
+  // Aplica um objeto de status do aprendizado na UI. Chamado tanto pelo poll
+  // (refreshLearnStatus) quanto pelo push SSE (startLearnSSE → applyLearnStatus).
+  // É declaração de função top-level, portanto global — o enhancements.js a
+  // enxerga. (Antes ela não existia: o onmessage do SSE chamava applyLearnStatus
+  // inexistente, dava ReferenceError silencioso e o painel ficava congelado.)
+  function applyLearnStatus(d) {
+    if (!d) return;
+    isLearning = d.running;
+    updateLearnUI();
+
+    if (d.current_topic) document.getElementById('learn-now-topic').textContent = d.current_topic;
+    if (d.current_source) document.getElementById('learn-now-src').textContent = d.current_source;
+    document.getElementById('stat-today').textContent = d.learned_today ?? 0;
+    document.getElementById('stat-total').textContent = d.total_learned ?? 0;
+    document.getElementById('stat-speed').textContent = d.throughput_hour > 0 ? d.throughput_hour : '—';
+    document.getElementById('stat-queue').textContent = d.queue_depth ?? 0;
+
+    // Atualiza badge kb-count na sidebar
+    const total = d.total_learned ?? 0;
+    if (total > 0) document.getElementById('kb-count').textContent = total;
+
+    // Auto-refresh: detecta novos itens aprendidos
+    if (total > _prevTotalLearned && _prevTotalLearned > 0) {
+      loadActivity();
+      if (document.getElementById('knowledge-overlay').classList.contains('open')) {
+        loadKnowledgeItems();
+      }
+    }
+    if (total > 0) _prevTotalLearned = total;
+
+    if (d.activity?.length) renderActivityFeed(d.activity);
+    if (d.agents?.length) renderAgents(d.agents);
+    renderNextStudies(d.next_studies);
+  }
+
   async function refreshLearnStatus() {
     try {
       const d = await fetch('/api/learning/status').then(r=>r.json());
-      const wasLearning = isLearning;
-      isLearning = d.running;
-
-      // Se o servidor está rodando mas não temos poll, iniciá-lo
-      if (isLearning && !learnPoll) learnPoll = setInterval(refreshLearnStatus, 3000);
-
-      updateLearnUI();
-
-      if (d.current_topic) document.getElementById('learn-now-topic').textContent = d.current_topic;
-      if (d.current_source) document.getElementById('learn-now-src').textContent = d.current_source;
-      document.getElementById('stat-today').textContent = d.learned_today ?? 0;
-      document.getElementById('stat-total').textContent = d.total_learned ?? 0;
-      document.getElementById('stat-speed').textContent = d.throughput_hour > 0 ? d.throughput_hour : '—';
-      document.getElementById('stat-queue').textContent = d.queue_depth ?? 0;
-
-      // Atualiza badge kb-count na sidebar
-      const total = d.total_learned ?? 0;
-      if (total > 0) document.getElementById('kb-count').textContent = total;
-
-      // Auto-refresh: detecta novos itens aprendidos
-      if (total > _prevTotalLearned && _prevTotalLearned > 0) {
-        loadActivity();
-        if (document.getElementById('knowledge-overlay').classList.contains('open')) {
-          loadKnowledgeItems();
-        }
-      }
-      if (total > 0) _prevTotalLearned = total;
-
-      if (d.activity?.length) renderActivityFeed(d.activity);
-      if (d.agents?.length) renderAgents(d.agents);
-      renderNextStudies(d.next_studies);
+      applyLearnStatus(d);
     } catch {}
   }
 
@@ -3430,7 +3435,10 @@
   _initTabs();      // #10 inicializa/restaura as abas antes do boot
   restoreSession();
   bootLoad();
-  // #6 SSE push substitui o polling de refreshLearnStatus a cada 3s
+  // #6 SSE push mantém o painel de aprendizado vivo. refreshLearnStatus() faz o
+  // bootstrap imediato (não espera o 1º tick do SSE e cobre navegadores sem
+  // EventSource); startLearnSSE() assume os updates ao vivo em seguida.
+  refreshLearnStatus();
   startLearnSSE();
   // ── Temas ─────────────────────────────────────────────────────
   const _THEMES = ['dark', 'light', 'midnight'];

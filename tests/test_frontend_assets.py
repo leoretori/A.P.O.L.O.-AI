@@ -91,6 +91,43 @@ def test_painel_de_auditoria_esta_ligado():
         assert fn in app_js
 
 
+def test_applylearnstatus_existe_para_o_stream_sse():
+    """O painel de aprendizado é alimentado pelo push SSE:
+    startLearnSSE() (enhancements.js) chama applyLearnStatus(payload). Se essa
+    função não existir, cada evento vira ReferenceError silencioso (o onmessage
+    tem catch {}) e o dashboard congela em 'aguardando...' — foi o bug reportado.
+    Trava a existência da função E o bootstrap imediato no boot."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    enh = (STATIC / "js" / "enhancements.js").read_text(encoding="utf-8")
+    # o consumidor do SSE chama applyLearnStatus...
+    assert "applyLearnStatus(" in enh
+    # ...e o produtor (app.js) precisa defini-la como declaração global.
+    assert "function applyLearnStatus" in app_js
+    # boot faz bootstrap imediato (não espera o 1º tick do SSE / navegador sem EventSource)
+    assert "refreshLearnStatus();" in app_js and "startLearnSSE();" in app_js
+
+
+def test_botoes_de_nav_novos_tem_estilo_do_tema():
+    """Regressão visual: #audit-open-btn e #perm-open-btn foram adicionados como
+    <button> sem classe. O visual dos itens da sidebar vem de regras por ID no
+    CSS — se o ID novo não entrar na regra, o botão cai no default do navegador
+    (fundo branco, texto preto) e destoa do tema escuro. Garante que ambos estão
+    na regra compartilhada de botão de navegação."""
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    import re
+    # localiza a regra base dos botões de nav (a que define 'border-top:1px solid var(--border)')
+    nav_rule = next(
+        (line for line in css.splitlines()
+         if "#analytics-open-btn" in line and "border-top:1px solid var(--border)" in line),
+        "",
+    )
+    assert "#audit-open-btn" in nav_rule, "botão Atividade fora da regra de nav → fica branco"
+    assert "#perm-open-btn" in nav_rule, "botão Permissões fora da regra de nav → fica branco"
+    # e cada um tem seu hover (feedback de interação como os demais)
+    assert re.search(r"#audit-open-btn:hover", css)
+    assert re.search(r"#perm-open-btn:hover", css)
+
+
 def test_js_css_tem_cache_control_no_cache():
     """StaticFiles manda ETag mas não Cache-Control → navegador cacheia por
     heurística e serve código velho após update. O middleware força `no-cache`
