@@ -2103,6 +2103,9 @@
   function _startWakeRecog(SR) {
     _wakeRecog = new SR();
     _wakeRecog.lang = 'pt-BR'; _wakeRecog.continuous = true; _wakeRecog.interimResults = false;
+    // Barge-in (5.2): no instante em que você começa a falar, corta a fala do
+    // assistente — não precisa esperar ele terminar pra dar o próximo comando.
+    _wakeRecog.onspeechstart = () => { if (speechSynthesis.speaking) speechSynthesis.cancel(); };
     _wakeRecog.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (e.results[i].isFinal) _wakeHeard(e.results[i][0].transcript);

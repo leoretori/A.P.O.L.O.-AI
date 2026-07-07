@@ -114,6 +114,8 @@ def test_wake_word_ui_ligada():
     for marker in ("function toggleWakeWord", "/api/wake/detect", "/api/agency/ask",
                    "continuous = true"):
         assert marker in app_js
+    # barge-in (5.2): começar a falar corta a fala do assistente
+    assert "onspeechstart" in app_js and "speechSynthesis.cancel()" in app_js
 
 
 def test_applylearnstatus_existe_para_o_stream_sse():
