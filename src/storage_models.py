@@ -97,6 +97,20 @@ class LearnedTopic(Base):
     studied_at = Column(DateTime, default=_now)
 
 
+class ReviewSchedule(Base):
+    """Repetição espaçada (M8, Épico 8.1): agenda de revisão SM-2 de cada tópico.
+    O A.P.O.L.O. se auto-testa em intervalos crescentes; esquecer volta o tópico
+    para a fila. `topic` é a chave (1 agenda por tópico)."""
+    __tablename__ = "review_schedule"
+    topic         = Column(Text, primary_key=True)
+    ease          = Column(Float, default=2.5)
+    interval      = Column(Integer, default=0)     # dias até a próxima revisão
+    reps          = Column(Integer, default=0)     # acertos seguidos
+    lapses        = Column(Integer, default=0)     # quantas vezes esqueceu
+    due_at        = Column(DateTime, index=True, default=_now)
+    last_reviewed = Column(DateTime)
+
+
 class Reaction(Base):
     """Feedback do usuário sobre respostas (👍/👎) — alimenta métricas de qualidade."""
     __tablename__ = "reactions"

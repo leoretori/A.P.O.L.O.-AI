@@ -20,7 +20,9 @@ from src.agents import (
     DocCrawlerAgent, WebSearchAgent, TrendAgent, SynthesisAgent, GitHubAgent,
     EncyclopediaAgent, BookAgent,
 )
+from src import spaced
 from src.llm import KEEP_ALIVE, chat_resilient
+from src.storage_models import _now as _now_utc
 from src.topics import classify_sector
 from src.web_search import web_research, fetch_page_text
 
@@ -516,15 +518,21 @@ class LearningEngine:
         prev_saved = prev_fetched = -1
         stalled_cycles = 0
         stall_notified = False
+        cycle = 0
         while self.running:
             await asyncio.sleep(30)
             if not self.running:
                 break
+            cycle += 1
             q = self._fetch_queue.qsize()
             logger.info(
                 f"A.P.O.L.O. pipeline — fila:{q} | salvos:{self._saved_count} | "
                 f"buscados:{self._fetched_count}"
             )
+            # M8 8.1: recall ativo periódico (~10 min). Só RAG+DB, sem LLM → não
+            # concorre com o summarizer; re-enfileira o que o A.P.O.L.O. esqueceu.
+            if cycle % 20 == 0:
+                asyncio.create_task(self._run_active_recall())
             # Sem progresso (nem salvou, nem buscou) desde o último ciclo?
             no_progress = (self._saved_count == prev_saved and
                            self._fetched_count == prev_fetched)
@@ -568,6 +576,7 @@ class LearningEngine:
             await self._persist(item)
             self._record_activity(item)
             self._saved_count += 1
+            await self._ensure_review_scheduled(item.topic)   # M8 8.1: agenda revisão
         finally:
             # Só aqui o tópico sai do in-flight: a partir de agora ele consta como
             # "estudado" no banco, então os fetchers não o pegam de novo.
@@ -576,6 +585,75 @@ class LearningEngine:
         # Dispara síntese cross-domain a cada N itens
         if self._saved_count % SYNTHESIS_EVERY == 0:
             asyncio.create_task(self._run_deep_synthesis())
+
+    # ── Repetição espaçada + recall ativo (M8 8.1) ────────────
+    async def _ensure_review_scheduled(self, topic: str) -> None:
+        """Ao aprender um tópico, cria sua agenda de revisão (1ª revisão ~1 dia).
+        Não sobrescreve uma agenda existente (re-estudo não zera o progresso SR)."""
+        if not self.db or not topic:
+            return
+        try:
+            existing = await asyncio.to_thread(self.db.get_review, topic)
+            if existing:
+                return
+            st = spaced.review(spaced.initial_state(), 4)   # 1º acerto → 1 dia
+            await asyncio.to_thread(
+                self.db.upsert_review, topic, st["ease"], st["interval"],
+                st["reps"], st["lapses"], spaced.next_due(st, _now_utc()), _now_utc())
+        except Exception as e:
+            logger.debug(f"[review] agendar {topic[:40]}: {e}")
+
+    def _recall_strength(self, topic: str) -> tuple[float, bool]:
+        """Auto-teste SEM LLM: quão bem ainda lembra do tópico? = força do melhor
+        acerto no recall da memória (RAG). Sem acerto = esqueceu."""
+        try:
+            hits = self.rag.recall(topic, 3) if self.rag else []
+        except Exception:
+            hits = []
+        if not hits:
+            return 0.0, False
+        top = hits[0].get("relevance")
+        return (float(top) if isinstance(top, (int, float)) else 0.5), True
+
+    async def _run_active_recall(self, limit: int = 5) -> None:
+        """Pega tópicos vencidos, se auto-testa (recall), reprograma via SM-2 e
+        RE-ENFILEIRA os que esqueceu (self_directed ignora o RELEARN_DAYS)."""
+        if not self.db:
+            return
+        try:
+            due = await asyncio.to_thread(self.db.due_reviews, _now_utc(), limit)
+        except Exception:
+            return
+        forgot = []
+        for r in due:
+            topic = r["topic"]
+            score, has_hit = self._recall_strength(topic)
+            quality = spaced.quality_from_recall(score, has_hit)
+            st = spaced.review(r, quality)
+            try:
+                await asyncio.to_thread(
+                    self.db.upsert_review, topic, st["ease"], st["interval"],
+                    st["reps"], st["lapses"], spaced.next_due(st, _now_utc()), _now_utc())
+            except Exception:
+                pass
+            if quality < spaced.PASS_THRESHOLD:
+                forgot.append(topic)
+        # Esquecidos voltam DIRETO para a fila auto-dirigida (sem o filtro
+        # is_topic_studied de _enqueue_self_studies — o tópico JÁ foi estudado, é
+        # de propósito re-estudá-lo). O fetch self_directed ignora o RELEARN_DAYS.
+        enfileirados = 0
+        for topic in forgot:
+            if self._self_queue.full():
+                break
+            try:
+                self._self_queue.put_nowait(topic)
+                enfileirados += 1
+            except asyncio.QueueFull:
+                break
+        if enfileirados:
+            self._next_studies = forgot[:enfileirados]
+            logger.info(f"[recall] revisão: {len(due)} testados, "
+                        f"{enfileirados} esquecidos re-enfileirados")
 
     # ── Aprendizado sob demanda (Coder → base) ────────────────
 

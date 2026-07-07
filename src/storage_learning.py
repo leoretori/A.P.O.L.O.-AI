@@ -1,14 +1,21 @@
 """DatabaseManager — aprendizado: tópicos estudados, diário do Coder, feed de
 atividade/auditoria, qualidade de sínteses e estatísticas. Mixin."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from src.storage_models import (
     _now, RELEARN_DAYS, Execution, Notification,
-    LearnedTopic, CoderTask, BenchmarkRun,
+    LearnedTopic, CoderTask, BenchmarkRun, ReviewSchedule,
 )
+
+
+def _review_dict(r) -> dict:
+    return {"topic": r.topic, "ease": r.ease, "interval": r.interval,
+            "reps": r.reps, "lapses": r.lapses,
+            "due_at": r.due_at.isoformat() if r.due_at else None,
+            "last_reviewed": r.last_reviewed.isoformat() if r.last_reviewed else None}
 
 
 class LearningMixin:
@@ -17,6 +24,40 @@ class LearningMixin:
         with Session(self.engine) as s:
             s.add(LearnedTopic(topic=topic, url=url, summary=summary, category=category))
             s.commit()
+
+    # ── Repetição espaçada (M8 8.1) ───────────────────────────
+    def upsert_review(self, topic: str, ease: float, interval: int, reps: int,
+                      lapses: int, due_at: datetime, last_reviewed: datetime | None = None) -> None:
+        """Grava/atualiza a agenda de revisão SM-2 de um tópico (chave = topic)."""
+        topic = (topic or "").strip()
+        if not topic:
+            return
+        with Session(self.engine) as s:
+            row = s.get(ReviewSchedule, topic)
+            if not row:
+                row = ReviewSchedule(topic=topic)
+                s.add(row)
+            row.ease, row.interval, row.reps, row.lapses = ease, interval, reps, lapses
+            row.due_at, row.last_reviewed = due_at, last_reviewed
+            s.commit()
+
+    def get_review(self, topic: str) -> dict | None:
+        with Session(self.engine) as s:
+            row = s.get(ReviewSchedule, (topic or "").strip())
+            return _review_dict(row) if row else None
+
+    def due_reviews(self, now: datetime | None = None, limit: int = 20) -> list[dict]:
+        """Tópicos vencidos para auto-teste, mais atrasados primeiro."""
+        now = now or _now()
+        with Session(self.engine) as s:
+            rows = (s.query(ReviewSchedule)
+                    .filter(ReviewSchedule.due_at <= now)
+                    .order_by(ReviewSchedule.due_at.asc()).limit(limit).all())
+            return [_review_dict(r) for r in rows]
+
+    def count_reviews(self) -> int:
+        with Session(self.engine) as s:
+            return s.query(ReviewSchedule).count()
 
     def is_url_studied(self, url: str) -> bool:
         """Evita re-estudar a mesma URL — mas libera após RELEARN_DAYS (refresh)."""

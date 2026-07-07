@@ -117,6 +117,18 @@ async def learning_timeline(days: int = 14):
     return await asyncio.to_thread(rt.db.get_learning_timeline, days)
 
 
+@router.get("/api/learning/reviews")
+async def learning_reviews():
+    """M8 8.1 — estado da repetição espaçada: quantos tópicos têm revisão agendada
+    e quantos estão vencidos para o próximo auto-teste."""
+    if not rt.db:
+        return {"total": 0, "due": 0, "due_topics": []}
+    total = await asyncio.to_thread(rt.db.count_reviews)
+    due = await asyncio.to_thread(rt.db.due_reviews, None, 100)
+    return {"total": total, "due": len(due),
+            "due_topics": [r["topic"] for r in due[:20]]}
+
+
 @router.get("/api/digest")
 async def digest(hours: int = 24):
     """Digest 'o que aprendi' — tópicos recentes agrupados por setor."""
