@@ -31,6 +31,7 @@ register(Tool(name="clock", scope="", description="Hora e data locais",
 
 
 # ── Ferramentas de leitura do mundo (exigem consentimento por escopo) ──
-# Importar registra as ferramentas: files.* (6.2), calendar.* (6.3).
+# Importar registra as ferramentas: files.* (6.2), calendar.*/email.* (6.3).
 from src.tools import files          # noqa: E402,F401  files.search / files.read
 from src.tools import calendar_read  # noqa: E402,F401  calendar.events
+from src.tools import email_read     # noqa: E402,F401  email.recent
