@@ -381,6 +381,30 @@ Prioridade na fila:  1º User question  2º Auto-Currículo  3º rotação dos a
 
 ---
 
+## 🧬 Apolo-Nano — LLM própria, treinada do zero
+
+O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm/` — sem PyTorch, sem HuggingFace, sem autograd, sem pesos pré-treinados de terceiros. Tudo é NumPy + Python puro:
+
+- **Tokenizer BPE byte-level** (`tokenizer.py`) — treina merges sobre bytes UTF-8 do SEU corpus; qualquer texto é representável (acentos, emoji, código)
+- **Transformer GPT decoder-only** (`model.py` + `layers.py`) — atenção causal multi-head, LayerNorm, GELU, com **forward e backward escritos à mão** (a matemática do backprop é provada por checagem numérica de gradiente nos testes)
+- **Adam + warmup/cosine + grad clip** (`optim.py`) — otimizador do zero, com estado persistente para retomar treinos
+- **Loop de treino resumível** (`train.py`) — checkpoints `.npz`, val loss, presets calibrados para CPU (`nano` ~0.9M / `mini` ~3M / `small` ~7M params)
+
+```bash
+# 1. Coloque .txt em data/nanollm/corpus/ e tokenize
+python -m src.nanollm.data --corpus data/nanollm/corpus --out data/nanollm
+
+# 2. Treine (horas/dias no CPU; --resume retoma de onde parou)
+python -m src.nanollm.train --data data/nanollm --out data/nanollm/ckpt --preset small --steps 10000
+
+# 3. Gere texto com o SEU modelo
+python -m src.nanollm.generate --ckpt data/nanollm/ckpt --prompt "O Apolo é"
+```
+
+Escala honesta: no Ryzen 4600G (CPU-only) o alvo é um modelo de ~7M parâmetros que gera português coerente — um laboratório de soberania e aprendizado, não um substituto do Qwen 14B do chat.
+
+---
+
 ## Estrutura do Projeto
 
 ```
@@ -406,6 +430,14 @@ Apolo_AI/
 │   ├── research.py           # 🔬 Pesquisa Profunda (plano adaptativo → pesquisa → síntese citada → autocrítica → persiste)
 │   ├── reviewer.py           # 🔍 Code Review Agent (recall + revisão por severidade)
 │   ├── coder.py              # 💻 A.P.O.L.O. Coder — workspace isolado (FS+shell), diff, undo, busca, streaming
+│   ├── nanollm/              # 🧬 Apolo-Nano — LLM do zero (NumPy puro, sem autograd)
+│   │   ├── tokenizer.py      #    BPE byte-level treinável (Python puro)
+│   │   ├── layers.py         #    Linear/LayerNorm/GELU/atenção causal c/ backward manual
+│   │   ├── model.py          #    GPT decoder-only + loss + geração + checkpoints .npz
+│   │   ├── optim.py          #    Adam + warmup/cosine + grad clip (do zero)
+│   │   ├── data.py           #    corpus .txt → tokenizer + tokens.npy (CLI)
+│   │   ├── train.py          #    loop de treino resumível (CLI, presets p/ CPU)
+│   │   └── generate.py       #    geração de texto com checkpoint (CLI)
 │   ├── memory/               # 🧠 MemoryFabric — porta única sobre RAG + base + lições + episódios
 │   │   ├── fabric.py         #    remember(text, kind, tags) / recall(query, kind?) → MemoryHit
 │   │   └── episodic.py       #    Memória autobiográfica: conversas datadas + recall temporal
@@ -558,6 +590,11 @@ pytest tests/ -v
 - [x] **Orquestrador de sub-agentes** — `src/orchestrator.py` + `POST /api/orchestrate`; o modelo analisa a tarefa e decide: resposta direta OU delega a especialistas (🔬 Researcher → síntese de conhecimento, 💡 Analyst → trade-offs e estrutura, 💻 Coder → implementação 14b); execução sequencial com streaming de cada agente ao vivo; síntese final coerente. Modo `🤝 Multi` no input bar ✅
 - [x] **API LAN** — CORS habilitado (`allow_origins=["*"]`); `API_TOKEN` para proteção; acesse de celular/tablet: `uvicorn app:app --host 0.0.0.0 --port 8000` ✅
 - [x] **Benchmark contínuo** — `src/benchmark.py`: 8 perguntas de referência (coding, explanation, devops, database, algorithms, security, ai); score por keyword match + comprimento; latência por questão; `POST /api/benchmark/run` salva histórico, `GET /api/benchmark/diff` compara 2 últimos runs ✅
+
+### 🚧 Fase 6 — LLM própria do zero (Jul 2026)
+- [x] **Apolo-Nano: motor completo** — `src/nanollm/`: tokenizer BPE byte-level + GPT decoder-only + Adam + treino resumível, tudo em NumPy/Python puro, sem autograd nem pesos de terceiros; backprop provado por gradient checking numérico ✅
+- [ ] **Treinar o Apolo-Nano v1** — corpus PT-BR real (docs próprios + conhecimento aprendido pelo Apolo), preset `small` (~7M params), medir loss/qualidade
+- [ ] **Integração ao app** — expor o modelo treinado como backend/ferramenta do Apolo (tarefas leves: completar texto, títulos)
 
 ### Funcionalidades anteriores
 - [x] **GitHub Agent** — lê repositórios e aprende com código real ✅
