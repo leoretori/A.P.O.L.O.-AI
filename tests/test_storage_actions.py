@@ -35,3 +35,22 @@ def test_list_e_filtro_de_pendentes(db):
     pend = db.list_undo(include_undone=False)
     assert len(pend) == 1 and pend[0]["description"] == "b"
     assert db.count_undo(pending_only=True) == 1
+
+
+# ── rotinas (M10 10.2) ──────────────────────────────────────────
+def test_crud_de_rotina(db):
+    r = db.save_routine("Resumo", "weekly_digest", "weekly", 4, 1, "18:00", {"path": "x.md"})
+    assert r["id"] and r["config"]["path"] == "x.md"    # config round-trip
+    assert db.get_routine(r["id"])["name"] == "Resumo"
+    assert db.set_routine_enabled(r["id"], False) is True
+    assert db.get_routine(r["id"])["enabled"] is False
+    assert len(db.list_routines(enabled_only=True)) == 0  # desabilitada some do filtro
+    assert db.delete_routine(r["id"]) is True
+    assert db.get_routine(r["id"]) is None
+
+
+def test_mark_routine_run(db):
+    r = db.save_routine("R", "weekly_digest")
+    assert db.get_routine(r["id"])["last_run"] is None
+    db.mark_routine_run(r["id"])
+    assert db.get_routine(r["id"])["last_run"] is not None

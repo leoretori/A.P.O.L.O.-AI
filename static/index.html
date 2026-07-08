@@ -505,6 +505,23 @@
       <div id="act-preview" style="margin-top:10px"></div>
     </div>
 
+    <!-- Rotinas automatizadas (M10 10.2) -->
+    <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⏰ Rotinas automatizadas</div>
+      <div style="color:#777;font-size:11px;margin-bottom:10px">Tarefas recorrentes que o A.P.O.L.O. executa sozinho — cada uma vira uma ação reversível. Requer autorizar <b>files.write</b>.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">
+        <input id="rot-name" type="text" placeholder="nome (ex.: Resumo semanal)" style="flex:1;min-width:140px;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:6px 9px;font-size:12px" />
+        <select id="rot-weekday" style="background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:6px 9px;font-size:12px">
+          <option value="0">segunda</option><option value="1">terça</option><option value="2">quarta</option>
+          <option value="3">quinta</option><option value="4" selected>sexta</option><option value="5">sábado</option><option value="6">domingo</option>
+        </select>
+        <input id="rot-time" type="time" value="18:00" style="background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:5px 8px;font-size:12px" />
+      </div>
+      <input id="rot-path" type="text" placeholder="caminho do arquivo do resumo (dentro da pasta autorizada)" style="width:100%;box-sizing:border-box;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:6px 9px;font-size:12px;margin-bottom:8px" />
+      <button onclick="createRoutine()" style="background:#1a1030;border:1px solid #3a2a5a;color:#a78bfa;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">➕ Criar rotina "resumo da semana"</button>
+      <div id="rot-list" style="margin-top:12px;font-size:12.5px;color:#bbb"></div>
+    </div>
+
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
   </div>

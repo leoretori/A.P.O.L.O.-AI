@@ -66,6 +66,7 @@ from routers.wake import router as wake_router
 from routers.verify import router as verify_router
 from routers.evals import router as evals_router
 from routers.actions import router as actions_router
+from routers.routines import router as routines_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -230,6 +231,28 @@ async def _scheduler_loop():
                     except Exception as e:
                         logger.warning(f"[scheduler] erro ao estudar {sch['topic'][:40]}: {e}")
                         db.add_notification(f"❌ Falha no estudo agendado: {sch['topic'][:60]}", kind="study")
+
+            # Rotinas automatizadas (M10 10.2): tarefas recorrentes que o A.P.O.L.O.
+            # executa sozinho (ex.: "toda sexta, resumo da semana"). Cada execução
+            # passa pelo motor de ações → auditada e reversível (ledger de undo). Os
+            # builders são determinísticos (não usam o LLM) → não disputam o Ollama.
+            try:
+                from src import routines as _routines
+                _all = await asyncio.to_thread(db.list_routines, True)
+                for r in _routines.due_routines(_all, datetime.now()):
+                    db.mark_routine_run(r["id"], datetime.now())   # marca antes p/ não repetir
+                    res = await asyncio.to_thread(_routines.run_routine, r, db)
+                    if res.get("ok"):
+                        db.add_notification(f"🛠️ Rotina: {res.get('description', r['name'])}",
+                                            kind="info", link="")
+                        logger.info(f"[rotina] executada: {r['name']} → {res.get('description')}")
+                    else:
+                        db.add_notification(
+                            f"⚠️ Rotina '{r['name']}' não rodou: {res.get('error', 'erro')[:120]}",
+                            kind="info")
+                        logger.warning(f"[rotina] {r['name']} falhou: {res.get('error')}")
+            except Exception as e:
+                logger.debug(f"[rotina] loop: {e}")
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:
@@ -550,6 +573,7 @@ app.include_router(wake_router)
 app.include_router(verify_router)
 app.include_router(evals_router)
 app.include_router(actions_router)
+app.include_router(routines_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

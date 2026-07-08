@@ -12,7 +12,7 @@ from src.storage_models import (  # noqa: F401
     Base, RELEARN_DAYS, _now, _parse_dt,
     Execution, SessionMessage, SessionMeta, Notification, ScheduledStudy,
     LearnedTopic, Reaction, CoderTask, BenchmarkRun, Episode, Reminder,
-    Permission, ToolAudit, EvalRun, UndoLog,
+    Permission, ToolAudit, EvalRun, UndoLog, Routine,
 )
 from src.storage_conversations import ConversationsMixin
 from src.storage_learning import LearningMixin

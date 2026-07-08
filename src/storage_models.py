@@ -206,6 +206,24 @@ class ToolAudit(Base):
     created_at = Column(DateTime, default=_now, index=True)
 
 
+class Routine(Base):
+    """Rotina automatizada (M10, Épico 10.2): tarefa recorrente que o A.P.O.L.O.
+    executa sozinho no horário combinado (ex.: 'toda sexta, resumo da semana').
+    Cada execução vira uma ação reversível (ledger de undo)."""
+    __tablename__ = "routines"
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    name         = Column(Text, nullable=False)
+    kind         = Column(String(40), nullable=False)   # ex.: weekly_digest
+    freq         = Column(String(10), default="weekly")  # daily | weekly | monthly
+    weekday      = Column(Integer, default=4)            # 0=segunda … 6=domingo (weekly)
+    day_of_month = Column(Integer, default=1)            # 1–28 (monthly)
+    time_of_day  = Column(String(5), default="18:00")    # "HH:MM" local
+    config_json  = Column(Text, default="{}")            # parâmetros (ex.: caminho do arquivo)
+    enabled      = Column(Boolean, default=True)
+    created_at   = Column(DateTime, default=_now)
+    last_run     = Column(DateTime)
+
+
 class UndoLog(Base):
     """Trilha de ações REVERSÍVEIS (M10, Épico 10.1): cada ação que modificou o
     mundo (ex.: escrita de arquivo) grava aqui os dados para desfazê-la. É a

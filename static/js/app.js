@@ -1363,7 +1363,7 @@
   function closePermissions() { document.getElementById('perm-overlay').style.display='none'; }
 
   // ── Ações reversíveis (M10 10.1): preview → confirmar → desfazer ──
-  function openActions() { document.getElementById('actions-overlay').style.display='flex'; loadActionsLedger(); }
+  function openActions() { document.getElementById('actions-overlay').style.display='flex'; loadActionsLedger(); loadRoutines(); }
   function closeActions() { document.getElementById('actions-overlay').style.display='none'; }
 
   async function previewWriteAction() {
@@ -1430,6 +1430,63 @@
       if (!d.ok) alert(d.error || 'não foi possível desfazer');
     } catch(e) { alert('Erro: ' + e.message); }
     loadActionsLedger();
+  }
+
+  // ── Rotinas automatizadas (M10 10.2) ──
+  async function loadRoutines() {
+    const el = document.getElementById('rot-list');
+    if (!el) return;
+    try {
+      const d = await fetch('/api/routines').then(r=>r.json());
+      if (!d.routines || !d.routines.length) { el.innerHTML = '<div style="color:#555;padding:4px 0">Nenhuma rotina ainda.</div>'; return; }
+      el.innerHTML = d.routines.map(r => {
+        const last = r.last_run ? new Date(r.last_run).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : 'nunca';
+        const onoff = r.enabled
+          ? `<button onclick="toggleRoutine(${r.id})" title="Pausar" style="background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:11px">ativa</button>`
+          : `<button onclick="toggleRoutine(${r.id})" title="Ativar" style="background:#1a1a22;border:1px solid #2a2a33;color:#888;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:11px">pausada</button>`;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #16161c">
+          <div><div style="color:#ddd">${escHtml(r.name)}</div>
+          <div style="color:#555;font-size:10.5px">${escHtml(r.schedule_human||'')} · último: ${last}</div></div>
+          <div style="display:flex;gap:5px;align-items:center">${onoff}
+            <button onclick="runRoutineNow(${r.id})" title="Rodar agora" style="background:#0a1a2a;border:1px solid #1a3a5a;color:#5b9cff;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:11px">▶</button>
+            <button onclick="deleteRoutine(${r.id})" title="Remover" style="background:#2a1010;border:1px solid #5a1a1a;color:#f87171;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:11px">✕</button>
+          </div></div>`;
+      }).join('');
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function createRoutine() {
+    const name = document.getElementById('rot-name').value.trim() || 'Resumo da semana';
+    const weekday = parseInt(document.getElementById('rot-weekday').value, 10);
+    const time = document.getElementById('rot-time').value || '18:00';
+    const path = document.getElementById('rot-path').value.trim();
+    if (!path) { alert('Informe o caminho do arquivo onde salvar o resumo.'); return; }
+    try {
+      const d = await fetch('/api/routines', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name, kind:'weekly_digest', freq:'weekly', weekday, time_of_day:time, config:{path}})}).then(r=>r.json());
+      if (!d.ok) { alert(d.error || 'não foi possível criar'); return; }
+      document.getElementById('rot-name').value = ''; document.getElementById('rot-path').value = '';
+      loadRoutines();
+    } catch(e) { alert('Erro: ' + e.message); }
+  }
+
+  async function toggleRoutine(id) {
+    try { await fetch(`/api/routines/${id}/toggle`, {method:'POST'}); } catch {}
+    loadRoutines();
+  }
+
+  async function runRoutineNow(id) {
+    try {
+      const d = await fetch(`/api/routines/${id}/run`, {method:'POST'}).then(r=>r.json());
+      if (!d.ok) alert(d.error || 'não foi possível rodar');
+    } catch(e) { alert('Erro: ' + e.message); }
+    loadRoutines(); loadActionsLedger();
+  }
+
+  async function deleteRoutine(id) {
+    if (!confirm('Remover esta rotina?')) return;
+    try { await fetch(`/api/routines/${id}`, {method:'DELETE'}); } catch {}
+    loadRoutines();
   }
 
   // Guarda os escopos do último load: caminhos do Windows têm '\' e quebrariam
