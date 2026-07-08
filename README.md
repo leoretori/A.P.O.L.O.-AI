@@ -383,6 +383,8 @@ Prioridade na fila:  1º User question  2º Auto-Currículo  3º rotação dos a
 
 ## 🧬 Apolo-Nano — LLM própria, treinada do zero
 
+> 📋 **Plano completo:** [`APOLO_NANO_ROADMAP.md`](APOLO_NANO_ROADMAP.md) — roadmap de 6 meses (dados → treino → integração → escala), no mesmo formato do plano-mãe do Jarvis.
+
 O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm/` — sem PyTorch, sem HuggingFace, sem autograd, sem pesos pré-treinados de terceiros. Tudo é NumPy + Python puro:
 
 - **Tokenizer BPE byte-level** (`tokenizer.py`) — treina merges sobre bytes UTF-8 do SEU corpus; qualquer texto é representável (acentos, emoji, código)
