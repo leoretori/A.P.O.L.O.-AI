@@ -35,3 +35,6 @@ register(Tool(name="clock", scope="", description="Hora e data locais",
 from src.tools import files          # noqa: E402,F401  files.search / files.read
 from src.tools import calendar_read  # noqa: E402,F401  calendar.events
 from src.tools import email_read     # noqa: E402,F401  email.recent
+
+# ── Ações que MODIFICAM o mundo (M10) — preview + confirmação + undo ──
+from src.tools import files_write    # noqa: E402,F401  ação files.write

@@ -1362,6 +1362,76 @@
   function openPermissions() { document.getElementById('perm-overlay').style.display='flex'; loadPermissions(); }
   function closePermissions() { document.getElementById('perm-overlay').style.display='none'; }
 
+  // ── Ações reversíveis (M10 10.1): preview → confirmar → desfazer ──
+  function openActions() { document.getElementById('actions-overlay').style.display='flex'; loadActionsLedger(); }
+  function closeActions() { document.getElementById('actions-overlay').style.display='none'; }
+
+  async function previewWriteAction() {
+    const path = document.getElementById('act-path').value.trim();
+    const content = document.getElementById('act-content').value;
+    const box = document.getElementById('act-preview');
+    const confirmBtn = document.getElementById('act-confirm-btn');
+    confirmBtn.disabled = true; confirmBtn.style.opacity = '.4';
+    if (!path) { box.innerHTML = '<span style="color:#f87171">Informe o caminho do arquivo.</span>'; return; }
+    box.innerHTML = '<span style="color:#666">Gerando prévia…</span>';
+    try {
+      const d = await fetch('/api/actions/preview', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({kind:'files.write', args:{path, content}})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'não foi possível pré-visualizar')}</span>`; return; }
+      const p = d.preview;
+      const verb = p.action === 'overwrite' ? '✏️ Sobrescrever' : '🆕 Criar';
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #1c1c24;border-radius:8px;padding:10px;font-size:11.5px">
+        <div style="color:${p.action==='overwrite'?'#fbbf24':'#4ade80'};margin-bottom:6px">${verb} — <code style="color:#bbb">${escHtml(p.path)}</code></div>
+        ${p.exists ? `<div style="color:#777;margin-bottom:2px">Antes (${p.old_bytes} bytes):</div><pre style="margin:0 0 8px;white-space:pre-wrap;color:#a88;max-height:120px;overflow:auto">${escHtml(p.old_preview)||'<vazio>'}</pre>` : ''}
+        <div style="color:#777;margin-bottom:2px">Depois (${p.new_bytes} bytes):</div>
+        <pre style="margin:0;white-space:pre-wrap;color:#8b8;max-height:160px;overflow:auto">${escHtml(p.new_preview)||'<vazio>'}</pre>
+      </div>`;
+      confirmBtn.disabled = false; confirmBtn.style.opacity = '1';
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function confirmWriteAction() {
+    const path = document.getElementById('act-path').value.trim();
+    const content = document.getElementById('act-content').value;
+    const box = document.getElementById('act-preview');
+    const btn = document.getElementById('act-confirm-btn');
+    btn.disabled = true; btn.style.opacity = '.4';
+    try {
+      const d = await fetch('/api/actions/confirm', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({kind:'files.write', args:{path, content}})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      box.innerHTML = `<span style="color:#4ade80">✓ ${escHtml(d.description||'Escrito')} — pode desfazer abaixo.</span>`;
+      document.getElementById('act-path').value = ''; document.getElementById('act-content').value = '';
+      loadActionsLedger();
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function loadActionsLedger() {
+    const el = document.getElementById('act-ledger');
+    try {
+      const d = await fetch('/api/actions/undo?limit=30').then(r=>r.json());
+      if (!d.items || !d.items.length) { el.innerHTML = '<div style="color:#555;padding:6px 0">Nenhuma ação ainda.</div>'; return; }
+      el.innerHTML = d.items.map(it => {
+        const when = it.created_at ? new Date(it.created_at).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+        const undoBtn = it.undone
+          ? '<span style="color:#555;font-size:11px">↩️ desfeito</span>'
+          : `<button onclick="undoLedgerItem(${it.id})" style="background:#2a1010;border:1px solid #5a1a1a;color:#f87171;padding:3px 9px;border-radius:6px;cursor:pointer;font-size:11px">↩️ Desfazer</button>`;
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid #16161c">
+          <div><div style="color:${it.undone?'#666':'#ddd'}">${escHtml(it.description||it.kind)}</div>
+          <div style="color:#555;font-size:10.5px">${escHtml(it.kind)} · ${when}</div></div>${undoBtn}</div>`;
+      }).join('');
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro ao carregar: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function undoLedgerItem(id) {
+    try {
+      const d = await fetch('/api/actions/undo', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({undo_id:id})}).then(r=>r.json());
+      if (!d.ok) alert(d.error || 'não foi possível desfazer');
+    } catch(e) { alert('Erro: ' + e.message); }
+    loadActionsLedger();
+  }
+
   // Guarda os escopos do último load: caminhos do Windows têm '\' e quebrariam
   // se fossem inlinados no onclick — então o toggle busca a note por escopo aqui.
   let _permScopes = [];

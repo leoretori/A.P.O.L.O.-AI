@@ -24,6 +24,7 @@ SCOPES: dict[str, str] = {
     "files.read": "Ler arquivos das pastas que você autorizar",
     "calendar.read": "Ler sua agenda (somente leitura)",
     "email.read": "Ler seus e-mails (somente leitura)",
+    "files.write": "Escrever/criar arquivos nas pastas que você autorizar (com prévia e desfazer)",
 }
 
 

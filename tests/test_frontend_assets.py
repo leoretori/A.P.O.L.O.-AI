@@ -125,6 +125,22 @@ def test_roteador_de_tarefa_ligado():
     assert "'connect'" in app_js and "/api/graph/connect" in app_js
 
 
+def test_painel_acoes_reversiveis_ligado():
+    """M10 10.1 — o painel 🛠️ Ações precisa do botão, do fluxo preview→confirmar
+    e do histórico com desfazer (a trilha reversível). Confirmar só habilita
+    DEPOIS da prévia (nunca modifica num clique só)."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert 'onclick="openActions()"' in html and 'id="actions-overlay"' in html
+    assert 'id="act-confirm-btn"' in html and 'disabled' in html   # confirmar começa travado
+    for fn in ("function openActions", "function previewWriteAction",
+               "function confirmWriteAction", "function undoLedgerItem",
+               "/api/actions/preview", "/api/actions/confirm", "/api/actions/undo"):
+        assert fn in app_js, fn
+    assert "#actions-open-btn" in css                              # não fica branco
+
+
 def test_painel_estou_melhorando_ligado():
     """M9 9.3 — o painel Analytics abre com o card 'Estou melhorando?' (veredito +
     eixos + sparkline) alimentado por /api/improving, e o botão que roda o canário."""

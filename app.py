@@ -65,6 +65,7 @@ from routers.tools import router as tools_router
 from routers.wake import router as wake_router
 from routers.verify import router as verify_router
 from routers.evals import router as evals_router
+from routers.actions import router as actions_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -548,6 +549,7 @@ app.include_router(tools_router)
 app.include_router(wake_router)
 app.include_router(verify_router)
 app.include_router(evals_router)
+app.include_router(actions_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

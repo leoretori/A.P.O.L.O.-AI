@@ -206,6 +206,20 @@ class ToolAudit(Base):
     created_at = Column(DateTime, default=_now, index=True)
 
 
+class UndoLog(Base):
+    """Trilha de ações REVERSÍVEIS (M10, Épico 10.1): cada ação que modificou o
+    mundo (ex.: escrita de arquivo) grava aqui os dados para desfazê-la. É a
+    trilha de auditoria reversível que o DoD do M10 exige."""
+    __tablename__ = "undo_log"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    kind        = Column(String(40), nullable=False)   # tipo da ação (ex.: files.write)
+    description = Column(Text, default="")             # frase humana ("Criou notas.md")
+    undo_json   = Column(Text, default="{}")           # dados p/ reverter (JSON)
+    created_at  = Column(DateTime, default=_now, index=True)
+    undone      = Column(Boolean, default=False)
+    undone_at   = Column(DateTime)
+
+
 class Reminder(Base):
     """Lembrete/follow-up (M4, Épico 4.2): compromisso detectado numa conversa
     ('me lembra de X') ou criado à mão. O A.P.O.L.O. resurface no momento certo."""
