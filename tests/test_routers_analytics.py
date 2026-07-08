@@ -28,7 +28,7 @@ def test_save_reaction():
     salvos = []
 
     class FakeDB:
-        def save_reaction(self, h, r, s, src):
+        def save_reaction(self, h, r, s, src, reason="", question="", answer=""):
             salvos.append((h, r, s, tuple(src)))
 
     rt.configure(db=FakeDB())
@@ -36,6 +36,32 @@ def test_save_reaction():
         "message_hash": "abc", "reaction": "up", "session_id": "s1", "sources": ["x"]})
     assert r.json() == {"ok": True}
     assert salvos == [("abc", "up", "s1", ("x",))]
+
+
+def test_save_reaction_com_motivo():
+    """M9 9.2 — o 👎 carrega 'por quê' + pergunta/resposta (feedback acionável)."""
+    salvos = []
+
+    class FakeDB:
+        def save_reaction(self, h, r, s, src, reason="", question="", answer=""):
+            salvos.append({"reaction": r, "reason": reason, "question": question, "answer": answer})
+
+    rt.configure(db=FakeDB())
+    _client().post("/api/reactions", json={
+        "message_hash": "z", "reaction": "down", "sources": [],
+        "reason": "inventou uma data", "question": "quando?", "answer": "foi em 1987"})
+    assert salvos == [{"reaction": "down", "reason": "inventou uma data",
+                       "question": "quando?", "answer": "foi em 1987"}]
+
+
+def test_negative_feedback_endpoint():
+    class FakeDB:
+        def negative_feedback(self, limit):
+            return [{"question": "q", "answer": "a", "reason": "ruim", "created_at": None}]
+
+    rt.configure(db=FakeDB())
+    body = _client().get("/api/reactions/negative").json()
+    assert body["count"] == 1 and body["items"][0]["reason"] == "ruim"
 
 
 def test_benchmark_diff_precisa_de_2_runs():

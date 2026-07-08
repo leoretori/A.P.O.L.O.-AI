@@ -1526,6 +1526,14 @@
       const todayStr = new Date().toISOString().slice(0, 10);
 
       body.innerHTML = `
+        <!-- Estou melhorando? (M9 9.3) — preenchido por _loadImproving() -->
+        <div class="an-section" id="an-improving">
+          <h3>📈 Estou melhorando?
+            <button onclick="runCanaryFromAnalytics()" style="margin-left:auto;background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px" id="an-canary-run-btn">▶ Rodar avaliação</button>
+          </h3>
+          <div id="an-improving-body"><div style="color:#555;font-size:12px;padding:8px 0">Carregando avaliação…</div></div>
+        </div>
+
         <!-- Hero stats -->
         <div class="an-section">
           <div class="an-hero">
@@ -1642,10 +1650,79 @@
         });
       }
 
+      _loadImproving();   // M9 9.3 — assíncrono, isolado (não bloqueia o painel)
+
     } catch(e) {
       document.getElementById('an-body').innerHTML =
         `<div style="color:#f87171;padding:20px">Erro ao carregar analytics: ${escHtml(e.message)}</div>`;
     }
+  }
+
+  // M9 9.3 — "Estou melhorando?": veredito + eixos com setas + sparkline das notas.
+  async function _loadImproving() {
+    const el = document.getElementById('an-improving-body');
+    if (!el) return;
+    try {
+      const d = await fetch('/api/improving').then(r => r.json());
+      const rep = d.report || {}; const axes = rep.axes || [];
+      const latest = d.latest; const series = d.series || [];
+      const VERD = {
+        melhorando: ['🟢', 'Melhorando', '#4ade80'],
+        piorando:   ['🔴', 'Piorando', '#f87171'],
+        estavel:    ['🟡', 'Estável', '#eab308'],
+        sem_dados:  ['⚪', 'Sem dados ainda', '#888'],
+      };
+      const [emoji, txt, col] = VERD[rep.verdict] || VERD.sem_dados;
+
+      const axHtml = axes.map(a => {
+        if (!a.known) return `<div class="an-axis"><span class="an-axis-lbl">${escHtml(a.label)}</span><span style="color:#555">— sem dados</span></div>`;
+        const arrow = a.direction === 'up' ? '▲' : a.direction === 'down' ? '▼' : '≈';
+        const c = a.direction === 'up' ? '#4ade80' : a.direction === 'down' ? '#f87171' : '#888';
+        return `<div class="an-axis"><span class="an-axis-lbl">${escHtml(a.label)}</span>
+          <span style="color:${c};font-weight:600">${arrow} ${a.delta > 0 ? '+' : ''}${a.delta}</span></div>`;
+      }).join('');
+
+      // Sparkline SVG das notas do canário (antigo → recente)
+      let spark = '';
+      if (series.length >= 2) {
+        const W = 220, H = 34, n = series.length;
+        const pts = series.map((p, i) => {
+          const x = (i / (n - 1)) * W;
+          const y = H - (Math.max(0, Math.min(1, p.score ?? 0)) * H);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        spark = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="margin-top:6px">
+          <polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+      }
+
+      const latestHtml = latest ? `<div style="font-size:11px;color:#888;margin-top:6px">
+        Último canário: <b style="color:${_scoreColor(latest.score)}">${((latest.score ?? 0)*100).toFixed(0)}%</b>
+        · alucinação: <b style="color:${latest.hallucination_rate > 0 ? '#f87171' : '#4ade80'}">${((latest.hallucination_rate ?? 0)*100).toFixed(0)}%</b></div>` : '';
+
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="font-size:20px">${emoji}</span>
+          <span style="font-size:15px;font-weight:700;color:${col}">${txt}</span>
+        </div>
+        <div class="an-axes">${axHtml}</div>
+        ${spark}
+        ${latestHtml}`;
+    } catch(e) {
+      el.innerHTML = `<div style="color:#f87171;font-size:12px">Erro ao avaliar: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  async function runCanaryFromAnalytics() {
+    const btn = document.getElementById('an-canary-run-btn');
+    if (!btn) return;
+    btn.textContent = '⏳ Avaliando… (~6 inferências)';
+    btn.disabled = true;
+    try {
+      await fetch('/api/evals/run', { method: 'POST' });
+      await _loadImproving();
+    } catch {}
+    const b2 = document.getElementById('an-canary-run-btn');
+    if (b2) { b2.textContent = '▶ Rodar avaliação'; b2.disabled = false; }
   }
 
   async function runBenchmarkFromAnalytics() {

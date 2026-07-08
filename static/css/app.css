@@ -663,6 +663,11 @@
     .an-bench-bar { flex:1; height:8px; background:#0c0c0e; border-radius:4px; overflow:hidden; }
     .an-bench-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#16a34a,#4ade80); }
     .an-bench-lat { color:#666; font-size:10.5px; width:80px; text-align:right; flex-shrink:0; }
+    /* M9 9.3 — "Estou melhorando?" (eixos de tendência) */
+    .an-axes { display:flex; flex-direction:column; gap:5px; }
+    .an-axis { display:flex; align-items:center; justify-content:space-between; font-size:12px; padding:3px 0; border-bottom:1px solid #131318; }
+    .an-axis:last-child { border-bottom:none; }
+    .an-axis-lbl { color:#aaa; }
     @media (max-width:600px) { .an-hero{grid-template-columns:repeat(2,1fr);} .an-bar-label{width:100px;} }
     #coder-open-btn:hover { background:#111118; color:#5eead4; }
     #coder-open-btn.active { color:#5eead4; background:#0f1a18; }

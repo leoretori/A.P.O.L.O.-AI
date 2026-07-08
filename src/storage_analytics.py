@@ -139,8 +139,12 @@ class AnalyticsMixin:
     # ── Reações (👍👎) ────────────────────────────────────────────
 
     def save_reaction(self, message_hash: str, reaction: str,
-                      session_id: str = "", sources: list | None = None) -> None:
+                      session_id: str = "", sources: list | None = None,
+                      reason: str = "", question: str = "", answer: str = "") -> None:
         import json as _json
+        reason = (reason or "")[:1000]
+        question = (question or "")[:1000]
+        answer = (answer or "")[:2000]
         with Session(self.engine) as s:
             # Upsert: atualiza se já existe para o mesmo hash
             existing = (s.query(Reaction)
@@ -148,14 +152,52 @@ class AnalyticsMixin:
             if existing:
                 existing.reaction = reaction
                 existing.sources = _json.dumps(sources or [])
+                # Só sobrescreve pergunta/resposta/motivo quando vier conteúdo novo
+                # (re-clicar o 👍/👎 sem 'por quê' não deve apagar o motivo já dado).
+                if reason:
+                    existing.reason = reason
+                if question:
+                    existing.question = question
+                if answer:
+                    existing.answer = answer
             else:
                 s.add(Reaction(
                     message_hash=message_hash,
                     reaction=reaction,
                     session_id=session_id or "",
                     sources=_json.dumps(sources or []),
+                    reason=reason, question=question, answer=answer,
                 ))
             s.commit()
+
+    def negative_feedback(self, limit: int = 20) -> list[dict]:
+        """Os 👎 mais recentes COM o 'por quê' — matéria-prima de melhoria (M9 9.2).
+        É o que o Leo achou ruim e por quê: candidato a virar lição/memória."""
+        with Session(self.engine) as s:
+            rows = (s.query(Reaction)
+                    .filter(Reaction.reaction == "down")
+                    .order_by(Reaction.created_at.desc()).limit(limit).all())
+            return [{"question": (r.question or ""), "answer": (r.answer or ""),
+                     "reason": (r.reason or ""),
+                     "created_at": r.created_at.isoformat() if r.created_at else None}
+                    for r in rows]
+
+    def feedback_trend(self, window: int = 20) -> dict:
+        """Taxa de aprovação (👍/total) na janela recente vs a anterior — a
+        satisfação do Leo está subindo? Alimenta o painel 'estou melhorando?' (9.3)."""
+        with Session(self.engine) as s:
+            rows = (s.query(Reaction.reaction)
+                    .order_by(Reaction.created_at.desc()).limit(window * 2).all())
+        flags = [r[0] == "up" for r in rows]
+
+        def _rate(fs: list) -> float | None:
+            return round(sum(1 for f in fs if f) / len(fs), 3) if fs else None
+
+        recent = _rate(flags[:window])
+        prev = _rate(flags[window:window * 2])
+        trend = round(recent - prev, 3) if recent is not None and prev is not None else None
+        return {"samples": len(flags), "recent_rate": recent,
+                "prev_rate": prev, "trend": trend}
 
     def reaction_stats(self) -> dict:
         """Contagem de 👍/👎 e fontes mais polarizadas (para o painel Analytics)."""

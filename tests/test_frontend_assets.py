@@ -125,6 +125,27 @@ def test_roteador_de_tarefa_ligado():
     assert "'connect'" in app_js and "/api/graph/connect" in app_js
 
 
+def test_painel_estou_melhorando_ligado():
+    """M9 9.3 — o painel Analytics abre com o card 'Estou melhorando?' (veredito +
+    eixos + sparkline) alimentado por /api/improving, e o botão que roda o canário."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert "function _loadImproving" in app_js and "/api/improving" in app_js
+    assert "_loadImproving();" in app_js                       # chamado ao abrir Analytics
+    assert "function runCanaryFromAnalytics" in app_js and "/api/evals/run" in app_js
+    assert 'id="an-improving"' in app_js and ".an-axis" in css
+
+
+def test_feedback_por_que_no_polegar_para_baixo():
+    """M9 9.2 — o 👎 precisa pedir o 'por quê' e mandar pergunta+resposta+motivo,
+    senão o feedback vira só um contador (não é acionável para melhoria/memória)."""
+    enh = (STATIC / "js" / "enhancements.js").read_text(encoding="utf-8")
+    assert "window.prompt(" in enh                      # pede o motivo
+    assert "reason" in enh and "question: q" in enh and "answer: text" in enh
+    # captura a pergunta que gerou ESTA resposta (não a última digitada depois)
+    assert "lastUserText" in enh
+
+
 def test_wake_word_ui_ligada():
     """M5 5.1 — o botão 👂 e a escuta contínua que chama /api/wake/detect e
     despacha o comando por /api/agency/ask precisam estar no frontend."""

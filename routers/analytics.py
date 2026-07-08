@@ -72,13 +72,18 @@ class ReactionRequest(BaseModel):
     reaction: str           # "up" ou "down"
     session_id: str = ""
     sources: list[str] = []
+    reason: str = ""        # M9 9.2: por que (texto do Leo, opcional)
+    question: str = ""      # pergunta que gerou a resposta
+    answer: str = ""        # trecho da resposta avaliada
 
 
 @router.post("/api/reactions")
 async def save_reaction(req: ReactionRequest):
-    """Salva feedback 👍/👎 no banco. Alimenta métricas de qualidade."""
+    """Salva feedback 👍/👎 (+ 'por quê') no banco. Um 👎 com motivo vira dado de
+    melhoria acionável (M9 9.2), não só um contador."""
     await asyncio.to_thread(
-        rt.db.save_reaction, req.message_hash, req.reaction, req.session_id, req.sources
+        rt.db.save_reaction, req.message_hash, req.reaction, req.session_id,
+        req.sources, req.reason, req.question, req.answer,
     )
     return {"ok": True}
 
@@ -87,6 +92,13 @@ async def save_reaction(req: ReactionRequest):
 async def reaction_stats():
     """Estatísticas de reações — total, taxa positiva, fontes mais negativas."""
     return await asyncio.to_thread(rt.db.reaction_stats)
+
+
+@router.get("/api/reactions/negative")
+async def negative_feedback(limit: int = 20):
+    """Os 👎 recentes COM o 'por quê' — o que o Leo achou ruim e por quê (M9 9.2)."""
+    items = await asyncio.to_thread(rt.db.negative_feedback, limit)
+    return {"count": len(items), "items": items}
 
 
 @router.get("/api/benchmark/diff")

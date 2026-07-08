@@ -123,13 +123,18 @@ class TopicEdge(Base):
 
 
 class Reaction(Base):
-    """Feedback do usuário sobre respostas (👍/👎) — alimenta métricas de qualidade."""
+    """Feedback do usuário sobre respostas (👍/👎) — alimenta métricas de qualidade.
+    O 'por quê' (M9 9.2) + o par pergunta/resposta tornam um 👎 ACIONÁVEL: vira
+    dado de melhoria e memória, não só um contador."""
     __tablename__ = "reactions"
     id           = Column(Integer, primary_key=True, autoincrement=True)
     message_hash = Column(String(32), index=True, nullable=False)
     reaction     = Column(String(4), nullable=False)   # "up" ou "down"
     session_id   = Column(String(36))
     sources      = Column(Text, default="[]")           # JSON: URLs citadas
+    reason       = Column(Text, default="")             # M9 9.2: por que (texto do Leo)
+    question     = Column(Text, default="")             # pergunta que gerou a resposta
+    answer       = Column(Text, default="")             # trecho da resposta avaliada
     created_at   = Column(DateTime, default=_now)
 
 
@@ -160,6 +165,22 @@ class BenchmarkRun(Base):
     total_ms     = Column(Integer)
     questions    = Column(Integer)
     results_json = Column(Text)   # JSON com detalhes por pergunta
+
+
+class EvalRun(Base):
+    """Placar de um run do harness de avaliação (M9, Épico 9.1): a suíte canário
+    (chat/coder/recall/trap) rodada num instante. `hallucination_rate` = fração das
+    armadilhas que o modelo mordeu — o número que prova a queda de alucinação (M7)."""
+    __tablename__ = "eval_runs"
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    ran_at             = Column(DateTime, default=_now, index=True)
+    suite              = Column(String(40), default="canary")
+    score              = Column(Float)          # nota geral 0..1
+    passed             = Column(Integer)        # tarefas aprovadas
+    total              = Column(Integer)        # tarefas totais
+    hallucination_rate = Column(Float, default=0.0)
+    by_kind_json       = Column(Text, default="{}")
+    results_json       = Column(Text, default="[]")
 
 
 class Permission(Base):

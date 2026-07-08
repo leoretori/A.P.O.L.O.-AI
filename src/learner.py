@@ -115,6 +115,8 @@ class LearningEngine:
         self._llm_lock = asyncio.Lock()
 
         # Filas do pipeline
+        # (acessor público abaixo — quem mais fala com o Ollama, ex.: o harness de
+        #  avaliação, pega ESTE lock para não voltar a rodar 14b+3b concorrente)
         self._fetch_queue: asyncio.Queue[FetchedItem] = asyncio.Queue(maxsize=FETCH_QUEUE_MAX)
         self._user_queue:  asyncio.Queue[str]         = asyncio.Queue()
         # Fila auto-dirigida: tópicos que o próprio A.P.O.L.O. decidiu estudar
@@ -147,6 +149,13 @@ class LearningEngine:
             "throughput_hour": 0,
             "total_session": 0,
         }
+
+    @property
+    def llm_lock(self) -> asyncio.Lock:
+        """Lock que serializa TODA inferência do learner. Exposto para que outro
+        consumidor do Ollama (harness de avaliação) rode um-de-cada-vez com ele e
+        não reintroduza o thrash 14b+3b que travava a máquina."""
+        return self._llm_lock
 
     # ── Anti-repetição ────────────────────────────────────────
 

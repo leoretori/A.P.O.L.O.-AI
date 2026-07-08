@@ -8,27 +8,37 @@ function createTypingIndicator() {
 }
 
 // #3 + #7 Reações nas respostas (localStorage + API para métricas)
-function buildReactionBar(text, memorySources) {
+// M9 9.2: no 👎 pergunta "por quê" e envia pergunta+resposta → feedback ACIONÁVEL.
+function buildReactionBar(text, memorySources, question) {
   const bar = document.createElement('div'); bar.className = 'reaction-bar';
+  // Congela a pergunta que gerou ESTA resposta (lastUserText muda a cada envio).
+  const q = (question != null) ? question
+            : (typeof lastUserText !== 'undefined' ? lastUserText : '');
   const key = 'rxn_' + Math.abs([...text.slice(0,60)].reduce((h,c)=>Math.imul(31,h)+c.charCodeAt(0)|0,0)).toString(36);
   const stored = localStorage.getItem(key);
   ['👍','👎'].forEach((emoji, idx) => {
     const btn = document.createElement('button');
     btn.className = 'reaction-btn' + (stored===emoji ? (idx===0?' active':' active down') : '');
     btn.textContent = emoji;
-    btn.title = idx===0 ? 'Boa resposta' : 'Resposta ruim';
+    btn.title = idx===0 ? 'Boa resposta' : 'Resposta ruim (diz por quê)';
     btn.onclick = () => {
       const r = stored===emoji ? '' : emoji;
       localStorage.setItem(key, r);
       if (r) {
-        // #7 Persiste no servidor para métricas de qualidade
         const reaction = r === '👍' ? 'up' : 'down';
+        // No 👎, pede o motivo (opcional) — é o que torna o feedback útil.
+        let reason = '';
+        if (reaction === 'down') {
+          reason = (window.prompt('Por que essa resposta não foi boa? (opcional — ajuda o A.P.O.L.O. a melhorar)') || '').trim();
+        }
+        // #7 Persiste no servidor para métricas de qualidade
         const srcs = (memorySources||[]).map(s=>s.url).filter(Boolean);
         fetch('/api/reactions', {method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({message_hash: key, reaction, session_id: sessionId, sources: srcs})
+          body: JSON.stringify({message_hash: key, reaction, session_id: sessionId,
+            sources: srcs, reason, question: q, answer: text.slice(0, 2000)})
         }).catch(()=>{});
       }
-      bar.replaceWith(buildReactionBar(text, memorySources));
+      bar.replaceWith(buildReactionBar(text, memorySources, q));
     };
     bar.appendChild(btn);
   });
