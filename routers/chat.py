@@ -65,14 +65,29 @@ _FACT_CUES = (
 
 
 async def _maybe_extract_fact(message: str) -> None:
-    """Aprende um fato pessoal a partir da mensagem (background, não bloqueia o chat).
-    Só roda quando a mensagem tem cara de pessoal, p/ evitar ruído e custo de LLM."""
+    """PROPÕE candidatos ao modelo do Leo a partir da mensagem (M16.2) — nunca
+    grava direto: o usuário confirma depois. Background, não bloqueia o chat.
+
+    1º determinístico (regex categorizado, sem custo). Se nada casar e a mensagem
+    tiver cara de pessoal, cai no LLM leve como rede — mas o resultado também vira
+    CANDIDATO (source auto), não fato assumido."""
     if not rt.profile:
         return
-    low = message.lower()
-    if not any(cue in low for cue in _FACT_CUES):
-        return
     try:
+        from src.profile_extract import extract_candidates
+
+        proposed = 0
+        for cand in extract_candidates(message):
+            if rt.profile.propose(cand["text"], cand["category"],
+                                  horizon=cand.get("horizon")):
+                proposed += 1
+        if proposed:
+            logger.info(f"[profile] {proposed} candidato(s) propostos (determinístico)")
+            return  # já achou algo — não gasta LLM
+
+        low = message.lower()
+        if not any(cue in low for cue in _FACT_CUES):
+            return
         prompt = FACT_EXTRACT_PROMPT.format(message=message[:400])
         fact = await asyncio.to_thread(
             chat_resilient,
@@ -83,9 +98,8 @@ async def _maybe_extract_fact(message: str) -> None:
         )
         fact = (fact or "").strip().strip('"').strip()
         if fact and "NONE" not in fact.upper() and len(fact) > 5:
-            added = rt.profile.add(fact, source="auto")
-            if added:
-                logger.info(f"[profile] fato auto-aprendido: {fact[:60]}")
+            if rt.profile.propose(fact, "fact", source="auto"):
+                logger.info(f"[profile] candidato proposto (LLM): {fact[:60]}")
     except Exception as e:
         logger.debug(f"fact extract: {e}")
 

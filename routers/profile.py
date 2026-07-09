@@ -27,6 +27,13 @@ class FactUpdate(BaseModel):
     horizon: str | None = None
 
 
+class ConfirmRequest(BaseModel):
+    # edições opcionais na hora de confirmar o candidato
+    fact: str | None = None
+    category: str | None = None
+    horizon: str | None = None
+
+
 @router.get("/api/profile")
 async def get_profile():
     """Lista os fatos que o A.P.O.L.O. sabe sobre o usuário (+ agrupados por seção)."""
@@ -70,3 +77,32 @@ async def remove_fact(fact_id: str):
     if ok:
         _syscache_inv()  # remoção também deixa o system prompt stale
     return {"ok": ok}
+
+
+# ------------------------------------------------ candidatos (M16.2)
+@router.get("/api/profile/candidates")
+async def list_candidates():
+    """Candidatos ao modelo, propostos pela extração e aguardando confirmação."""
+    if not rt.profile or not hasattr(rt.profile, "pending"):
+        return {"candidates": []}
+    return {"candidates": rt.profile.pending()}
+
+
+@router.post("/api/profile/candidates/{cand_id}/confirm")
+async def confirm_candidate(cand_id: str, req: ConfirmRequest):
+    """Confirma um candidato (com edições opcionais) → entra no perfil."""
+    if not rt.profile or not hasattr(rt.profile, "confirm"):
+        return {"ok": False}
+    item = rt.profile.confirm(cand_id, text=req.fact, category=req.category,
+                              horizon=req.horizon)
+    if item:
+        _syscache_inv()  # perfil mudou → system prompt stale
+    return {"ok": bool(item), "fact": item}
+
+
+@router.post("/api/profile/candidates/{cand_id}/reject")
+async def reject_candidate(cand_id: str):
+    """Descarta um candidato — nada entra no perfil."""
+    if not rt.profile or not hasattr(rt.profile, "reject"):
+        return {"ok": False}
+    return {"ok": rt.profile.reject(cand_id)}

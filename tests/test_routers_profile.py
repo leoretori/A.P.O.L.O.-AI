@@ -101,6 +101,35 @@ def test_delete_invalida_cache(monkeypatch):
     assert chamou["n"] == 1  # remoção também invalida (bug corrigido no M16.1)
 
 
+# ------------------------------------------------ candidatos (M16.2)
+def test_fluxo_candidatos_endpoints(monkeypatch, tmp_path):
+    """GET lista pendentes, confirm move p/ perfil (+invalida cache), reject descarta."""
+    from src.profile import UserProfile
+    monkeypatch.setattr(profile_router_mod, "_syscache_inv", lambda: None)
+    prof = UserProfile(path=str(tmp_path / "p.json"))
+    prof.propose("respostas diretas", "preference")
+    prof.propose("Apolo AI", "project")
+    rt.configure(profile=prof)
+    cli = _client()
+
+    body = cli.get("/api/profile/candidates").json()
+    assert len(body["candidates"]) == 2
+    cid = body["candidates"][0]["id"]
+
+    r = cli.post(f"/api/profile/candidates/{cid}/confirm", json={})
+    assert r.json()["ok"] is True
+    assert len(prof.list()) == 1 and len(prof.pending()) == 1
+
+    other = prof.pending()[0]["id"]
+    assert cli.post(f"/api/profile/candidates/{other}/reject").json()["ok"] is True
+    assert prof.pending() == []
+
+
+def test_candidatos_sem_profile_nao_quebra():
+    rt.configure(profile=None)
+    assert _client().get("/api/profile/candidates").json() == {"candidates": []}
+
+
 def test_get_lista_fatos():
     p = FakeProfile()
     p.add("gosta de café")

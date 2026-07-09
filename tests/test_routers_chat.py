@@ -105,3 +105,16 @@ def test_maybe_extract_fact_ignora_mensagem_impessoal():
     import asyncio
     rt.configure(profile=None)
     asyncio.run(chat_mod._maybe_extract_fact("qual a capital da França?"))
+
+
+def test_maybe_extract_fact_propoe_candidato_sem_gravar(tmp_path):
+    """M16.2: mensagem pessoal vira CANDIDATO (não fato) — determinístico, sem LLM."""
+    import asyncio
+
+    from src.profile import UserProfile
+    prof = UserProfile(path=str(tmp_path / "p.json"))
+    rt.configure(profile=prof)
+    asyncio.run(chat_mod._maybe_extract_fact("prefiro respostas diretas e honestas"))
+    assert len(prof.pending()) == 1          # proposto
+    assert prof.pending()[0]["category"] == "preference"
+    assert prof.list() == []                 # NADA gravado sem confirmação
