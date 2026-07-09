@@ -68,6 +68,25 @@ def train(args: argparse.Namespace) -> dict:
         start_step = state["step"]
         best_val = state.get("best_val", float("inf"))
         print(f"retomando do passo {start_step} (val {best_val:.4f})")
+    elif args.init_from:
+        # Fine-tune: parte dos PESOS de outro checkpoint, mas com run NOVO
+        # (passo 0, otimizador e agenda de LR frescos, dataset de tarefa).
+        src = Path(args.init_from)
+        src_model = src / "model_best.npz"
+        if not src_model.exists():
+            src_model = src / "model.npz"
+        model = GPT.load(src_model)
+        if model.config.vocab_size != meta["vocab_size"]:
+            raise ValueError(
+                f"vocab do init ({model.config.vocab_size}) != dataset "
+                f"({meta['vocab_size']}) — fine-tune exige o MESMO tokenizer")
+        start_step = 0
+        best_val = float("inf")
+        tok_src = src / "tokenizer.json"
+        if tok_src.exists():
+            shutil.copy(tok_src, out / "tokenizer.json")
+        print(f"fine-tune a partir de {src_model.name} "
+              f"({model.num_params / 1e6:.2f}M params)")
     else:
         config = GPTConfig(
             vocab_size=meta["vocab_size"],
@@ -149,6 +168,8 @@ def main() -> None:
     ap.add_argument("--eval-iters", type=int, default=10)
     ap.add_argument("--seed", type=int, default=1337)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--init-from", default=None,
+                    help="fine-tune: warm-start dos pesos deste checkpoint (run novo)")
     train(ap.parse_args())
 
 

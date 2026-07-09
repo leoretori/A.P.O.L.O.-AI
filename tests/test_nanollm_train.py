@@ -127,3 +127,43 @@ def test_sequencia_maior_que_contexto_falha():
     model = _tiny_model()
     with pytest.raises(ValueError):
         model.forward(np.ones((1, 17), dtype=np.int64))
+
+
+def test_finetune_init_from_warm_start(tmp_path):
+    """--init-from carrega os pesos de outro ckpt mas começa run NOVO."""
+    import argparse
+    import json as _json
+
+    from src.nanollm.train import PRESETS, train
+
+    # checkpoint de origem (pesos "pré-treinados")
+    src = tmp_path / "base"
+    src.mkdir()
+    base = _tiny_model(seed=3)
+    base.save(src / "model_best.npz")
+    (src / "tokenizer.json").write_text('{"version":1,"type":"byte-bpe","merges":[],'
+                                        '"special":{"<|sep|>":256}}', encoding="utf-8")
+    w0 = base.wte.w.data.copy()
+
+    # dataset de tarefa mínimo (vocab tem que bater com o do modelo base)
+    data = tmp_path / "data"
+    data.mkdir()
+    rng = np.random.default_rng(0)
+    np.save(data / "train.npy", rng.integers(0, 16, 500).astype(np.uint16))
+    np.save(data / "val.npy", rng.integers(0, 16, 120).astype(np.uint16))
+    (data / "meta.json").write_text(_json.dumps({"vocab_size": 16}), encoding="utf-8")
+
+    out = tmp_path / "ft"
+    args = argparse.Namespace(
+        data=str(data), out=str(out), preset="nano", steps=3, batch_size=4,
+        lr=1e-3, warmup=1, weight_decay=0.0, grad_clip=1.0, log_every=10,
+        eval_every=3, eval_iters=2, seed=1, resume=False, init_from=str(src),
+    )
+    # o modelo base é n_embd=32 (não o preset nano) → veio do checkpoint, não do preset
+    result = train(args)
+    assert result["step"] == 3
+    assert (out / "tokenizer.json").exists()  # tokenizer herdado da origem
+    trained = GPT.load(out / "model.npz")
+    assert trained.config.n_embd == 32  # config veio dos PESOS, não do preset nano(128)
+    assert not np.array_equal(trained.wte.w.data, w0)  # treinou (pesos mudaram)
+    assert PRESETS["nano"]["n_embd"] == 128  # sanidade: o preset seria outro
