@@ -79,6 +79,41 @@ def title_relevant(title: str, message: str) -> bool:
     return bool(msg_words & title_words)
 
 
+def sector_prompt(text: str) -> str:
+    """Formata o texto e pede a continuação 'Setor:' (tarefa de classificação)."""
+    return f"{(text or '').strip()[:240]}\n\nSetor: "
+
+
+def nano_classify_sector(engine, text: str, labels: list[str],
+                         seed: int | None = None) -> str | None:
+    """Classifica `text` num dos `labels` via Nano; None se não casar nenhum.
+
+    Conjunto FECHADO: a saída do modelo é comparada com os rótulos conhecidos
+    (casa por prefixo, tolerando tokens extras). NUNCA levanta exceção.
+    """
+    try:
+        if engine is None or not engine.available() or not labels:
+            return None
+        result = engine.complete(sector_prompt(text), max_tokens=8,
+                                 temperature=0.3, top_k=10, seed=seed)
+        out = result["text"].strip().lower()
+        # 1ª "palavra" gerada (slug pode ter _); casa com o rótulo mais longo
+        # que for prefixo do que o modelo emitiu.
+        candidates = sorted(labels, key=len, reverse=True)
+        for label in candidates:
+            if out.startswith(label.lower()):
+                return label
+        # fallback: rótulo cujo 1º termo aparece no começo da saída
+        first = re.split(r"[\s\n]", out)[0] if out else ""
+        for label in candidates:
+            if first and label.lower().startswith(first) and len(first) >= 4:
+                return label
+        return None
+    except Exception as e:
+        logger.debug(f"Nano setor falhou: {e}")
+        return None
+
+
 def nano_session_title(engine, message: str, seed: int | None = None) -> str | None:
     """Título via Apolo-Nano, ou None (qualidade insuficiente/indisponível).
 

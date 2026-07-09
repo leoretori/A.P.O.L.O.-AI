@@ -9,7 +9,9 @@ import pytest
 from src.nanollm.taskdata import (
     TITLE_TEMPLATE,
     _valid_title,
+    build_sector_dataset,
     build_task_dataset,
+    collect_sector_pairs,
     collect_title_pairs,
 )
 from src.nanollm.tokenizer import ByteBPETokenizer
@@ -109,6 +111,53 @@ def test_build_dataset_deterministico(db, tokenizer, tmp_path):
     assert m1 == m2
     assert np.array_equal(np.load(tmp_path / "a" / "train.npy"),
                           np.load(tmp_path / "b" / "train.npy"))
+
+
+@pytest.fixture()
+def sector_db(tmp_path):
+    """Banco com tópicos suficientes p/ 2 setores passarem o min_examples=3."""
+    p = tmp_path / "sec.db"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE learned_topics (id INTEGER PRIMARY KEY, topic TEXT, "
+                "url TEXT, summary TEXT, category TEXT, studied_at TEXT)")
+    for i in range(5):
+        con.execute("INSERT INTO learned_topics (topic, summary) VALUES (?,?)",
+                    (f"FastAPI endpoint REST {i}",
+                     f"Como criar uma API REST com FastAPI e pydantic exemplo {i}. " * 2))
+    for i in range(5):
+        con.execute("INSERT INTO learned_topics (topic, summary) VALUES (?,?)",
+                    (f"React componente {i}",
+                     f"Como criar um componente React com hooks e css exemplo {i}. " * 2))
+    con.execute("INSERT INTO learned_topics (topic, summary) VALUES (?,?)",
+                ("tópico raro solitário", "conteúdo de um setor que aparece só uma vez aqui. " * 2))
+    con.commit()
+    con.close()
+    return p
+
+
+def test_collect_sector_pairs(sector_db):
+    pairs, labels = collect_sector_pairs(sector_db, min_examples=3)
+    assert "backend_apis" in labels and "frontend_web" in labels
+    assert len(pairs) >= 10
+    # o setor raro (1 exemplo) foi descartado, não virou 'outros' inflado
+    assert all(s in labels for _, s in pairs)
+    assert len({s for _, s in pairs}) == len(labels)
+
+
+def test_build_sector_dataset(sector_db, tokenizer, tmp_path):
+    out = tmp_path / "sectors"
+    meta = build_sector_dataset(sector_db, tokenizer, out, val_fraction=0.2,
+                                min_examples=3, verbose=False)
+    assert meta["task"] == "sector"
+    assert set(meta["labels"]) >= {"backend_apis", "frontend_web"}
+    assert sum(meta["label_counts"].values()) == meta["pairs"]
+    assert meta["tokens"] == meta["train_tokens"] + meta["val_tokens"]
+
+    # o template de treino casa o prompt de inferência
+    from src.nanollm.tasks import sector_prompt
+    from src.nanollm.taskdata import SECTOR_TEMPLATE
+    rendered = SECTOR_TEMPLATE.format(context="X", label="Y")
+    assert sector_prompt("X").rstrip() == rendered.rsplit("Y", 1)[0].rstrip()
 
 
 def test_build_sem_pares(tmp_path, tokenizer):

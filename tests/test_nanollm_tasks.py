@@ -87,6 +87,26 @@ def test_nano_title_irrelevante_vira_none():
     assert nano_session_title(FakeEngine("AWS S3"), "como faço um loop em python?") is None
 
 
+# --------------------------------------------------------- classificação setor
+def test_nano_classify_sector_casa_rotulo():
+    from src.nanollm.tasks import nano_classify_sector
+
+    labels = ["backend_apis", "frontend_web", "data_ml"]
+    assert nano_classify_sector(FakeEngine("backend_apis"), "FastAPI", labels) == "backend_apis"
+    # tokens extras depois do slug ainda casam (prefixo)
+    assert nano_classify_sector(FakeEngine("frontend_web e mais"), "React", labels) == "frontend_web"
+
+
+def test_nano_classify_sector_sem_casar_vira_none():
+    from src.nanollm.tasks import nano_classify_sector
+
+    labels = ["backend_apis", "frontend_web"]
+    assert nano_classify_sector(FakeEngine("xyz nada"), "?", labels) is None
+    assert nano_classify_sector(FakeEngine("backend_apis"), "?", []) is None
+    assert nano_classify_sector(None, "?", labels) is None
+    assert nano_classify_sector(FakeEngine(raises=True), "?", labels) is None
+
+
 def test_nano_title_indisponivel_ou_erro_vira_none():
     assert nano_session_title(None, "msg") is None
     assert nano_session_title(FakeEngine(avail=False), "msg") is None
