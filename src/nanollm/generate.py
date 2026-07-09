@@ -38,7 +38,7 @@ def generate_text(
     ids = tok.encode(prompt) or [tok.sep_id]
     idx = np.array([ids], dtype=np.int64)
     rng = np.random.default_rng(seed)
-    out = model.generate(
+    out = model.generate_fast(
         idx, max_new_tokens, temperature=temperature, top_k=top_k, rng=rng,
         stop_id=tok.sep_id,
     )

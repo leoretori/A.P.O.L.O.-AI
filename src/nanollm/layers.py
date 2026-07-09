@@ -162,13 +162,15 @@ class CausalSelfAttention(Module):
         )
         self._cache: tuple | None = None
         self._tril: np.ndarray | None = None
+        self._k: np.ndarray | None = None  # KV cache (geração incremental)
+        self._v: np.ndarray | None = None
 
     def _mask(self, t: int) -> np.ndarray:
         if self._tril is None or self._tril.shape[0] < t:
             self._tril = np.tril(np.ones((t, t), dtype=bool))
         return self._tril[:t, :t]
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
+    def forward(self, x: np.ndarray, keep_kv: bool = False) -> np.ndarray:
         bsz, t, dim = x.shape
         hd = dim // self.n_head
         qkv = self.qkv.forward(x)  # (B, T, 3D)
@@ -181,8 +183,33 @@ class CausalSelfAttention(Module):
         probs = softmax(scores)
         y = probs @ v  # (B, nh, T, hd)
         self._cache = (q, k, v, probs, scale)
+        if keep_kv:  # prefill da geração incremental
+            self._k, self._v = k, v
         y = y.transpose(0, 2, 1, 3).reshape(bsz, t, dim)
         return self.proj.forward(y)
+
+    # ------------------------------------------------ geração incremental
+    def step(self, x: np.ndarray) -> np.ndarray:
+        """Um token novo (B,1,D) atendendo ao K/V acumulado — O(T) por token.
+
+        Requer forward(..., keep_kv=True) antes (prefill). Sem máscara: a
+        query é a última posição e enxerga tudo que veio antes + ela mesma.
+        """
+        bsz, _, dim = x.shape
+        hd = dim // self.n_head
+        qkv = self.qkv.forward(x)
+        qkv = qkv.reshape(bsz, 1, 3, self.n_head, hd).transpose(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # (B, nh, 1, hd)
+        self._k = np.concatenate([self._k, k], axis=2)
+        self._v = np.concatenate([self._v, v], axis=2)
+        scale = 1.0 / math.sqrt(hd)
+        scores = (q @ self._k.swapaxes(-1, -2)) * scale  # (B, nh, 1, T)
+        y = softmax(scores) @ self._v  # (B, nh, 1, hd)
+        return self.proj.forward(y.transpose(0, 2, 1, 3).reshape(bsz, 1, dim))
+
+    @property
+    def kv_len(self) -> int:
+        return 0 if getattr(self, "_k", None) is None else self._k.shape[2]
 
     def backward(self, dy: np.ndarray) -> np.ndarray:
         q, k, v, probs, scale = self._cache
@@ -250,8 +277,13 @@ class Block(Module):
         self.ln2 = LayerNorm(f"{name}.ln2", n_embd, dtype=dtype)
         self.mlp = MLP(f"{name}.mlp", n_embd, n_layer, rng, dtype=dtype)
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
-        x = x + self.attn.forward(self.ln1.forward(x))
+    def forward(self, x: np.ndarray, keep_kv: bool = False) -> np.ndarray:
+        x = x + self.attn.forward(self.ln1.forward(x), keep_kv=keep_kv)
+        return x + self.mlp.forward(self.ln2.forward(x))
+
+    def step(self, x: np.ndarray) -> np.ndarray:
+        """Geração incremental: 1 token, atenção via KV cache."""
+        x = x + self.attn.step(self.ln1.forward(x))
         return x + self.mlp.forward(self.ln2.forward(x))
 
     def backward(self, dy: np.ndarray) -> np.ndarray:

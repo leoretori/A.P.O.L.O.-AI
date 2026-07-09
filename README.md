@@ -400,7 +400,7 @@ Prioridade na fila:  1º User question  2º Auto-Currículo  3º rotação dos a
 O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm/` — sem PyTorch, sem HuggingFace, sem autograd, sem pesos pré-treinados de terceiros. Tudo é NumPy + Python puro:
 
 - **Tokenizer BPE byte-level** (`tokenizer.py`) — treina merges sobre bytes UTF-8 do SEU corpus; qualquer texto é representável (acentos, emoji, código)
-- **Transformer GPT decoder-only** (`model.py` + `layers.py`) — atenção causal multi-head, LayerNorm, GELU, com **forward e backward escritos à mão** (a matemática do backprop é provada por checagem numérica de gradiente nos testes)
+- **Transformer GPT decoder-only** (`model.py` + `layers.py`) — atenção causal multi-head, LayerNorm, GELU, com **forward e backward escritos à mão** (a matemática do backprop é provada por checagem numérica de gradiente nos testes); geração incremental com **KV cache** (O(T) por token, 7,7× mais rápida no v1, equivalência com o caminho lento provada em teste)
 - **Adam + warmup/cosine + grad clip** (`optim.py`) — otimizador do zero, com estado persistente para retomar treinos
 - **Loop de treino resumível** (`train.py`) — checkpoints `.npz`, val loss, presets calibrados para CPU (`nano` ~0.9M / `mini` ~3M / `small` ~7M params)
 

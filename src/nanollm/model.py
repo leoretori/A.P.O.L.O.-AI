@@ -120,18 +120,67 @@ class GPT(Module):
         for _ in range(max_new_tokens):
             ctx = idx[:, -self.config.block_size :]
             logits, _ = self.forward(ctx)
-            logits = logits[:, -1, :] / max(temperature, 1e-6)
-            if top_k and top_k < logits.shape[-1]:
-                kth = np.partition(logits, -top_k, axis=-1)[:, [-top_k]]
-                logits = np.where(logits < kth, -np.inf, logits)
-            probs = softmax(logits)
-            nxt = np.array(
-                [rng.choice(probs.shape[-1], p=row) for row in probs], dtype=idx.dtype
-            )[:, None]
+            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype)
             idx = np.concatenate([idx, nxt], axis=1)
             if stop_id is not None and bool((nxt == stop_id).all()):
                 break
         return idx
+
+    # ------------------------------------- geração incremental (KV cache)
+    def _prefill(self, idx: np.ndarray) -> np.ndarray:
+        """Forward completo do prompt guardando K/V por camada → logits."""
+        _, t = idx.shape
+        x = self.wte.forward(idx) + self.wpe.data[:t]
+        for block in self.blocks:
+            x = block.forward(x, keep_kv=True)
+        return self.lm_head.forward(self.ln_f.forward(x))
+
+    def _step(self, token: np.ndarray, pos: int) -> np.ndarray:
+        """Um token novo (B,1) na posição `pos` → logits (B,1,V), via cache."""
+        x = self.wte.forward(token) + self.wpe.data[pos : pos + 1]
+        for block in self.blocks:
+            x = block.step(x)
+        return self.lm_head.forward(self.ln_f.forward(x))
+
+    def generate_fast(
+        self,
+        idx: np.ndarray,
+        max_new_tokens: int,
+        temperature: float = 0.8,
+        top_k: int = 40,
+        rng: np.random.Generator | None = None,
+        stop_id: int | None = None,
+    ) -> np.ndarray:
+        """Igual a generate(), mas O(T) por token via KV cache.
+
+        Limite: para (sem erro) ao encher o block_size — o cache guarda
+        posições absolutas, então não há janela deslizante no caminho rápido.
+        """
+        rng = rng or np.random.default_rng()
+        if idx.shape[1] >= self.config.block_size:
+            idx = idx[:, -(self.config.block_size - 1):]  # deixa 1 vaga
+        logits = self._prefill(idx)
+        for _ in range(max_new_tokens):
+            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype)
+            idx = np.concatenate([idx, nxt], axis=1)
+            if stop_id is not None and bool((nxt == stop_id).all()):
+                break
+            if idx.shape[1] >= self.config.block_size:
+                break  # cache cheio — contexto máximo atingido
+            logits = self._step(nxt, pos=idx.shape[1] - 1)
+        return idx
+
+    @staticmethod
+    def _sample(logits: np.ndarray, temperature: float, top_k: int,
+                rng: np.random.Generator, dtype) -> np.ndarray:
+        logits = logits / max(temperature, 1e-6)
+        if top_k and top_k < logits.shape[-1]:
+            kth = np.partition(logits, -top_k, axis=-1)[:, [-top_k]]
+            logits = np.where(logits < kth, -np.inf, logits)
+        probs = softmax(logits)
+        return np.array(
+            [rng.choice(probs.shape[-1], p=row) for row in probs], dtype=dtype
+        )[:, None]
 
     # ------------------------------------------------------- persistência
     def save(self, path: str | Path) -> None:
