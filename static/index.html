@@ -522,6 +522,22 @@
       <div id="rot-list" style="margin-top:12px;font-size:12.5px;color:#bbb"></div>
     </div>
 
+    <!-- Automação web em sandbox (M10 10.3) -->
+    <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🌐 Automação web (sandbox)</div>
+      <div style="color:#777;font-size:11px;margin-bottom:8px">Tarefas de <b>leitura</b> na web (abrir → extrair → seguir link), só nos <b>domínios</b> que você autorizar em 🔐 Permissões (<b>browser.control</b>). Uma receita em JSON:</div>
+      <textarea id="web-recipe" rows="5" spellcheck="false"
+        style="width:100%;box-sizing:border-box;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:8px 10px;font-size:11.5px;font-family:ui-monospace,monospace;resize:vertical">[
+  {"op": "open", "url": "https://example.com"},
+  {"op": "extract", "what": "title"}
+]</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="planWebTask()" style="background:#0a1a2a;border:1px solid #1a3a5a;color:#5b9cff;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">👁️ Prévia</button>
+        <button onclick="runWebTask()" style="background:#101a30;border:1px solid #2a3a5a;color:#8ab4ff;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">🌐 Executar</button>
+      </div>
+      <div id="web-result" style="margin-top:10px"></div>
+    </div>
+
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
   </div>

@@ -25,6 +25,7 @@ SCOPES: dict[str, str] = {
     "calendar.read": "Ler sua agenda (somente leitura)",
     "email.read": "Ler seus e-mails (somente leitura)",
     "files.write": "Escrever/criar arquivos nas pastas que você autorizar (com prévia e desfazer)",
+    "browser.control": "Automatizar tarefas de leitura na web, só nos domínios que você autorizar",
 }
 
 

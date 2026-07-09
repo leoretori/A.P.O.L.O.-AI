@@ -141,6 +141,17 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_automacao_web_ligada():
+    """M10 10.3 — o painel 🛠️ Ações tem o console de automação web (prévia valida
+    a sandbox, executar roda a receita read-only), consumindo /api/webtask/*."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'id="web-recipe"' in html and 'onclick="planWebTask()"' in html and 'onclick="runWebTask()"' in html
+    for fn in ("function planWebTask", "function runWebTask",
+               "/api/webtask/plan", "/api/webtask/run"):
+        assert fn in app_js, fn
+
+
 def test_rotinas_automatizadas_ligadas():
     """M10 10.2 — o painel 🛠️ Ações também gerencia rotinas: criar/listar/rodar-
     agora/pausar/remover, consumindo /api/routines. Abrir o painel carrega as rotinas."""

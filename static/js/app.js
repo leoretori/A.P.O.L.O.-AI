@@ -1489,6 +1489,50 @@
     loadRoutines();
   }
 
+  // ── Automação web em sandbox (M10 10.3) ──
+  function _webRecipe() {
+    try { return JSON.parse(document.getElementById('web-recipe').value); }
+    catch (e) { return null; }
+  }
+  function _webResultBox() { return document.getElementById('web-result'); }
+
+  async function planWebTask() {
+    const box = _webResultBox();
+    const steps = _webRecipe();
+    if (!steps) { box.innerHTML = '<span style="color:#f87171">JSON inválido na receita.</span>'; return; }
+    box.innerHTML = '<span style="color:#666">Validando…</span>';
+    try {
+      const d = await fetch('/api/webtask/plan', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({steps})}).then(r=>r.json());
+      const dom = (d.allowed_domains||[]).join(', ') || '<nenhum autorizado>';
+      if (!d.granted) { box.innerHTML = '<span style="color:#fbbf24">Autorize <b>browser.control</b> em 🔐 Permissões e informe os domínios.</span>'; return; }
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml((d.errors||[]).join(' · '))}</span>`; return; }
+      box.innerHTML = `<span style="color:#4ade80">✓ Receita válida.</span> <span style="color:#777;font-size:11px">Sandbox: ${escHtml(dom)}</span>`;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function runWebTask() {
+    const box = _webResultBox();
+    const steps = _webRecipe();
+    if (!steps) { box.innerHTML = '<span style="color:#f87171">JSON inválido na receita.</span>'; return; }
+    box.innerHTML = '<span style="color:#666">Executando…</span>';
+    try {
+      const d = await fetch('/api/webtask/run', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({steps})}).then(r=>r.json());
+      if (d.denied) { box.innerHTML = '<span style="color:#fbbf24">Permissão <b>browser.control</b> não concedida.</span>'; return; }
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      const results = (d.results||[]).map(r => {
+        let v = r.value;
+        if (Array.isArray(v)) v = v.map(l => `• ${escHtml((l.text||'').slice(0,60))} — ${escHtml(l.url||'')}`).join('<br>');
+        else v = escHtml(String(v).slice(0, 800));
+        return `<div style="margin-bottom:8px"><div style="color:#5b9cff;font-size:10.5px">${escHtml(r.what)} · ${escHtml(r.from||'')}</div>
+          <div style="color:#bbb;font-size:11.5px;white-space:pre-wrap">${v}</div></div>`;
+      }).join('');
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #1c1c24;border-radius:8px;padding:10px">
+        <div style="color:#777;font-size:10.5px;margin-bottom:6px">Visitou: ${escHtml((d.visited||[]).join(' → '))}</div>${results||'<span style="color:#555">sem resultados</span>'}</div>`;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   // Guarda os escopos do último load: caminhos do Windows têm '\' e quebrariam
   // se fossem inlinados no onclick — então o toggle busca a note por escopo aqui.
   let _permScopes = [];
