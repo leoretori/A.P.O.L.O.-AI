@@ -22,13 +22,21 @@ from src.nanollm.tokenizer import ByteBPETokenizer
 
 
 def read_corpus(corpus_dir: str | Path) -> list[str]:
-    """Lê todos os .txt (recursivo, ordenado) como documentos."""
+    """Lê todos os .txt (recursivo, ordenado) como documentos.
+
+    Um arquivo pode conter VÁRIOS documentos separados por DOC_SEPARATOR
+    (formato do corpus_export); arquivo sem separador é 1 documento.
+    """
+    from src.nanollm.corpus_export import DOC_SEPARATOR
+
     root = Path(corpus_dir)
     docs = []
     for path in sorted(root.rglob("*.txt")):
         text = path.read_text(encoding="utf-8", errors="ignore").strip()
-        if text:
-            docs.append(text)
+        for doc in text.split(DOC_SEPARATOR):
+            doc = doc.strip()
+            if doc:
+                docs.append(doc)
     return docs
 
 

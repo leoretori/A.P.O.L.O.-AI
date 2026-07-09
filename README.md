@@ -393,6 +393,10 @@ O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm
 - **Loop de treino resumível** (`train.py`) — checkpoints `.npz`, val loss, presets calibrados para CPU (`nano` ~0.9M / `mini` ~3M / `small` ~7M params)
 
 ```bash
+# 0. (Opcional) Exporte o que o Apolo já sabe como corpus — leitura read-only,
+#    com limpeza, filtro de segredos, filtro PT e dedup por parágrafo
+python -m src.nanollm.corpus_export --supabase-env .env --out data/nanollm/corpus
+
 # 1. Coloque .txt em data/nanollm/corpus/ e tokenize
 python -m src.nanollm.data --corpus data/nanollm/corpus --out data/nanollm
 
@@ -437,6 +441,7 @@ Apolo_AI/
 │   │   ├── layers.py         #    Linear/LayerNorm/GELU/atenção causal c/ backward manual
 │   │   ├── model.py          #    GPT decoder-only + loss + geração + checkpoints .npz
 │   │   ├── optim.py          #    Adam + warmup/cosine + grad clip (do zero)
+│   │   ├── corpus_export.py  #    conhecimento do Apolo → corpus (limpeza+dedup+sem segredos)
 │   │   ├── data.py           #    corpus .txt → tokenizer + tokens.npy (CLI)
 │   │   ├── train.py          #    loop de treino resumível (CLI, presets p/ CPU)
 │   │   └── generate.py       #    geração de texto com checkpoint (CLI)

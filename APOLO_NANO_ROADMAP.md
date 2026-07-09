@@ -161,8 +161,8 @@ Igual ao plano-mãe (`JARVIS_ROADMAP.md` §9): incremento diário pequeno → te
 | Fase | Mês | Épico | Status |
 |------|-----|-------|--------|
 | A | M1 | Épico 0 — Motor do zero | ✅ **entregue 2026-07-08** (`b522444`) — tokenizer BPE + GPT backprop manual + Adam + treino resumível + gradcheck float64; smoke 0.94M no CPU: loss 7.6→4.9, ~700 tok/s, resume e geração validados. Suíte 931 |
-| A | M1 | 1.1 Exportador de corpus | ⬜ |
-| A | M1 | 1.2 Limpeza & dedup | ⬜ |
+| A | M1 | 1.1 Exportador de corpus | ✅ **2026-07-09** — `src/nanollm/corpus_export.py`: varre os bancos do Apolo em modo SOMENTE LEITURA (learned_topics + episodes no apolo.db, knowledge no local_knowledge.db, `--supabase-env` puxa a base da nuvem via cliente do app, `--docs` pastas extras). Um .txt por fonte com registros separados por `DOC_SEPARATOR` (o `data.read_corpus` entende) + `report.json` de composição. 16 testes |
+| A | M1 | 1.2 Limpeza & dedup | ✅ **2026-07-09 (junto do 1.1)** — normalização NFC/espaços, **linhas com cara de segredo nunca saem** (api key/senha/token/JWT/DSN/hex longo), filtro PT por razão de stopwords distintivas (`--keep-non-pt` desliga; auditado nos dados reais: os 409 rejeitados eram EN de verdade), dedup GLOBAL por hash de parágrafo. **Números reais do 1º export:** 849 tópicos → 439 PT mantidos; Supabase 832 → 104 (4.337 parágrafos duplicados removidos — a base da nuvem repete as sínteses locais); episódios ~0 (memória episódica recente). **Corpus soberano v0: 547 docs, 889k chars ≈ 236k tokens (vocab 4096, 3.76 chars/token)** — abaixo da DoD de 2M; a decisão do Épico 1.4 (dado externo) ficou mais importante |
 | A | M1 | 1.3 Harness de avaliação | ⬜ |
 | A | M1 | 1.4 Decisão dado externo | ⬜ (decisão do Leo) |
 | A | M2 | 2.1 Calibração `small` | ⬜ |
