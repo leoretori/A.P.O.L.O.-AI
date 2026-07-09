@@ -422,7 +422,9 @@ python -m src.nanollm.generate --ckpt data/nanollm/ckpt --prompt "O Apolo é"
 python -m src.nanollm.eval --ckpt data/nanollm/ckpt --data data/nanollm
 ```
 
-Escala honesta: no Ryzen 4600G (CPU-only) o alvo é um modelo de ~7M parâmetros que gera português coerente — um laboratório de soberania e aprendizado, não um substituto do Qwen 14B do chat.
+**Integração ao app** (`src/nanollm/engine.py` + `routers/nano.py`): `GET /api/nano/status` e `POST /api/nano/complete {prompt, max_tokens?}` servem o modelo próprio dentro do Apolo — carregamento lazy, gerações serializadas, atividade marcada no GpuGate (o aprendizado de fundo espera pelo Nano, nunca o contrário). O `/api/health` reporta o bloco `nano` (checkpoint, params, val_ppl). Env: `NANO_CKPT` aponta o checkpoint (padrão `data/nanollm/ckpt_v1`).
+
+Escala honesta: no Ryzen 4600G (CPU-only) o alvo é um modelo de ~7M parâmetros que gera português coerente — um laboratório de soberania e aprendizado, não um substituto do Qwen 14B do chat. **v1 treinado em 2026-07-09: 3,39M params, val ppl 158 (baseline 388), geração 605 tok/s com KV cache.**
 
 ---
 

@@ -195,4 +195,8 @@ async def health():
         kb_backend = "local_sqlite" if isinstance(rt.knowledge_db, LocalKnowledge) else "supabase"
     out["knowledge_backend"] = kb_backend
 
+    # Apolo-Nano — a LLM própria (checkpoint/params/ppl; available=False sem treino)
+    out["nano"] = rt.nano.info() if rt.nano else {"available": False, "ready": False}
+    out["features"]["nano"] = out["nano"]["available"]
+
     return out

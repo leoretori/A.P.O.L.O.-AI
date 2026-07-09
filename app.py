@@ -72,6 +72,7 @@ from routers.remote import router as remote_router
 from routers.embeddings import router as embeddings_router
 from routers.projects import router as projects_router
 from routers.retrospective import router as retrospective_router
+from routers.nano import router as nano_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -384,11 +385,15 @@ async def lifespan(app: FastAPI):
     episodic = EpisodicMemory(db=db)
     memory = MemoryFabric(rag=rag, knowledge=knowledge_db, lessons=lesson_mem,
                           episodic=episodic)
+    # Apolo-Nano (LLM própria, src/nanollm): engine leve — pesos carregam lazy
+    # na 1ª completion; sem checkpoint, /api/nano responde available=False.
+    from src.nanollm.engine import NanoEngine
+    nano = NanoEngine()
     rt.configure(learner=learner, db=db, knowledge_db=knowledge_db, rag=rag,
                  sessions=sessions, session_summaries=session_summaries,
                  profile=profile, curator=curator, ingestor=ingestor,
                  project_mem=project_mem, coder_ws=coder_ws, model=MODEL,
-                 lesson_mem=lesson_mem, gpu_gate=gpu_gate,
+                 lesson_mem=lesson_mem, gpu_gate=gpu_gate, nano=nano,
                  reviewer=reviewer, researcher=researcher, executor=executor,
                  memory=memory, episodic=episodic,
                  get_chat_model=lambda: CHAT_MODEL,
@@ -637,6 +642,7 @@ app.include_router(remote_router)
 app.include_router(embeddings_router)
 app.include_router(projects_router)
 app.include_router(retrospective_router)
+app.include_router(nano_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

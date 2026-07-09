@@ -34,6 +34,9 @@ project_mem: Any = None
 coder_ws: Any = None
 lesson_mem: Any = None
 gpu_gate: Any = None
+# NanoEngine (APOLO_NANO_ROADMAP 3.2) — a LLM própria; criado mesmo sem
+# checkpoint (available() responde False até existir um treino).
+nano: Any = None
 reviewer: Any = None
 researcher: Any = None
 executor: Any = None
