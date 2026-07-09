@@ -86,6 +86,8 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 16.3 — **Painel "Quem eu acho que você é":** o Apolo mostra o que entendeu de você, você corrige — o modelo fica transparente e seu.
 - **DoD M16:** o Apolo mantém um perfil profundo, curado por você, que alimenta as respostas.
 
+> **Progresso — Épico 16.1 ENTREGUE (2026-07-09):** `src/profile.py` deixou de ser lista rasa e virou modelo ESTRUTURADO por categoria (metas c/ horizonte curto/longo, projetos, hábitos, pessoas, preferências, valores; `CATEGORIES`/`normalize_category`). API antiga preservada 100% (add/list/remove/as_context) + `by_category`/`update`; perfis antigos migram sozinhos (entrada sem categoria → "fato"). `as_context` injeta AGRUPADO por seção no system prompt. Router: POST aceita `category`/`horizon`, novo `PATCH /api/profile/{id}` (edição), GET expõe `by_category`+rótulos; **bug corrigido**: DELETE não invalidava o cache do system prompt. 16 testes novos. Falta 16.2 (extração com confirmação) e 16.3 (painel).
+
 #### **Mês 17 — Personalização que adapta**
 - Épico 17.1 — **Priorização pessoal:** briefing, sugestões e proatividade passam a ranquear pelo que importa PARA VOCÊ (metas/projetos ativos), não genérico.
 - Épico 17.2 — **Ritmo & tom:** o Apolo aprende seu horário, seu estilo (direto vs detalhado) e ajusta quando/quanto fala — mensurável, reversível.

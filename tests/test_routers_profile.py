@@ -22,10 +22,29 @@ class FakeProfile:
     def list(self):
         return self.facts
 
-    def add(self, fact):
-        item = {"id": str(len(self.facts) + 1), "fact": fact}
+    def by_category(self):
+        groups = {}
+        for f in self.facts:
+            groups.setdefault(f.get("category", "fact"), []).append(f)
+        return groups
+
+    def add(self, fact, source="user", category=None, horizon=None):
+        item = {"id": str(len(self.facts) + 1), "fact": fact,
+                "category": category or "fact"}
+        if horizon:
+            item["horizon"] = horizon
         self.facts.append(item)
         return item
+
+    def update(self, fact_id, *, fact=None, category=None, horizon=None):
+        for it in self.facts:
+            if it["id"] == fact_id:
+                if fact is not None:
+                    it["fact"] = fact
+                if category is not None:
+                    it["category"] = category
+                return it
+        return None
 
     def remove(self, fact_id):
         before = len(self.facts)
@@ -36,6 +55,50 @@ class FakeProfile:
 def test_rotas_registradas():
     paths = {r.path for r in router.routes}
     assert {"/api/profile", "/api/profile/{fact_id}"} <= paths
+
+
+def test_get_expoe_categorias_e_agrupamento():
+    p = FakeProfile()
+    p.add("lançar v2", category="goal")
+    rt.configure(profile=p)
+    body = _client().get("/api/profile").json()
+    assert "goal" in body["by_category"]
+    assert body["categories"]["goal"] == "Metas"
+
+
+def test_add_com_categoria_e_horizonte(monkeypatch):
+    monkeypatch.setattr(profile_router_mod, "_syscache_inv", lambda: None)
+    p = FakeProfile()
+    rt.configure(profile=p)
+    r = _client().post("/api/profile",
+                       json={"fact": "terminar o Nano", "category": "goal", "horizon": "short"})
+    assert r.json()["fact"]["category"] == "goal"
+    assert r.json()["fact"]["horizon"] == "short"
+
+
+def test_patch_edita_e_invalida_cache(monkeypatch):
+    chamou = {"n": 0}
+    monkeypatch.setattr(profile_router_mod, "_syscache_inv",
+                        lambda: chamou.__setitem__("n", chamou["n"] + 1))
+    p = FakeProfile()
+    it = p.add("uso Postgre")
+    rt.configure(profile=p)
+    r = _client().patch(f"/api/profile/{it['id']}",
+                        json={"fact": "uso PostgreSQL", "category": "preference"})
+    assert r.json()["ok"] is True
+    assert r.json()["fact"]["fact"] == "uso PostgreSQL"
+    assert chamou["n"] == 1
+
+
+def test_delete_invalida_cache(monkeypatch):
+    chamou = {"n": 0}
+    monkeypatch.setattr(profile_router_mod, "_syscache_inv",
+                        lambda: chamou.__setitem__("n", chamou["n"] + 1))
+    p = FakeProfile()
+    it = p.add("remover")
+    rt.configure(profile=p)
+    _client().delete(f"/api/profile/{it['id']}")
+    assert chamou["n"] == 1  # remoção também invalida (bug corrigido no M16.1)
 
 
 def test_get_lista_fatos():
