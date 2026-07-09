@@ -80,15 +80,26 @@ async def agent_recall(query: str, limit: int = 3) -> str:
 
 
 async def generate_session_title(session_id: str, first_message: str) -> None:
-    """Gera título curto para a sessão usando LLM — roda em background."""
+    """Gera título curto para a sessão — roda em background.
+
+    O Apolo-Nano (LLM própria) tenta PRIMEIRO; um portão de qualidade
+    determinístico decide se a saída presta, senão cai no LLM grande
+    (Épico 3.3 do APOLO_NANO_ROADMAP — fallback garantido).
+    """
     try:
-        prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
-        title = await asyncio.to_thread(
-            chat_resilient,
-            rt.get_chat_model(),
-            [{"role": "user", "content": prompt}],
-            keep_alive=KEEP_ALIVE,
-        )
+        title = None
+        if rt.nano is not None:
+            from src.nanollm.tasks import nano_session_title
+
+            title = await asyncio.to_thread(nano_session_title, rt.nano, first_message)
+        if not title:
+            prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
+            title = await asyncio.to_thread(
+                chat_resilient,
+                rt.get_chat_model(),
+                [{"role": "user", "content": prompt}],
+                keep_alive=KEEP_ALIVE,
+            )
         title = (title or "").strip()[:80]
         if title and rt.db:
             rt.db.save_session_title(session_id, title)
