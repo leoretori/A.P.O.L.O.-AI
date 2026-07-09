@@ -154,6 +154,17 @@ def test_projetos_autodirigidos_ligados():
     assert "#projects-open-btn" in css
 
 
+def test_retrospectiva_do_ano_ligada():
+    """M12 12.2 — o painel 🎯 Projetos tem a retrospectiva do ano com botão de FALAR
+    (DoD do M12: apresenta por voz), consumindo /api/retrospective."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'id="retro-body"' in html and 'onclick="speakRetrospective()"' in html
+    for fn in ("function loadRetrospective", "function speakRetrospective", "/api/retrospective"):
+        assert fn in app_js, fn
+    assert "speak(_retroText)" in app_js       # fala a retrospectiva (voz)
+
+
 def test_embeddings_soberania_no_painel_saude():
     """M11 11.1 — o painel Saúde mostra a soberania dos embeddings (local/offline),
     consumindo /api/embeddings/info."""

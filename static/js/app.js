@@ -1491,8 +1491,24 @@
 
   // ── Projetos autodirigidos (M12 12.1) ──
   const _PRIO = ['#888','#5b9cff','#facc15','#f87171'];  // 0..3
-  function openProjects() { document.getElementById('projects-overlay').style.display='flex'; loadSuggestions(); loadProjects(); }
+  function openProjects() { document.getElementById('projects-overlay').style.display='flex'; loadRetrospective(); loadSuggestions(); loadProjects(); }
   function closeProjects() { document.getElementById('projects-overlay').style.display='none'; }
+
+  // Retrospectiva do ano (M12 12.2)
+  let _retroText = '';
+  async function loadRetrospective() {
+    const el = document.getElementById('retro-body');
+    try {
+      const d = await fetch('/api/retrospective').then(r=>r.json());
+      _retroText = d.text || '';
+      const themes = (d.year_two_themes||[]).map(t=>`<li>${escHtml(t)}</li>`).join('');
+      el.innerHTML = `<div>${escHtml(d.text||'')}</div>` +
+        (themes ? `<div style="color:#777;font-size:11px;margin-top:8px">Focos propostos para o ano 2:</div><ul style="margin:4px 0 0;padding-left:18px;color:#8ab4ff;font-size:11.5px">${themes}</ul>` : '');
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+  function speakRetrospective() {
+    if (_retroText && typeof speak === 'function') speak(_retroText);
+  }
 
   async function loadSuggestions() {
     const el = document.getElementById('proj-suggest');
