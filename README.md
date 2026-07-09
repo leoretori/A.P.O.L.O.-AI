@@ -1,6 +1,8 @@
 # ☀️ APOLO AI
 
 > **v1.0.0 · 🎉 Ano 1 do roadmap Jarvis completo (2026-07-09).** Os 12 milestones entregues em software — da arquitetura e memória à voz local, proatividade, agência com permissão, cérebro com verificação anti-alucinação, ação no mundo com undo, soberania (cripto + acesso remoto + embeddings locais) e automelhoria supervisionada com retrospectiva falada. Veja o [JARVIS_ROADMAP.md](JARVIS_ROADMAP.md). Pendências restantes são de hardware (GPU) e setup local.
+>
+> **▶️ Ano 2 já traçado:** [JARVIS_ROADMAP_ANO2.md](JARVIS_ROADMAP_ANO2.md) — o cérebro se torna seu (integração do [Apolo-Nano](APOLO_NANO_ROADMAP.md) + roteamento híbrido + flywheel aprender→treinar→servir), conhecer o Leo de verdade (modelo profundo), agência que conduz (executa projetos, navegador interativo, apps nativos) e multimodal + presença + prova de evolução.
 
 ---
 
