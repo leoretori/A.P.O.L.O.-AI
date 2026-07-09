@@ -1585,6 +1585,35 @@
     } catch(e) { msg.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  // ── Acesso remoto (M11 11.3) ──
+  function openRemote() { document.getElementById('remote-overlay').style.display='flex'; loadRemoteInfo(); }
+  function closeRemote() { document.getElementById('remote-overlay').style.display='none'; }
+
+  async function loadRemoteInfo() {
+    const el = document.getElementById('remote-body');
+    try {
+      const d = await fetch('/api/remote/info').then(r=>r.json());
+      const link = d.url_with_token || d.url;
+      const bindOk = d.lan_exposed;
+      const authOk = d.auth_required;
+      const chip = (ok, txt) => `<span style="color:${ok?'#4ade80':'#fbbf24'}">${ok?'✓':'⚠️'} ${escHtml(txt)}</span>`;
+      el.innerHTML = `
+        <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:12px">
+          <div style="color:#777;font-size:11px;margin-bottom:6px">Abra este link no celular (mesma rede):</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <code id="remote-link" style="flex:1;color:#8ab4ff;font-size:12px;word-break:break-all;background:#08080b;border:1px solid #23232c;border-radius:6px;padding:8px">${escHtml(link)}</code>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('remote-link').textContent).then(()=>{this.textContent='✓'})" style="background:#101a30;border:1px solid #2a3a5a;color:#8ab4ff;padding:6px 10px;border-radius:7px;cursor:pointer;font-size:12px">Copiar</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div>${chip(bindOk, bindOk ? 'Escutando na rede local' : 'Só localhost — defina HOST=0.0.0.0 no .env')}</div>
+          <div>${chip(authOk, authOk ? 'Protegido por token' : 'Sem token — defina REMOTE_TOKEN no .env')}</div>
+          <div style="color:#666;font-size:11px">IP na LAN: <code>${escHtml(d.lan_ip||'?')}</code> · porta ${d.port}</div>
+        </div>
+        <div style="color:#555;font-size:10.5px;margin-top:12px">Para acesso de FORA da sua rede (4G), use um túnel HTTPS (🔒 configuração sua) — nunca exponha o app direto na internet sem token + HTTPS.</div>`;
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   // Guarda os escopos do último load: caminhos do Windows têm '\' e quebrariam
   // se fossem inlinados no onclick — então o toggle busca a note por escopo aqui.
   let _permScopes = [];

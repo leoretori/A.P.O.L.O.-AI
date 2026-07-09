@@ -178,6 +178,7 @@
       <span onclick="exportBackup()" title="Baixar backup completo (JSON)" style="cursor:pointer">⬇️</span>
       <span onclick="document.getElementById('import-file').click()" title="Restaurar backup (JSON)" style="cursor:pointer">⬆️</span>
       <span onclick="openBackup()" title="Backup local criptografado" style="cursor:pointer">🔒</span>
+      <span onclick="openRemote()" title="Acesso remoto (celular)" style="cursor:pointer">📱</span>
       <span onclick="loadSessions()" title="Atualizar" style="cursor:pointer">↻</span>
     </span>
   </div>
@@ -541,6 +542,19 @@
 
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+  </div>
+</div>
+
+<!-- ════ ACESSO REMOTO (M11 11.3) ════ -->
+<div id="remote-overlay" onclick="if(event.target===this)closeRemote()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
+  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h2 style="margin:0;font-size:17px;color:#eee">📱 <span style="color:#5b9cff">Acesso</span> remoto</h2>
+      <button onclick="closeRemote()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+    </div>
+    <div style="color:#888;font-size:11.5px;margin-bottom:14px">Alcance o A.P.O.L.O. do celular na <b>mesma rede Wi-Fi</b>. Com <b>REMOTE_TOKEN</b> definido, só quem tem o link com o token entra — seus dados ficam protegidos mesmo na LAN.</div>
+    <div id="remote-body" style="font-size:12.5px;color:#bbb;line-height:1.6">Carregando…</div>
   </div>
 </div>
 

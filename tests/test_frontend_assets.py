@@ -141,6 +141,16 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_acesso_remoto_ligado():
+    """M11 11.3 — o modal 📱 Acesso remoto precisa do gatilho + o carregamento das
+    infos (URL da LAN + token), consumindo /api/remote/info."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'onclick="openRemote()"' in html and 'id="remote-overlay"' in html
+    for fn in ("function openRemote", "function loadRemoteInfo", "/api/remote/info"):
+        assert fn in app_js, fn
+
+
 def test_backup_criptografado_ligado():
     """M11 11.2 — o modal 🔒 Backup cifrado precisa do gatilho + funções de criar/
     restaurar/listar, consumindo /api/backup/*."""

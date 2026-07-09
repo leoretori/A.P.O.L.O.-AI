@@ -68,6 +68,7 @@ from routers.evals import router as evals_router
 from routers.actions import router as actions_router
 from routers.routines import router as routines_router
 from routers.webtask import router as webtask_router
+from routers.remote import router as remote_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -113,6 +114,10 @@ _RATE_LIMITS = {"/api/chat": 40, "/api/research": 15, "/api/agent": 20,
 IDLE_TRIGGER = int(os.getenv("IDLE_TRIGGER", 600))
 # API LAN: token de acesso para expor a API na rede local (vazio = sem autenticação).
 API_TOKEN = os.getenv("API_TOKEN", "").strip()
+# Acesso remoto seguro (M11 11.3): se REMOTE_TOKEN estiver definido, todo acesso de
+# fora da máquina (não-loopback) exige o token — cobre a UI inteira via cookie. O
+# dono, no localhost, continua livre. Sem ele, comportamento inalterado.
+REMOTE_TOKEN = os.getenv("REMOTE_TOKEN", "").strip()
 # Briefing diário (M4 4.1): hora local (0–23) a partir da qual o A.P.O.L.O. te
 # aborda com o resumo do dia, uma vez por dia. -1 desliga.
 BRIEFING_HOUR = int(os.getenv("BRIEFING_HOUR", 8))
@@ -567,6 +572,32 @@ async def _asset_revalidation_middleware(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def _remote_gate_middleware(request: Request, call_next):
+    """Acesso remoto seguro (M11 11.3). Registrado por ÚLTIMO → roda por PRIMEIRO
+    (outermost): bloqueia antes de qualquer processamento. Só age se REMOTE_TOKEN
+    estiver definido; o dono (loopback) passa sempre. Clientes de fora precisam do
+    token (query `?token=`, header `X-Apolo-Token` ou cookie) — e o primeiro acesso
+    por link com `?token=` ganha o cookie, então o celular não repete o token."""
+    if not REMOTE_TOKEN:
+        return await call_next(request)
+    from src import remote_access
+    q_token = request.query_params.get("token", "")
+    provided = q_token or request.headers.get("X-Apolo-Token", "") or request.cookies.get(remote_access.COOKIE_NAME, "")
+    client_host = request.client.host if request.client else ""
+    decision = remote_access.authorize(client_host, REMOTE_TOKEN, provided)
+    if not decision["allowed"]:
+        return JSONResponse(
+            {"error": "acesso remoto requer token", "hint": "abra o link com ?token=… fornecido pelo dono"},
+            status_code=401)
+    response = await call_next(request)
+    # Primeiro acesso via link com token → fixa o cookie (sessão de 30 dias).
+    if q_token and decision["reason"] == "token":
+        response.set_cookie(remote_access.COOKIE_NAME, q_token, max_age=30 * 86400,
+                            httponly=True, samesite="lax")
+    return response
+
+
 # PWA: service worker, manifest e ícones (routers/assets.py). Precisam vir da RAIZ
 # com headers corretos e ANTES do mount de /static — senão o mount "/" captura tudo.
 # Primeiro router extraído do monólito (M1 do JARVIS_ROADMAP).
@@ -599,6 +630,7 @@ app.include_router(evals_router)
 app.include_router(actions_router)
 app.include_router(routines_router)
 app.include_router(webtask_router)
+app.include_router(remote_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
