@@ -182,6 +182,13 @@ O Ano 2 e o [Apolo-Nano](APOLO_NANO_ROADMAP.md) são **dois lados do mesmo apert
 
 Os **M13–M15 são o lado-Apolo do pilar D6 (Integração & Produto)** do roadmap do Nano — construídos aqui, no app, onde a integração de fato acontece. O flywheel (M15) é o coração: **quanto mais o Apolo aprende, melhor fica o cérebro que ele mesmo treina** — e mais o Apolo roda em soberania própria.
 
+### Progresso M13–M14 (adiantado no ciclo do Nano — 2026-07-09)
+
+O primeiro ciclo do [Apolo-Nano](APOLO_NANO.md) já entregou o lado-app:
+
+- **🏁 M13 (Ponte Nano ↔ Apolo) — ENTREGUE.** 13.1 `NanoEngine` + `POST /api/nano/complete` + card 🧬 no painel Saúde; 13.2 gate de recursos (`GpuGate.user_enter/exit` na completion — o learner espera pelo Nano); 13.3 params/ppl/latência no `/api/health`. O app carrega e serve o Nano sem travar a máquina.
+- **🔨 M14 (Roteamento híbrido) — parcial + teto medido.** 14.2 construído: título de conversa Nano-first com fallback garantido (`generate_session_title` + portão de qualidade). Mas a **medição honesta** (título 1/6, classificação de setor 31%) confirmou o teto 🔒 HW: um modelo de 3,4M no CPU não faz tarefas ancoradas com qualidade de produção. **O flywheel (M15) e a promoção por qualidade (15.2) estão prontos em infraestrutura; o que falta é ESCALA (GPU)** — não mais código. O fallback garante que a produção nunca piora.
+
 ---
 
-*Documento vivo. Criado em 2026-07-09, no fechamento do Ano 1 (v1.0.0). Próximo passo: **M13 — Ponte Nano ↔ Apolo.***
+*Documento vivo. Criado em 2026-07-09, no fechamento do Ano 1 (v1.0.0). O ciclo do Apolo-Nano adiantou **M13 (completo)** e **M14.2 (medido, teto de HW confirmado)**. Próximo passo real: **M15 (flywheel) quando houver GPU**, ou seguir para **Q2 (M16 — modelo profundo do Leo)**, que é software puro e não depende de hardware.*

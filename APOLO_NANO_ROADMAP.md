@@ -182,5 +182,5 @@ Igual ao plano-mãe (`JARVIS_ROADMAP.md` §9): incremento diário pequeno → te
 | C | M5 | 5.2 Quantização int8 | ⬜ |
 | C | M5 | 5.3 Corpus 2.0 (auto-retreino) | ⬜ |
 | C | M6 | 6.1 Experimento de escala | ⬜ |
-| C | M6 | 6.2 Retrospectiva | ⬜ |
+| C | M6 | 6.2 Retrospectiva | ✅ **2026-07-09** — o §4/§6/§8 do [`APOLO_NANO.md`](APOLO_NANO.md) É a retrospectiva: ppl inicial→final (388→158), custo real (~90 min CPU), as 2 tarefas medidas e a decisão de GPU informada por números do caso real do Leo. Costurado ao plano-mãe do Ano 2 (M13 entregue, M14.2 medido) |
 | C | M6 | 6.3 Documentação (paper caseiro) | ✅ **antecipado 2026-07-09** — [`APOLO_NANO.md`](APOLO_NANO.md): arquitetura, dados soberanos, treino, integração e os resultados MEDIDOS das 2 tarefas + o teto de HW. Fecha o 1º ciclo com honestidade |
