@@ -415,6 +415,9 @@ python -m src.nanollm.train --data data/nanollm --out data/nanollm/ckpt --preset
 
 # 3. Gere texto com o SEU modelo
 python -m src.nanollm.generate --ckpt data/nanollm/ckpt --prompt "O Apolo é"
+
+# 4. Avalie o checkpoint (perplexity determinística + 10 sondas fixas + relatório)
+python -m src.nanollm.eval --ckpt data/nanollm/ckpt --data data/nanollm
 ```
 
 Escala honesta: no Ryzen 4600G (CPU-only) o alvo é um modelo de ~7M parâmetros que gera português coerente — um laboratório de soberania e aprendizado, não um substituto do Qwen 14B do chat.
@@ -454,7 +457,8 @@ Apolo_AI/
 │   │   ├── corpus_export.py  #    conhecimento do Apolo → corpus (limpeza+dedup+sem segredos)
 │   │   ├── data.py           #    corpus .txt → tokenizer + tokens.npy (CLI)
 │   │   ├── train.py          #    loop de treino resumível (CLI, presets p/ CPU)
-│   │   └── generate.py       #    geração de texto com checkpoint (CLI)
+│   │   ├── generate.py       #    geração de texto com checkpoint (CLI)
+│   │   └── eval.py           #    harness: ppl determinística + sondas fixas + relatório
 │   ├── memory/               # 🧠 MemoryFabric — porta única sobre RAG + base + lições + episódios
 │   │   ├── fabric.py         #    remember(text, kind, tags) / recall(query, kind?) → MemoryHit
 │   │   └── episodic.py       #    Memória autobiográfica: conversas datadas + recall temporal
