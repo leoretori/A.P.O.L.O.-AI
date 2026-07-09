@@ -177,6 +177,7 @@
       <span onclick="exportSessionMd()" title="Exportar conversa atual em Markdown" style="cursor:pointer">📄</span>
       <span onclick="exportBackup()" title="Baixar backup completo (JSON)" style="cursor:pointer">⬇️</span>
       <span onclick="document.getElementById('import-file').click()" title="Restaurar backup (JSON)" style="cursor:pointer">⬆️</span>
+      <span onclick="openBackup()" title="Backup local criptografado" style="cursor:pointer">🔒</span>
       <span onclick="loadSessions()" title="Atualizar" style="cursor:pointer">↻</span>
     </span>
   </div>
@@ -540,6 +541,27 @@
 
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+  </div>
+</div>
+
+<!-- ════ BACKUP CRIPTOGRAFADO (M11 11.2) ════ -->
+<div id="backup-overlay" onclick="if(event.target===this)closeBackup()"
+     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
+  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h2 style="margin:0;font-size:17px;color:#eee">🔒 <span style="color:#4ade80">Backup</span> criptografado</h2>
+      <button onclick="closeBackup()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+    </div>
+    <div style="color:#888;font-size:11.5px;margin-bottom:12px">Seus dados salvos em um arquivo <b>cifrado</b> (nada em texto puro). A <b>senha nunca é gravada</b> — guarde-a: sem ela o backup é irrecuperável.</div>
+    <div id="backup-status" style="font-size:11.5px;color:#888;margin-bottom:12px"></div>
+    <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:14px">
+      <input id="backup-pass" type="password" placeholder="senha do backup"
+             style="width:100%;box-sizing:border-box;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:8px 10px;font-size:12px;margin-bottom:8px" />
+      <button onclick="createEncryptedBackup()" style="background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">🔒 Criar backup cifrado agora</button>
+      <div id="backup-msg" style="margin-top:8px;font-size:12px"></div>
+    </div>
+    <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Backups locais</div>
+    <div id="backup-list" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
   </div>
 </div>
 

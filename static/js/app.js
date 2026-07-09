@@ -1533,6 +1533,58 @@
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  // ── Backup criptografado (M11 11.2) ──
+  function openBackup() { document.getElementById('backup-overlay').style.display='flex'; loadBackupStatus(); }
+  function closeBackup() { document.getElementById('backup-overlay').style.display='none'; }
+
+  async function loadBackupStatus() {
+    const st = document.getElementById('backup-status');
+    const list = document.getElementById('backup-list');
+    try {
+      const d = await fetch('/api/backup/status').then(r=>r.json());
+      const auto = d.auto_enabled ? '🟢 auto-backup diário ligado' : '⚪ auto-backup desligado (defina BACKUP_PASSPHRASE no .env)';
+      const cripto = d.crypto_available ? '' : ' · <span style="color:#f87171">cripto indisponível</span>';
+      st.innerHTML = `${auto}${cripto} · pasta <code>${escHtml(d.dir||'')}</code>`;
+      if (!d.backups || !d.backups.length) { list.innerHTML = '<div style="color:#555;padding:4px 0">Nenhum backup ainda.</div>'; return; }
+      list.innerHTML = d.backups.map(b => {
+        const when = b.modified ? new Date(b.modified).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+        const kb = (b.bytes/1024).toFixed(1);
+        return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid #16161c">
+          <div><div style="color:#ddd">${escHtml(b.name)}</div><div style="color:#555;font-size:10.5px">${kb} KB · ${when}</div></div>
+          <button onclick="restoreEncryptedBackup('${escHtml(b.name)}')" style="background:#0a1a2a;border:1px solid #1a3a5a;color:#5b9cff;padding:3px 9px;border-radius:6px;cursor:pointer;font-size:11px">↩️ Restaurar</button></div>`;
+      }).join('');
+    } catch(e) { st.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function createEncryptedBackup() {
+    const pass = document.getElementById('backup-pass').value;
+    const msg = document.getElementById('backup-msg');
+    if (!pass) { msg.innerHTML = '<span style="color:#fbbf24">Informe uma senha.</span>'; return; }
+    msg.innerHTML = '<span style="color:#666">Cifrando…</span>';
+    try {
+      const d = await fetch('/api/backup/encrypted', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({passphrase:pass})}).then(r=>r.json());
+      if (!d.ok) { msg.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      msg.innerHTML = `<span style="color:#4ade80">✓ ${escHtml(d.name)} (${(d.bytes/1024).toFixed(1)} KB)</span>`;
+      loadBackupStatus();
+    } catch(e) { msg.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function restoreEncryptedBackup(name) {
+    const pass = document.getElementById('backup-pass').value;
+    if (!pass) { alert('Digite a senha do backup no campo acima e clique Restaurar de novo.'); return; }
+    if (!confirm(`Restaurar "${name}"? Os dados do backup serão mesclados aos atuais.`)) return;
+    const msg = document.getElementById('backup-msg');
+    msg.innerHTML = '<span style="color:#666">Restaurando…</span>';
+    try {
+      const d = await fetch('/api/backup/restore', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({name, passphrase:pass})}).then(r=>r.json());
+      if (!d.ok) { msg.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      const a = d.added || {};
+      msg.innerHTML = `<span style="color:#4ade80">✓ Restaurado: ${a.messages||0} mensagens · ${a.learned_topics||0} tópicos</span>`;
+    } catch(e) { msg.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   // Guarda os escopos do último load: caminhos do Windows têm '\' e quebrariam
   // se fossem inlinados no onclick — então o toggle busca a note por escopo aqui.
   let _permScopes = [];

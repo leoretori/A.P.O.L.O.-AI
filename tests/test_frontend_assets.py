@@ -141,6 +141,18 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_backup_criptografado_ligado():
+    """M11 11.2 — o modal 🔒 Backup cifrado precisa do gatilho + funções de criar/
+    restaurar/listar, consumindo /api/backup/*."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'onclick="openBackup()"' in html and 'id="backup-overlay"' in html
+    for fn in ("function openBackup", "function createEncryptedBackup",
+               "function restoreEncryptedBackup", "function loadBackupStatus",
+               "/api/backup/encrypted", "/api/backup/restore", "/api/backup/status"):
+        assert fn in app_js, fn
+
+
 def test_automacao_web_ligada():
     """M10 10.3 — o painel 🛠️ Ações tem o console de automação web (prévia valida
     a sandbox, executar roda a receita read-only), consumindo /api/webtask/*."""

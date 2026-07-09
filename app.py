@@ -118,6 +118,11 @@ API_TOKEN = os.getenv("API_TOKEN", "").strip()
 BRIEFING_HOUR = int(os.getenv("BRIEFING_HOUR", 8))
 _last_briefing_date = None
 
+# Backup cifrado automático (M11 11.2): se BACKUP_PASSPHRASE estiver no .env, o
+# A.P.O.L.O. grava 1 backup local cifrado por dia a partir de BACKUP_HOUR.
+BACKUP_HOUR = int(os.getenv("BACKUP_HOUR", 3))
+_last_backup_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -254,6 +259,24 @@ async def _scheduler_loop():
                         logger.warning(f"[rotina] {r['name']} falhou: {res.get('error')}")
             except Exception as e:
                 logger.debug(f"[rotina] loop: {e}")
+
+            # Backup cifrado automático (M11 11.2): 1x/dia a partir de BACKUP_HOUR,
+            # se houver senha no .env. Nada em texto puro; poda os antigos.
+            global _last_backup_date
+            _bp = os.getenv("BACKUP_PASSPHRASE", "").strip()
+            if _bp:
+                _tb = datetime.now()
+                if _tb.hour >= BACKUP_HOUR and _last_backup_date != _tb.date():
+                    _last_backup_date = _tb.date()
+                    try:
+                        from routers.backup import _gather_backup_data
+                        from src import backup_service
+                        _data = await asyncio.to_thread(_gather_backup_data)
+                        _info = await asyncio.to_thread(backup_service.write_encrypted, _data, _bp)
+                        await asyncio.to_thread(backup_service.prune_backups)
+                        logger.info(f"[backup] backup cifrado diário: {_info['name']} ({_info['bytes']} bytes)")
+                    except Exception as e:
+                        logger.warning(f"[backup] auto falhou: {e}")
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:
