@@ -45,6 +45,11 @@ def _make_embed_fn(model: str | None):
     """
     if not model:
         return None  # usa o default do ChromaDB
+    # Fallback soberano 100% Python (M11 11.1): sem ONNX, sem Ollama, sem internet.
+    if model == "hashing":
+        from src.embeddings import HashingEmbeddingFunction
+        logger.info("[rag] embeddings locais via fallback Python (apolo-hashing)")
+        return HashingEmbeddingFunction()
     try:
         from chromadb.utils.embedding_functions import OllamaEmbeddingFunction
         ef = OllamaEmbeddingFunction(

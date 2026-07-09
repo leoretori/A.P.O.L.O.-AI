@@ -141,6 +141,14 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_embeddings_soberania_no_painel_saude():
+    """M11 11.1 — o painel Saúde mostra a soberania dos embeddings (local/offline),
+    consumindo /api/embeddings/info."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert "/api/embeddings/info" in app_js
+    assert "Embeddings (soberania)" in app_js
+
+
 def test_acesso_remoto_ligado():
     """M11 11.3 — o modal 📱 Acesso remoto precisa do gatilho + o carregamento das
     infos (URL da LAN + token), consumindo /api/remote/info."""

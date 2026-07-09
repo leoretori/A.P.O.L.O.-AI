@@ -1995,9 +1995,10 @@
     const body = document.getElementById('health-body');
     body.textContent = 'Carregando…';
     try {
-      const [h, perf] = await Promise.all([
+      const [h, perf, emb] = await Promise.all([
         fetch('/api/health').then(r=>r.json()),
         fetch('/api/perf').then(r=>r.json()).catch(()=>null),
+        fetch('/api/embeddings/info').then(r=>r.json()).catch(()=>null),
       ]);
       const dot = (ok)=>`<span style="color:${ok?'#4ade80':'#f87171'}">●</span>`;
       const card = (title, rows)=>`
@@ -2097,12 +2098,22 @@
           rows + `<div style="margin-top:7px;text-align:right"><button onclick="fetch('/api/perf/reset',{method:'POST'}).then(()=>loadHealth())" style="background:none;border:1px solid #2a2a33;color:#888;border-radius:6px;padding:3px 9px;cursor:pointer;font-size:10px">Zerar métricas</button></div>`);
       }
 
+      // Soberania dos embeddings (M11 11.1): confirma que o recall roda LOCAL/offline.
+      let embCard = '';
+      if (emb) {
+        embCard = card(`${dot(emb.local)} 🔡 Embeddings (soberania)`,
+          line('Backend', escHtml(emb.model||emb.backend||'—')) +
+          line('Local', emb.local ? '<span style="color:#4ade80">sim</span>' : '<span style="color:#f87171">não</span>') +
+          line('Funciona offline', emb.offline_ready ? '<span style="color:#4ade80">sim</span>' : '—') +
+          `<div style="color:#666;font-size:10.5px;margin-top:4px">${escHtml(emb.note||'')}</div>`);
+      }
+
       const b = h.build || {};
       const buildFooter = b.version
         ? `<div style="text-align:center;color:#666;font-size:10.5px;margin-top:6px">
              A.P.O.L.O. v${escHtml(b.version)} · <span title="commit em execução">${escHtml(b.git_sha||'—')}</span> · no ar há ${escHtml(b.uptime_human||'—')}</div>`
         : '';
-      body.innerHTML = ollamaCard + learnerCard + recallCard + perfCard + dbCard + sbCard + buildFooter;
+      body.innerHTML = ollamaCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;
     } catch (e) {
       body.innerHTML = '<span style="color:#f87171">Falha ao carregar saúde do sistema</span>';
     }
