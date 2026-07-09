@@ -2111,6 +2111,21 @@
           line('Modelo quente (pesado)', escHtml(String(hw.keep_alive_heavy)))
         ) : ''));
 
+      // Apolo-Nano — a LLM PRÓPRIA (treinada do zero, src/nanollm). O bloco
+      // vem do /api/health; available=false enquanto não houver checkpoint.
+      const nn = h.nano || {};
+      const nanoCard = card(`${dot(nn.available)} 🧬 Apolo-Nano (LLM própria)`,
+        !nn.available
+          ? '<span style="color:#888">sem checkpoint treinado — ver APOLO_NANO_ROADMAP.md</span>'
+          : (line('Status', nn.ready
+              ? '<span style="color:#4ade80">carregado</span>'
+              : '<span style="color:#5eead4">pronto (carrega no 1º uso)</span>') +
+             line('Parâmetros', nn.params_m ? nn.params_m + 'M' : '—') +
+             (nn.val_ppl ? line('Perplexity (val)', nn.val_ppl) : '') +
+             (nn.passo_treino ? line('Passos de treino', nn.passo_treino) : '') +
+             line('Soberano', '<span style="color:#4ade80">100% — pesos, tokenizer e dados próprios</span>') +
+             `<div style="color:#666;font-size:10.5px;margin-top:4px">${escHtml((nn.ckpt||'').split(/[\\/]/).pop()||'')} · POST /api/nano/complete</div>`));
+
       const db_ = h.database || {};
       const q = db_.quality || {};
       // Qualidade da base: % de sínteses estruturadas (##) vs cruas (lixo de
@@ -2197,7 +2212,7 @@
         ? `<div style="text-align:center;color:#666;font-size:10.5px;margin-top:6px">
              A.P.O.L.O. v${escHtml(b.version)} · <span title="commit em execução">${escHtml(b.git_sha||'—')}</span> · no ar há ${escHtml(b.uptime_human||'—')}</div>`
         : '';
-      body.innerHTML = ollamaCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;
+      body.innerHTML = ollamaCard + nanoCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;
     } catch (e) {
       body.innerHTML = '<span style="color:#f87171">Falha ao carregar saúde do sistema</span>';
     }

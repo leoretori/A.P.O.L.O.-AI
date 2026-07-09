@@ -125,6 +125,19 @@ def test_roteador_de_tarefa_ligado():
     assert "'connect'" in app_js and "/api/graph/connect" in app_js
 
 
+def test_painel_saude_mostra_apolo_nano():
+    """APOLO_NANO_ROADMAP 3.2 — o painel 🩺 Saúde precisa do cartão da LLM
+    própria (bloco h.nano do /api/health), incluído no innerHTML do painel."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert "🧬 Apolo-Nano" in app_js
+    assert "h.nano" in app_js
+    # o cartão precisa entrar no innerHTML DO PAINEL DE SAÚDE (linha que
+    # começa com ollamaCard — a montagem final do painel)
+    saude_render = next(ln for ln in app_js.splitlines()
+                        if "body.innerHTML = ollamaCard" in ln)
+    assert "nanoCard" in saude_render
+
+
 def test_painel_acoes_reversiveis_ligado():
     """M10 10.1 — o painel 🛠️ Ações precisa do botão, do fluxo preview→confirmar
     e do histórico com desfazer (a trilha reversível). Confirmar só habilita
