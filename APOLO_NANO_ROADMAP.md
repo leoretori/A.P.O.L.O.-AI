@@ -4,6 +4,8 @@
 
 **Início:** 2026-07-08 · **Alvo v1 integrada:** 2026-10 · **Alvo do ciclo:** 2027-01 · **Dono:** Leo · **Copiloto:** Claude Code
 
+> 📄 **Fecho do 1º ciclo (2026-07-09):** o "paper caseiro" [`APOLO_NANO.md`](APOLO_NANO.md) consolida arquitetura, dados, treino e resultados **medidos**. Fases A e B (motor + corpus + treino v1 + KV cache + integração) entregues e testadas. M4 (tarefas) confirmou empiricamente o teto 🔒 HW: um modelo de 3,4M no CPU gera PT plausível mas não executa tarefas ancoradas — a qualidade em tarefa precisa de GPU. O pipeline soberano está completo e pronto para reescalar.
+
 ---
 
 ## 1. Visão — o que é "Apolo-Nano pronto"
@@ -181,4 +183,4 @@ Igual ao plano-mãe (`JARVIS_ROADMAP.md` §9): incremento diário pequeno → te
 | C | M5 | 5.3 Corpus 2.0 (auto-retreino) | ⬜ |
 | C | M6 | 6.1 Experimento de escala | ⬜ |
 | C | M6 | 6.2 Retrospectiva | ⬜ |
-| C | M6 | 6.3 Documentação (paper caseiro) | ⬜ |
+| C | M6 | 6.3 Documentação (paper caseiro) | ✅ **antecipado 2026-07-09** — [`APOLO_NANO.md`](APOLO_NANO.md): arquitetura, dados soberanos, treino, integração e os resultados MEDIDOS das 2 tarefas + o teto de HW. Fecha o 1º ciclo com honestidade |

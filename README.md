@@ -396,6 +396,7 @@ Prioridade na fila:  1º User question  2º Auto-Currículo  3º rotação dos a
 ## 🧬 Apolo-Nano — LLM própria, treinada do zero
 
 > 📋 **Plano completo:** [`APOLO_NANO_ROADMAP.md`](APOLO_NANO_ROADMAP.md) — roadmap de 6 meses (dados → treino → integração → escala), no mesmo formato do plano-mãe do Jarvis.
+> 📄 **Paper caseiro:** [`APOLO_NANO.md`](APOLO_NANO.md) — arquitetura, dados, treino e resultados **medidos** do 1º ciclo (v1: 3,39M params, ppl 158, tarefas confirmam o teto de HW).
 
 O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm/` — sem PyTorch, sem HuggingFace, sem autograd, sem pesos pré-treinados de terceiros. Tudo é NumPy + Python puro:
 
