@@ -1,5 +1,7 @@
 # ☀️ APOLO AI
 
+> **v1.0.0 · 🎉 Ano 1 do roadmap Jarvis completo (2026-07-09).** Os 12 milestones entregues em software — da arquitetura e memória à voz local, proatividade, agência com permissão, cérebro com verificação anti-alucinação, ação no mundo com undo, soberania (cripto + acesso remoto + embeddings locais) e automelhoria supervisionada com retrospectiva falada. Veja o [JARVIS_ROADMAP.md](JARVIS_ROADMAP.md). Pendências restantes são de hardware (GPU) e setup local.
+
 ---
 
 > ## 🦾 Estamos construindo o JARVIS do Homem de Ferro — mas o meu, que se chama **APOLO**.

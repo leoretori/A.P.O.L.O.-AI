@@ -10,7 +10,8 @@ import time
 from functools import lru_cache
 
 # Versão semântica do A.P.O.L.O. Sem release automatizado ainda; bump manual.
-APP_VERSION = os.getenv("APP_VERSION", "0.1.0")
+# 1.0.0 — Ano 1 do roadmap Jarvis completo (M1–M12), 2026-07-09.
+APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
 
 # Marco de início do processo — capturado no import (boot do app).
 _STARTED_AT = time.time()
