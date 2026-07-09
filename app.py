@@ -70,6 +70,7 @@ from routers.routines import router as routines_router
 from routers.webtask import router as webtask_router
 from routers.remote import router as remote_router
 from routers.embeddings import router as embeddings_router
+from routers.projects import router as projects_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -633,6 +634,7 @@ app.include_router(routines_router)
 app.include_router(webtask_router)
 app.include_router(remote_router)
 app.include_router(embeddings_router)
+app.include_router(projects_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 

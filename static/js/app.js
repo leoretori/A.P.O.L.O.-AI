@@ -1489,6 +1489,74 @@
     loadRoutines();
   }
 
+  // ── Projetos autodirigidos (M12 12.1) ──
+  const _PRIO = ['#888','#5b9cff','#facc15','#f87171'];  // 0..3
+  function openProjects() { document.getElementById('projects-overlay').style.display='flex'; loadSuggestions(); loadProjects(); }
+  function closeProjects() { document.getElementById('projects-overlay').style.display='none'; }
+
+  async function loadSuggestions() {
+    const el = document.getElementById('proj-suggest');
+    try {
+      const d = await fetch('/api/projects/suggest').then(r=>r.json());
+      if (!d.goals || !d.goals.length) { el.innerHTML = '<div style="color:#4ade80;padding:4px 0">✓ Nada urgente — as métricas estão saudáveis.</div>'; return; }
+      el.innerHTML = d.goals.map(g => {
+        const steps = (g.tasks||[]).map(t=>`<li>${escHtml(t)}</li>`).join('');
+        return `<div style="background:#0b0b0f;border:1px solid #1c1c24;border-left:3px solid ${_PRIO[g.priority]||'#888'};border-radius:8px;padding:11px 13px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
+            <div><div style="color:#ddd;font-weight:600">${escHtml(g.title)}</div>
+            <div style="color:#777;font-size:11px">${escHtml(g.why)}</div></div>
+            <button onclick='adoptProject(${JSON.stringify(g).replace(/'/g,"&#39;")})' style="background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:11px;white-space:nowrap">+ Adotar</button>
+          </div>
+          <ul style="margin:8px 0 0;padding-left:18px;color:#888;font-size:11px">${steps}</ul></div>`;
+      }).join('');
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function adoptProject(goal) {
+    try {
+      await fetch('/api/projects/adopt', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({kind:goal.kind, title:goal.title, why:goal.why, tasks:goal.tasks})});
+    } catch(e) { alert('Erro: ' + e.message); }
+    loadSuggestions(); loadProjects();
+  }
+
+  async function loadProjects() {
+    const el = document.getElementById('proj-list');
+    try {
+      const d = await fetch('/api/projects').then(r=>r.json());
+      const active = (d.projects||[]).filter(p=>p.status!=='dismissed');
+      if (!active.length) { el.innerHTML = '<div style="color:#555;padding:4px 0">Nenhum projeto adotado ainda.</div>'; return; }
+      el.innerHTML = active.map(p => {
+        const tasks = (p.tasks||[]).map((t,i)=>`<label style="display:flex;gap:8px;align-items:center;padding:3px 0;cursor:pointer;color:${t.done?'#666':'#ccc'}">
+          <input type="checkbox" ${t.done?'checked':''} onchange="toggleProjectTask(${p.id},${i},this.checked)" style="accent-color:#4ade80">
+          <span style="${t.done?'text-decoration:line-through':''}">${escHtml(t.text)}</span></label>`).join('');
+        const done = p.status==='done';
+        return `<div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px">
+            <div style="color:${done?'#4ade80':'#ddd'};font-weight:600">${done?'✓ ':''}${escHtml(p.title)}</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <span style="color:#777;font-size:11px">${p.progress}%</span>
+              <button onclick="dismissProject(${p.id})" title="Arquivar" style="background:#1a1a22;border:1px solid #2a2a33;color:#888;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:11px">arquivar</button>
+            </div>
+          </div>
+          <div style="height:5px;background:#08080b;border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${p.progress}%;background:${done?'#4ade80':'#5b9cff'}"></div></div>
+          ${tasks}</div>`;
+      }).join('');
+    } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function toggleProjectTask(id, index, done) {
+    try { await fetch(`/api/projects/${id}/task`, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({index, done})}); } catch {}
+    loadProjects();
+  }
+
+  async function dismissProject(id) {
+    try { await fetch(`/api/projects/${id}/status`, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({status:'dismissed'})}); } catch {}
+    loadProjects();
+  }
+
   // ── Automação web em sandbox (M10 10.3) ──
   function _webRecipe() {
     try { return JSON.parse(document.getElementById('web-recipe').value); }

@@ -141,6 +141,19 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_projetos_autodirigidos_ligados():
+    """M12 12.1 — o painel 🎯 Projetos: sugestões (das próprias métricas) + adotar +
+    checklist de passos, consumindo /api/projects*."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert 'onclick="openProjects()"' in html and 'id="projects-overlay"' in html
+    for fn in ("function openProjects", "function loadSuggestions", "function adoptProject",
+               "function toggleProjectTask", "/api/projects/suggest", "/api/projects/adopt"):
+        assert fn in app_js, fn
+    assert "#projects-open-btn" in css
+
+
 def test_embeddings_soberania_no_painel_saude():
     """M11 11.1 — o painel Saúde mostra a soberania dos embeddings (local/offline),
     consumindo /api/embeddings/info."""

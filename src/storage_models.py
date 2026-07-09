@@ -206,6 +206,21 @@ class ToolAudit(Base):
     created_at = Column(DateTime, default=_now, index=True)
 
 
+class SelfProject(Base):
+    """Projeto autodirigido (M12, Épico 12.1): uma meta de melhoria que o A.P.O.L.O.
+    propôs a partir das próprias métricas, com passos e progresso. Supervisionado —
+    o Leo aprova e executa."""
+    __tablename__ = "self_projects"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    kind       = Column(String(40), nullable=False)   # summary_quality, hallucination, …
+    title      = Column(Text, nullable=False)
+    why        = Column(Text, default="")             # o sinal que motivou a meta
+    tasks_json = Column(Text, default="[]")           # [{text, done}]
+    status     = Column(String(20), default="active")  # active | done | dismissed
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now)
+
+
 class Routine(Base):
     """Rotina automatizada (M10, Épico 10.2): tarefa recorrente que o A.P.O.L.O.
     executa sozinho no horário combinado (ex.: 'toda sexta, resumo da semana').
