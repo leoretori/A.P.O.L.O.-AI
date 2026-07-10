@@ -41,11 +41,22 @@ def _tool_browser_interact(args: dict, ctx) -> dict:
     driver_factory = (args or {}).get("_driver")   # injeção nos testes
     driver = driver_factory() if driver_factory else webtask.PlaywrightDriver()
     try:
-        return webtask.run_interactive(steps, driver, allowed, confirm_effects=confirm)
+        out = webtask.run_interactive(steps, driver, allowed, confirm_effects=confirm)
     finally:
         close = getattr(driver, "close", None)
         if callable(close):
             close()
+    # 20.2 — trilha reversível/auditável: persiste CADA ação com efeito que
+    # aconteceu de fato (submeter formulário, etc.) na auditoria durável.
+    db = getattr(ctx, "db", None)
+    if db is not None:
+        for entry in out.get("ledger", []):
+            try:
+                db.log_tool("web.effect", "browser.interact", True,
+                            entry.get("detail", ""), "aplicado (efeito web)")
+            except Exception:
+                pass
+    return out
 
 
 register(Tool(name="browser.interact", scope="browser.interact",

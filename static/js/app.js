@@ -1749,6 +1749,18 @@
         <div style="color:#777;font-size:10.5px;margin-bottom:6px">Visitou: ${escHtml((d.visited||[]).join(' → '))}</div>${results||'<span style="color:#555">sem resultados</span>'}${ledger}</div>`;
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
+  async function loadInteractiveTrail() {
+    const box = document.getElementById('iweb-trail');
+    box.innerHTML = '<span style="color:#666;font-size:11px">Carregando trilha…</span>';
+    try {
+      const d = await fetch('/api/webtask/interactive/trail').then(r=>r.json());
+      const t = d.trail || [];
+      if (!t.length) { box.innerHTML = '<span style="color:#555;font-size:11px">Nenhuma ação com efeito ainda.</span>'; return; }
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #241c2c;border-radius:8px;padding:10px">
+        <div style="color:#c084fc;font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">🧾 Trilha de efeitos na web (auditada · web submits não são auto-reversíveis)</div>
+        ${t.map(e=>`<div style="font-size:11.5px;color:#bbb;padding:2px 0">• ${escHtml(e.detail)} <span style="color:#666;font-size:10px">${escHtml((e.at||'').slice(0,16).replace('T',' '))}</span></div>`).join('')}</div>`;
+    } catch(e) { box.innerHTML = '<span style="color:#f87171;font-size:11px">Erro ao carregar a trilha.</span>'; }
+  }
 
   // ── Backup criptografado (M11 11.2) ──
   function openBackup() { document.getElementById('backup-overlay').style.display='flex'; loadBackupStatus(); }

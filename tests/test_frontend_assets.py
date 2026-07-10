@@ -282,6 +282,9 @@ def test_navegador_interativo_ligado():
                "/api/webtask/interactive/plan", "/api/webtask/interactive/run",
                "needs_confirmation"):
         assert fn in app_js, fn
+    # M20.2: trilha durável de efeitos
+    assert "function loadInteractiveTrail" in app_js and "/api/webtask/interactive/trail" in app_js
+    assert 'id="iweb-trail"' in html
 
 
 def test_rotinas_automatizadas_ligadas():

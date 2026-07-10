@@ -124,3 +124,25 @@ def test_interactive_run_negado_sem_permissao(client):
     res = client.post("/api/webtask/interactive/run",
                       json={"steps": _INTERACT_RECIPE, "confirm_effects": True}).json()
     assert res.get("denied") is True
+
+
+def test_efeito_vai_para_a_trilha_duravel(client, monkeypatch):
+    """M20.2 — cada ação com efeito executada fica registrada na trilha."""
+    rt.db.grant_permission("browser.interact", note="example.com")
+    monkeypatch.setattr(browser_tool.webtask, "PlaywrightDriver", lambda *a, **k: _FakeInteractive())
+    # antes: trilha vazia
+    assert client.get("/api/webtask/interactive/trail").json()["trail"] == []
+    # roda a receita confirmando o efeito
+    client.post("/api/webtask/interactive/run",
+                json={"steps": _INTERACT_RECIPE, "confirm_effects": True})
+    trail = client.get("/api/webtask/interactive/trail").json()["trail"]
+    assert len(trail) == 1 and "enviar" in trail[0]["detail"]
+
+
+def test_run_sem_efeito_nao_polui_a_trilha(client, monkeypatch):
+    rt.db.grant_permission("browser.interact", note="example.com")
+    monkeypatch.setattr(browser_tool.webtask, "PlaywrightDriver", lambda *a, **k: _FakeInteractive())
+    # receita read-only (só open+extract) → nada na trilha
+    client.post("/api/webtask/interactive/run", json={"steps": [
+        {"op": "open", "url": "https://example.com"}, {"op": "extract", "what": "title"}]})
+    assert client.get("/api/webtask/interactive/trail").json()["trail"] == []

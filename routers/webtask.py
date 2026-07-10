@@ -93,3 +93,16 @@ async def interactive_run(payload: dict):
     if res.get("ok") and isinstance(res.get("result"), dict):
         return res["result"]
     return res
+
+
+@router.get("/api/webtask/interactive/trail")
+async def interactive_trail(limit: int = 30):
+    """Trilha durável (20.2): as ações com EFEITO que o A.P.O.L.O. já executou na
+    web, registradas na auditoria. Web submits não são auto-reversíveis — o
+    registro é a garantia (nada acontece sem confirmação, e fica auditado)."""
+    if not rt.db:
+        return {"trail": []}
+    audit = await asyncio.to_thread(rt.db.list_tool_audit, 200, None)
+    trail = [{"detail": a["args"], "at": a["created_at"]}
+             for a in audit if a.get("tool") == "web.effect"][:limit]
+    return {"trail": trail, "reversible": False}
