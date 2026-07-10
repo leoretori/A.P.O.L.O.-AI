@@ -63,3 +63,64 @@ def test_run_negado_sem_permissao(client, monkeypatch):
     res = client.post("/api/webtask/run", json={
         "steps": [{"op": "open", "url": "https://example.com"}]}).json()
     assert res.get("denied") is True
+
+
+# ───────────────────────────── M20.1 modo interativo ────────────────────────
+class _FakeInteractive:
+    def __init__(self):
+        self.filled, self.submitted = {}, False
+
+    def _p(self, url="https://example.com/x"):
+        return {"url": url, "title": "OK", "text": "x", "links": []}
+
+    def open(self, url):
+        return self._p(url)
+
+    def fill(self, selector, value):
+        self.filled[selector] = value
+        return self._p()
+
+    def submit(self, selector=None):
+        self.submitted = True
+        return self._p("https://example.com/enviado")
+
+    def close(self):
+        pass
+
+
+_INTERACT_RECIPE = [
+    {"op": "open", "url": "https://example.com/form"},
+    {"op": "fill", "selector": "input[name=q]", "value": "oi"},
+    {"op": "submit", "selector": "button"},
+]
+
+
+def test_interactive_plan_lista_passos_e_efeitos(client):
+    rt.db.grant_permission("browser.interact", note="example.com")
+    d = client.post("/api/webtask/interactive/plan", json={"steps": _INTERACT_RECIPE}).json()
+    assert d["granted"] and d["ok"]
+    assert [p["op"] for p in d["plan"]] == ["open", "fill", "submit"]
+    assert len(d["effects"]) == 1
+
+
+def test_interactive_run_para_sem_confirmar(client, monkeypatch):
+    rt.db.grant_permission("browser.interact", note="example.com")
+    monkeypatch.setattr(browser_tool.webtask, "PlaywrightDriver", lambda *a, **k: _FakeInteractive())
+    res = client.post("/api/webtask/interactive/run", json={"steps": _INTERACT_RECIPE}).json()
+    assert res["ok"] is False and res["status"] == "needs_confirmation"
+
+
+def test_interactive_run_confirmado_executa_com_trilha(client, monkeypatch):
+    rt.db.grant_permission("browser.interact", note="example.com")
+    fake = _FakeInteractive()
+    monkeypatch.setattr(browser_tool.webtask, "PlaywrightDriver", lambda *a, **k: fake)
+    res = client.post("/api/webtask/interactive/run",
+                      json={"steps": _INTERACT_RECIPE, "confirm_effects": True}).json()
+    assert res["ok"] and fake.submitted and fake.filled == {"input[name=q]": "oi"}
+    assert len(res["ledger"]) == 1
+
+
+def test_interactive_run_negado_sem_permissao(client):
+    res = client.post("/api/webtask/interactive/run",
+                      json={"steps": _INTERACT_RECIPE, "confirm_effects": True}).json()
+    assert res.get("denied") is True

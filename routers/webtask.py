@@ -53,3 +53,43 @@ async def run(payload: dict):
     if res.get("ok") and isinstance(res.get("result"), dict):
         return res["result"]
     return res
+
+
+# ── Modo interativo (M20.1): clique/preenchimento, opt-in browser.interact ──
+
+def _interact_domains() -> list[str]:
+    try:
+        note = rt.db.permission_note("browser.interact") if rt.db else ""
+    except Exception:
+        note = ""
+    return webtask.parse_domains(note)
+
+
+@router.get("/api/webtask/interactive/example")
+async def interactive_example():
+    return {"steps": webtask.INTERACTIVE_EXAMPLE, "ops": list(webtask.INTERACT_OPS),
+            "playwright": webtask.PlaywrightDriver.is_available()}
+
+
+@router.post("/api/webtask/interactive/plan")
+async def interactive_plan(payload: dict):
+    """Prévia de CADA passo (20.1) + os passos com efeito destacados, SEM navegar."""
+    granted = bool(rt.db and rt.db.is_permission_granted("browser.interact"))
+    allowed = _interact_domains()
+    steps = (payload or {}).get("steps") or []
+    pv = webtask.preview_interactive(steps, allowed)
+    return {"granted": granted, "allowed_domains": allowed,
+            "playwright": webtask.PlaywrightDriver.is_available(), **pv}
+
+
+@router.post("/api/webtask/interactive/run")
+async def interactive_run(payload: dict):
+    """Executa a receita interativa via M6 (consentimento browser.interact +
+    auditoria). `confirm_effects` autoriza os passos que mudam o mundo."""
+    steps = (payload or {}).get("steps") or []
+    confirm = bool((payload or {}).get("confirm_effects"))
+    res = await asyncio.to_thread(run_tool, "browser.interact",
+                                  {"steps": steps, "confirm_effects": confirm}, rt.db)
+    if res.get("ok") and isinstance(res.get("result"), dict):
+        return res["result"]
+    return res

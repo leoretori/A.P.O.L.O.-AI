@@ -1709,6 +1709,47 @@
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  // ── Navegador interativo em sandbox (M20.1) ──
+  function _iwebRecipe() {
+    try { return JSON.parse(document.getElementById('iweb-recipe').value); }
+    catch (e) { return null; }
+  }
+  async function planInteractive() {
+    const box = document.getElementById('iweb-result');
+    const steps = _iwebRecipe();
+    if (!steps) { box.innerHTML = '<span style="color:#f87171">JSON inválido na receita.</span>'; return; }
+    box.innerHTML = '<span style="color:#666">Prevendo os passos…</span>';
+    try {
+      const d = await fetch('/api/webtask/interactive/plan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({steps})}).then(r=>r.json());
+      if (!d.granted) { box.innerHTML = '<span style="color:#fbbf24">Autorize <b>browser.interact</b> em 🔐 Permissões e informe os domínios.</span>'; return; }
+      if (!d.playwright) { box.innerHTML = '<span style="color:#fbbf24">Playwright não instalado (🔒 opt-in): <code>pip install playwright</code> + <code>playwright install chromium</code>. A prévia abaixo já vale.</span><div style="height:6px"></div>' + box.innerHTML; }
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml((d.errors||[]).join(' · '))}</span>`; return; }
+      const rows = (d.plan||[]).map(p => `<div style="font-size:11.5px;color:${p.effect?'#f0a0d0':'#9aa'};padding:2px 0">${p.index+1}. ${escHtml(p.detail)}${p.effect?' <span style="color:#c084fc;font-size:9.5px;border:1px solid #3a1f5a;border-radius:99px;padding:0 6px">muda algo — precisa confirmar</span>':''}</div>`).join('');
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #241c2c;border-radius:8px;padding:10px">${rows}<div style="color:#777;font-size:10.5px;margin-top:6px">${d.effects.length} passo(s) com efeito · marque "confirmo" para executá-los.</div></div>`;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+  async function runInteractive() {
+    const box = document.getElementById('iweb-result');
+    const steps = _iwebRecipe();
+    if (!steps) { box.innerHTML = '<span style="color:#f87171">JSON inválido na receita.</span>'; return; }
+    const confirm_effects = document.getElementById('iweb-confirm').checked;
+    box.innerHTML = '<span style="color:#666">Executando…</span>';
+    try {
+      const d = await fetch('/api/webtask/interactive/run', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({steps, confirm_effects})}).then(r=>r.json());
+      if (d.denied) { box.innerHTML = '<span style="color:#fbbf24">Permissão <b>browser.interact</b> não concedida.</span>'; return; }
+      if (d.status === 'needs_confirmation') {
+        const eff = (d.effects||[]).map(e => `• ${escHtml(e.detail)}`).join('<br>');
+        box.innerHTML = `<div style="background:#14100a;border:1px solid #3a2f0a;border-radius:8px;padding:10px;color:#e0c080;font-size:11.5px">⏸️ Estes passos <b>mudam algo</b> — marque "confirmo os passos que mudam algo" e execute de novo:<br>${eff}</div>`;
+        return;
+      }
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      const results = (d.results||[]).map(r => `<div style="color:#bbb;font-size:11.5px;white-space:pre-wrap;margin-bottom:6px"><span style="color:#c084fc;font-size:10.5px">${escHtml(r.what)} · ${escHtml(r.from||'')}</span><br>${escHtml(String(r.value).slice(0,600))}</div>`).join('');
+      const ledger = (d.ledger||[]).length ? `<div style="color:#f0a0d0;font-size:10.5px;margin-top:6px">Trilha (efeitos): ${(d.ledger||[]).map(l=>escHtml(l.detail)).join(' · ')}</div>` : '';
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #241c2c;border-radius:8px;padding:10px">
+        <div style="color:#777;font-size:10.5px;margin-bottom:6px">Visitou: ${escHtml((d.visited||[]).join(' → '))}</div>${results||'<span style="color:#555">sem resultados</span>'}${ledger}</div>`;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   // ── Backup criptografado (M11 11.2) ──
   function openBackup() { document.getElementById('backup-overlay').style.display='flex'; loadBackupStatus(); }
   function closeBackup() { document.getElementById('backup-overlay').style.display='none'; }

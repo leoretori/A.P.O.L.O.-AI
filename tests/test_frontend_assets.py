@@ -270,6 +270,20 @@ def test_automacao_web_ligada():
         assert fn in app_js, fn
 
 
+def test_navegador_interativo_ligado():
+    """M20.1 — o painel 🛠️ Ações ganha o console do navegador INTERATIVO
+    (clicar/preencher/enviar), com prévia de cada passo e confirmação dos passos
+    de efeito, consumindo /api/webtask/interactive/*."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'id="iweb-recipe"' in html and 'onclick="planInteractive()"' in html
+    assert 'onclick="runInteractive()"' in html and 'id="iweb-confirm"' in html
+    for fn in ("function planInteractive", "function runInteractive",
+               "/api/webtask/interactive/plan", "/api/webtask/interactive/run",
+               "needs_confirmation"):
+        assert fn in app_js, fn
+
+
 def test_rotinas_automatizadas_ligadas():
     """M10 10.2 — o painel 🛠️ Ações também gerencia rotinas: criar/listar/rodar-
     agora/pausar/remover, consumindo /api/routines. Abrir o painel carrega as rotinas."""

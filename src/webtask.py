@@ -134,8 +134,8 @@ def run(steps: list[dict], driver, allowed: list[str], on_step=None) -> dict:
                     return {"ok": False, "error": "'follow' sem página aberta",
                             "results": results, "trace": trace, "visited": visited}
                 sub = (st.get("contains") or "").lower()
-                link = next((l for l in page.get("links", [])
-                             if sub in (l.get("text", "").lower())), None)
+                link = next((lnk for lnk in page.get("links", [])
+                             if sub in (lnk.get("text", "").lower())), None)
                 if not link:
                     _record("follow", f"nenhum link com '{sub}'", ok=False)
                     return {"ok": False, "error": f"link não encontrado: '{sub}'",
@@ -209,4 +209,308 @@ EXAMPLE_RECIPE = [
     {"op": "open", "url": "https://example.com"},
     {"op": "extract", "what": "title"},
     {"op": "extract", "what": "text"},
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Modo INTERATIVO (M20, Épico 20.1) — sobe a automação de read-only para
+# clique/preenchimento. Um driver interativo real (Playwright) é 🔒 opt-in e
+# fica atrás do escopo `browser.interact`; o núcleo (validate/preview/run)
+# segue determinístico e testável com um driver fake.
+#
+# Segurança reforçada (20.1 + 20.2): mesma sandbox de domínios; PREVIEW de cada
+# passo; e a fronteira do EFEITO (submeter formulário) NUNCA roda num clique
+# cego — exige confirmação explícita e entra numa TRILHA auditável.
+# ─────────────────────────────────────────────────────────────────────────
+
+INTERACT_OPS = OPS + ("click", "fill", "submit")
+EFFECT_OPS = ("submit",)          # muda o mundo → confirmação + trilha (20.2)
+
+
+def is_effect(step: dict) -> bool:
+    """O passo tem efeito no mundo (submete/altera)? `effect: true` força."""
+    return step.get("op") in EFFECT_OPS or bool(step.get("effect"))
+
+
+def describe_step(step: dict) -> str:
+    """Frase legível do que o passo FARÁ — a base do 'preview de cada passo'."""
+    op = step.get("op")
+    if op == "open":
+        return f"abrir {step.get('url', '')}"
+    if op == "follow":
+        return f"seguir o link com “{step.get('contains', '')}”"
+    if op == "extract":
+        return f"extrair {step.get('what', 'text')} da página"
+    if op == "click":
+        return f"clicar em {step.get('selector') or '“' + step.get('contains', '') + '”'}"
+    if op == "fill":
+        return f"preencher {step.get('selector', '')} com “{step.get('value', '')}”"
+    if op == "submit":
+        alvo = step.get('selector')
+        return "enviar o formulário" + (f" ({alvo})" if alvo else " atual")
+    return f"operação '{op}'"
+
+
+def validate_interactive(steps: list[dict], allowed: list[str]) -> list[str]:
+    """Valida uma receita interativa SEM executá-la (inclui click/fill/submit)."""
+    errors: list[str] = []
+    if not steps:
+        return ["receita vazia"]
+    if len(steps) > MAX_STEPS:
+        errors.append(f"receita longa demais (máx {MAX_STEPS} passos)")
+    if not allowed:
+        errors.append("nenhum domínio autorizado — autorize 'browser.interact' e informe os domínios")
+    if steps and steps[0].get("op") != "open":
+        errors.append("o 1º passo precisa ser 'open' (abrir uma página)")
+    navs = 0
+    for i, st in enumerate(steps):
+        op = st.get("op")
+        if op not in INTERACT_OPS:
+            errors.append(f"passo {i + 1}: operação desconhecida '{op}'")
+            continue
+        if op == "open":
+            navs += 1
+            url = st.get("url", "")
+            if not url:
+                errors.append(f"passo {i + 1}: 'open' sem url")
+            elif allowed and not domain_allowed(url, allowed):
+                errors.append(f"passo {i + 1}: domínio de '{url}' fora da allowlist")
+        elif op == "follow":
+            navs += 1
+            if not st.get("contains"):
+                errors.append(f"passo {i + 1}: 'follow' precisa de 'contains' (texto do link)")
+        elif op == "extract":
+            if st.get("what", "text") not in EXTRACT_WHAT:
+                errors.append(f"passo {i + 1}: 'extract' what inválido (use {'/'.join(EXTRACT_WHAT)})")
+        elif op == "click":
+            if not (st.get("selector") or st.get("contains")):
+                errors.append(f"passo {i + 1}: 'click' precisa de 'selector' ou 'contains'")
+        elif op == "fill":
+            if not st.get("selector"):
+                errors.append(f"passo {i + 1}: 'fill' precisa de 'selector'")
+            if "value" not in st:
+                errors.append(f"passo {i + 1}: 'fill' precisa de 'value'")
+        # 'submit' não tem args obrigatórios (form atual ou por selector)
+    if navs > MAX_NAV:
+        errors.append(f"navegações demais (máx {MAX_NAV})")
+    return errors
+
+
+def preview_interactive(steps: list[dict], allowed: list[str]) -> dict:
+    """Prévia de CADA passo (20.1) + os passos com EFEITO destacados (20.2),
+    SEM navegar. É o que o front mostra antes de deixar rodar."""
+    errors = validate_interactive(steps, allowed)
+    plan = [{"index": i, "op": st.get("op"), "detail": describe_step(st),
+             "effect": is_effect(st)} for i, st in enumerate(steps)]
+    return {"ok": not errors, "errors": errors, "plan": plan,
+            "effects": [p for p in plan if p["effect"]]}
+
+
+def run_interactive(steps: list[dict], driver, allowed: list[str], *,
+                    confirm_effects: bool = False, on_step=None) -> dict:
+    """Executa a receita interativa contra `driver` (injetável). Reforça a
+    sandbox em cada navegação e NUNCA roda um passo de efeito sem
+    `confirm_effects=True` — se houver efeito não confirmado, para e devolve
+    `status:'needs_confirmation'` com os passos que mudariam o mundo. Cada
+    efeito aplicado entra em `ledger` (a trilha auditável do 20.2).
+
+    driver expõe: open(url), click(selector=?, contains=?), fill(selector,value),
+    submit(selector=?) → cada um devolve a page dict resultante.
+    """
+    errors = validate_interactive(steps, allowed)
+    if errors:
+        return {"ok": False, "error": "; ".join(errors), "results": [],
+                "trace": [], "visited": [], "ledger": []}
+
+    effects = [i for i, st in enumerate(steps) if is_effect(st)]
+    if effects and not confirm_effects:
+        return {"ok": False, "status": "needs_confirmation",
+                "error": "esta receita tem passos que mudam o mundo — confirme antes",
+                "effects": [{"index": i, "op": steps[i].get("op"),
+                             "detail": describe_step(steps[i])} for i in effects],
+                "results": [], "trace": [], "visited": [], "ledger": []}
+
+    results: list[dict] = []
+    trace: list[dict] = []
+    visited: list[str] = []
+    ledger: list[dict] = []
+    page: dict | None = None
+
+    def _record(op: str, detail: str, ok: bool = True, effect: bool = False):
+        entry = {"op": op, "detail": detail, "ok": ok, "effect": effect}
+        trace.append(entry)
+        if effect and ok:
+            ledger.append(entry)
+        if on_step:
+            try:
+                on_step(entry)
+            except Exception:
+                pass
+
+    def _guard(url: str, op: str) -> dict | None:
+        if not domain_allowed(url, allowed):
+            _record(op, f"bloqueado (fora da sandbox): {url}", ok=False)
+            return {"ok": False, "error": f"navegação bloqueada: {url}",
+                    "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+        return None
+
+    try:
+        for st in steps:
+            op = st.get("op")
+            if op == "open":
+                url = st["url"]
+                blocked = _guard(url, "open")
+                if blocked:
+                    return blocked
+                page = driver.open(url)
+                visited.append(page.get("url", url))
+                _record("open", page.get("url", url))
+            elif op == "follow":
+                if not page:
+                    return {"ok": False, "error": "'follow' sem página aberta",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                sub = (st.get("contains") or "").lower()
+                link = next((lnk for lnk in page.get("links", [])
+                             if sub in (lnk.get("text", "").lower())), None)
+                if not link:
+                    _record("follow", f"nenhum link com '{sub}'", ok=False)
+                    return {"ok": False, "error": f"link não encontrado: '{sub}'",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                blocked = _guard(link["url"], "follow")
+                if blocked:
+                    return blocked
+                page = driver.open(link["url"])
+                visited.append(page.get("url", link["url"]))
+                _record("follow", page.get("url", link["url"]))
+            elif op == "extract":
+                if not page:
+                    return {"ok": False, "error": "'extract' sem página aberta",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                what = st.get("what", "text")
+                if what == "title":
+                    value = page.get("title", "")
+                elif what == "links":
+                    value = page.get("links", [])[:int(st.get("limit", 30))]
+                else:
+                    value = (page.get("text", "") or "")[:MAX_TEXT_CHARS]
+                results.append({"what": what, "value": value, "from": page.get("url", "")})
+                _record("extract", f"{what} de {page.get('url', '')}")
+            elif op == "click":
+                if not page:
+                    return {"ok": False, "error": "'click' sem página aberta",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                page = driver.click(selector=st.get("selector"), contains=st.get("contains"))
+                if page.get("url"):
+                    visited.append(page["url"])
+                    if _guard(page["url"], "click"):
+                        return {"ok": False, "error": f"clique levou p/ fora da sandbox: {page['url']}",
+                                "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                _record("click", describe_step(st))
+            elif op == "fill":
+                if not page:
+                    return {"ok": False, "error": "'fill' sem página aberta",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                page = driver.fill(st["selector"], st.get("value", ""))
+                _record("fill", describe_step(st))
+            elif op == "submit":
+                if not page:
+                    return {"ok": False, "error": "'submit' sem página aberta",
+                            "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                page = driver.submit(selector=st.get("selector"))
+                if page.get("url"):
+                    visited.append(page["url"])
+                    if _guard(page["url"], "submit"):
+                        return {"ok": False, "error": f"envio levou p/ fora da sandbox: {page['url']}",
+                                "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                _record("submit", describe_step(st), effect=True)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:300],
+                "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+
+    return {"ok": True, "results": results, "trace": trace,
+            "visited": visited, "ledger": ledger}
+
+
+class PlaywrightDriver:
+    """Driver INTERATIVO real (🔒 opt-in) — clica/preenche em sites JS via
+    Playwright. Fora do padrão soberano (browser pesado); só é usado quando o
+    pacote está instalado e o escopo `browser.interact` foi concedido. Lazy: só
+    importa o playwright ao abrir a 1ª página, com erro claro se faltar."""
+    def __init__(self, timeout: float = 15.0, headless: bool = True):
+        self._timeout = timeout * 1000
+        self._headless = headless
+        self._pw = None
+        self._browser = None
+        self._page = None
+
+    @staticmethod
+    def is_available() -> bool:
+        try:
+            import playwright  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    def _ensure(self):
+        if self._page is not None:
+            return
+        try:
+            from playwright.sync_api import sync_playwright
+        except Exception as e:
+            raise RuntimeError(
+                "modo interativo exige o Playwright (🔒 opt-in): "
+                "`pip install playwright` + `playwright install chromium`") from e
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.launch(headless=self._headless)
+        self._page = self._browser.new_page()
+        self._page.set_default_timeout(self._timeout)
+
+    def _snapshot(self) -> dict:
+        p = self._page
+        html = p.content()
+        page = parse_page(html, p.url)
+        page["url"] = p.url
+        return page
+
+    def open(self, url: str) -> dict:
+        self._ensure()
+        self._page.goto(url)
+        return self._snapshot()
+
+    def click(self, selector: str | None = None, contains: str | None = None) -> dict:
+        self._ensure()
+        if selector:
+            self._page.click(selector)
+        elif contains:
+            self._page.get_by_text(contains).first.click()
+        return self._snapshot()
+
+    def fill(self, selector: str, value: str) -> dict:
+        self._ensure()
+        self._page.fill(selector, value)
+        return self._snapshot()
+
+    def submit(self, selector: str | None = None) -> dict:
+        self._ensure()
+        if selector:
+            self._page.click(selector)
+        else:
+            self._page.keyboard.press("Enter")
+        return self._snapshot()
+
+    def close(self):
+        try:
+            if self._browser:
+                self._browser.close()
+            if self._pw:
+                self._pw.stop()
+        except Exception:
+            pass
+
+
+INTERACTIVE_EXAMPLE = [
+    {"op": "open", "url": "https://example.com/busca"},
+    {"op": "fill", "selector": "input[name=q]", "value": "apolo ai"},
+    {"op": "submit", "selector": "button[type=submit]"},
+    {"op": "extract", "what": "title"},
 ]
