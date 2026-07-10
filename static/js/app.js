@@ -3261,6 +3261,85 @@
   function closeProfile() { document.getElementById('profile-overlay').classList.remove('open'); }
   function closeProfileIfBg(e) { if (e.target === document.getElementById('profile-overlay')) closeProfile(); }
 
+  // ════ Linha do tempo / memória relacional (M18) ════
+  let _tlTab = 'events';
+  async function openTimeline() {
+    document.getElementById('timeline-overlay').classList.add('open');
+    document.getElementById('tl-answer').innerHTML = '';
+    await switchTimelineTab(_tlTab);
+    setTimeout(() => document.getElementById('tl-q').focus(), 50);
+  }
+  function closeTimeline() { document.getElementById('timeline-overlay').classList.remove('open'); }
+  function closeTimelineIfBg(e) { if (e.target === document.getElementById('timeline-overlay')) closeTimeline(); }
+
+  async function switchTimelineTab(tab) {
+    _tlTab = tab;
+    document.querySelectorAll('#tl-tabs .tl-tab').forEach(b =>
+      b.classList.toggle('active', b.dataset.tl === tab));
+    if (tab === 'people') await loadPeople();
+    else await loadTimeline();
+  }
+
+  function _tlRefs(refs) {
+    const chips = [];
+    (refs.person || []).forEach(n => chips.push(`<span class="tl-chip tl-person">👤 ${escHtml(n)}</span>`));
+    (refs.project || []).forEach(n => chips.push(`<span class="tl-chip tl-project">📁 ${escHtml(n)}</span>`));
+    (refs.goal || []).forEach(n => chips.push(`<span class="tl-chip tl-goal">🎯 ${escHtml(n)}</span>`));
+    return chips.join('');
+  }
+
+  async function loadTimeline() {
+    const body = document.getElementById('tl-body');
+    try {
+      const d = await fetch('/api/timeline').then(r => r.json());
+      const events = d.events || [];
+      if (!events.length) { body.innerHTML = '<div class="tl-empty">Ainda sem episódios na linha do tempo.</div>'; return; }
+      body.innerHTML = events.map(ev => `
+        <div class="tl-ev">
+          <div class="tl-ev-date">${(ev.date || '').slice(0, 10)}</div>
+          <div class="tl-ev-main">
+            <div class="tl-ev-title">${escHtml(ev.title || '')}</div>
+            ${ev.summary ? `<div class="tl-ev-sum">${escHtml(ev.summary)}</div>` : ''}
+            ${Object.keys(ev.refs || {}).length ? `<div class="tl-ev-refs">${_tlRefs(ev.refs)}</div>` : ''}
+          </div>
+        </div>`).join('');
+    } catch (e) { body.innerHTML = '<div class="tl-empty">Erro ao carregar.</div>'; }
+  }
+
+  async function loadPeople() {
+    const body = document.getElementById('tl-body');
+    try {
+      const d = await fetch('/api/people').then(r => r.json());
+      const people = d.people || [];
+      if (!people.length) { body.innerHTML = '<div class="tl-empty">Nenhuma pessoa no seu modelo ainda.</div>'; return; }
+      body.innerHTML = people.map(p => `
+        <div class="tl-person-card">
+          <div class="tl-pc-head">
+            <span class="tl-pc-name">👤 ${escHtml(p.name)}</span>
+            <span class="tl-pc-last">${p.last_date ? 'visto ' + p.last_date.slice(0, 10) : 'sem episódios ainda'}</span>
+          </div>
+          ${p.last_title ? `<div class="tl-pc-ctx">↳ ${escHtml(p.last_title)}</div>` : ''}
+          ${(p.projects || []).length ? `<div class="tl-pc-tags">${p.projects.map(n => `<span class="tl-chip tl-project">📁 ${escHtml(n)}</span>`).join('')}</div>` : ''}
+          ${(p.also_with || []).length ? `<div class="tl-pc-with">com: ${p.also_with.map(escHtml).join(', ')}</div>` : ''}
+        </div>`).join('');
+    } catch (e) { body.innerHTML = '<div class="tl-empty">Erro ao carregar.</div>'; }
+  }
+
+  async function askRecall() {
+    const q = (document.getElementById('tl-q').value || '').trim();
+    const ans = document.getElementById('tl-answer');
+    if (!q) return;
+    ans.innerHTML = '<div class="tl-thinking">Consultando a memória...</div>';
+    try {
+      const d = await fetch('/api/recall?q=' + encodeURIComponent(q)).then(r => r.json());
+      if (!d.matched) {
+        ans.innerHTML = '<div class="tl-ans tl-ans-no">Isso não é uma pergunta relacional — pergunte "onde parei no projeto X?" ou "o que o fulano me pediu?".</div>';
+      } else {
+        ans.innerHTML = `<div class="tl-ans ${d.found ? '' : 'tl-ans-no'}">${escHtml(d.answer)}</div>`;
+      }
+    } catch (e) { ans.innerHTML = '<div class="tl-ans tl-ans-no">Erro ao consultar.</div>'; }
+  }
+
   async function loadProfile() {
     const body = document.getElementById('pf-body');
     try {

@@ -154,6 +154,23 @@ def test_painel_perfil_curadoria_completa():
     assert ".pf-edit" in css and ".pf-ed-input" in css
 
 
+def test_painel_linha_do_tempo_ligado():
+    """M18 — o painel 📜 Linha do tempo: a memória relacional. Botão + overlay,
+    a caixa de recall relacional (/api/recall) e as duas abas (linha do tempo /
+    pessoas) consumindo /api/timeline e /api/people."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    assert 'onclick="openTimeline()"' in html and 'id="timeline-overlay"' in html
+    assert 'onclick="askRecall()"' in html
+    for fn in ("function openTimeline", "function loadTimeline", "function loadPeople",
+               "function askRecall", "function switchTimelineTab",
+               "/api/timeline", "/api/people", "/api/recall"):
+        assert fn in app_js, fn
+    # botão de nav com estilo do tema (não fica branco) + chips das entidades
+    assert "#timeline-open-btn" in css and ".tl-chip" in css
+
+
 def test_painel_acoes_reversiveis_ligado():
     """M10 10.1 — o painel 🛠️ Ações precisa do botão, do fluxo preview→confirmar
     e do histórico com desfazer (a trilha reversível). Confirmar só habilita

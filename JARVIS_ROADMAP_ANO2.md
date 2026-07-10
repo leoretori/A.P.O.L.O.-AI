@@ -110,6 +110,12 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 18.3 — **Recall que entende relações:** "o que o [fulano] me pediu?", "onde parei no projeto Y?" respondidos pela memória relacional.
 - **DoD M18:** perguntas relacionais/temporais complexas retornam respostas certas e datadas.
 
+> **Progresso — Épico 18.1 ENTREGUE (2026-07-10):** a linha do tempo da vida. `src/timeline.py` liga os episódios datados (M2) às ENTIDADES do modelo do Leo (M16 — pessoa/projeto/meta): cada episódio deixa de ser texto solto e passa a saber QUEM/O QUÊ/QUANDO tocou. Casamento determinístico por nome próprio (âncoras capitalizadas) OU conceitos em comum acima do limiar (reusa `src.graph`, o mesmo do 17.1/17.3), sem LLM. `link_event` anota `refs {person/project/goal}`; `timeline()` ordena (o DB entrega recente→antigo) e filtra por entidade — a base de "o que estava rolando em torno de X". `GET /api/timeline?entity=&when=` (`when` aceita frase temporal via `episodic.recall_phrase`). 11 testes.
+>
+> **Progresso — Épico 18.2 ENTREGUE (2026-07-10):** quem-é-quem. `people_overview()` deriva da linha do tempo, para cada pessoa do modelo, QUANDO foi vista por último, em que PROJETOS/METAS apareceu e com QUEM coaparece (o grafo leve de relações). Pessoas que o Apolo conhece mas que nunca surgiram num episódio vêm com `mentions:0` (útil: "você me falou dela, mas não voltamos ao assunto"). `GET /api/people`. +4 testes.
+>
+> **🏁 Épico 18.3 ENTREGUE — M18 COMPLETO (2026-07-10):** recall que entende relações. `parse_relational_question()` reconhece as perguntas (asked / where_stopped / about) e `answer_relational()` responde pela linha do tempo, SEMPRE datado — acha o episódio mais recente que menciona a entidade e devolve com dd/mm/aaaa (determinístico, sem LLM). Integrado ao chat: `_do_relational()` roda em paralelo ao recall semântico + FTS; se a pergunta é relacional e casou um episódio real, entra como `RELATIONAL_SECTION` — fonte de verdade datada que o modelo usa sem inventar. Também em `GET /api/recall?q=`. Front: painel **📜 Linha do tempo** (`openTimeline`/`loadTimeline`/`loadPeople`/`askRecall`, abas linha-do-tempo/pessoas, chips de entidade). **DoD do M18 batido: perguntas relacionais/temporais complexas retornam respostas certas e datadas.** +11 testes (suite 1204→1230, +26 no M18). PRÓXIMO: M19 (execução supervisionada de projetos — Q3, pilar P9 "agência que conduz").
+
 ### 🗓️ Q3 (Y2) — AGÊNCIA QUE CONDUZ *(P9)*
 
 #### **Mês 19 — Execução supervisionada de projetos**

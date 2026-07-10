@@ -204,6 +204,10 @@
     👤 <span>Sobre mim</span>
   </button>
 
+  <button id="timeline-open-btn" onclick="openTimeline()">
+    📜 <span>Linha do tempo</span>
+  </button>
+
   <button id="coder-open-btn" onclick="openCoder()">
     💻 <span>A.P.O.L.O. Coder</span>
   </button>
@@ -717,6 +721,29 @@
       <button id="pf-add-btn" onclick="addFactUI()">+ Lembrar</button>
     </div>
     <div id="pf-body"><div class="pf-empty">Carregando...</div></div>
+  </div>
+</div>
+
+<!-- ════ LINHA DO TEMPO (M18) ════ -->
+<div id="timeline-overlay" onclick="closeTimelineIfBg(event)">
+  <div id="timeline-panel">
+    <div id="tl-header">
+      <h2>📜 Linha do <span>tempo</span></h2>
+      <span id="tl-sub">A memória relacional: episódios datados ligados a pessoas, projetos e metas</span>
+      <button id="tl-close" onclick="closeTimeline()">✕ Fechar</button>
+    </div>
+    <div id="tl-ask">
+      <input id="tl-q" type="text" maxlength="200"
+        placeholder="Pergunte: onde parei no projeto X? o que a Maria me pediu?"
+        onkeydown="if(event.key==='Enter')askRecall()" />
+      <button id="tl-ask-btn" onclick="askRecall()">Perguntar</button>
+    </div>
+    <div id="tl-answer"></div>
+    <div id="tl-tabs">
+      <button class="tl-tab active" data-tl="events" onclick="switchTimelineTab('events')">Linha do tempo</button>
+      <button class="tl-tab" data-tl="people" onclick="switchTimelineTab('people')">Pessoas</button>
+    </div>
+    <div id="tl-body"><div class="tl-empty">Carregando...</div></div>
   </div>
 </div>
 
