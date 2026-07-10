@@ -583,6 +583,19 @@
       <div id="iweb-trail" style="margin-top:8px"></div>
     </div>
 
+    <!-- Visão útil (M22.1) — ler tela e documentos -->
+    <div style="background:#0b0b0f;border:1px solid #1c2420;border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:12px;color:#5eead4;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">👁️ Visão útil — ler tela & documentos</div>
+      <div style="color:#777;font-size:11px;margin-bottom:10px">"O que tem nessa tela / nesse documento?" — captura local (Pillow) e extração de PDF/DOCX/texto, ligado à memória. Descrever imagem/tela exige um modelo de visão.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <button onclick="readScreen()" style="background:#0a2a24;border:1px solid #1a5a4a;color:#5eead4;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">📸 Ler minha tela</button>
+        <input type="file" id="vis-file" style="display:none" onchange="readDocument()" />
+        <button onclick="document.getElementById('vis-file').click()" style="background:#0a1a2a;border:1px solid #1a3a5a;color:#5b9cff;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">📄 Ler um documento</button>
+        <label style="color:#9a8aae;font-size:11px;display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" id="vis-remember" style="accent-color:#5eead4"> guardar na memória</label>
+      </div>
+      <div id="vis-result" style="margin-top:4px"></div>
+    </div>
+
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
   </div>

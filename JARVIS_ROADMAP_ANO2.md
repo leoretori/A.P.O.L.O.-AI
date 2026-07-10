@@ -158,6 +158,8 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 22.3 — **Câmera (opt-in):** entrada visual do mundo real quando fizer sentido, com consentimento.
 - **DoD M22:** o Apolo entende e age sobre conteúdo visual real, integrado à memória.
 
+> **Progresso — Épico 22.1 ENTREGUE (2026-07-10):** ler TELA e DOCUMENTOS como entrada rica. `src/vision_read.py` unifica, reusando o que já existe: `capture_screen()` (screenshot local via Pillow, redimensionado p/ payload sensato), `read_document(filename, raw)` roteia por tipo → texto de PDF (`src.ingest.extract_pdf_text`), DOCX, texto puro, ou marca imagem com `needs_vision`; `describe_image()` descreve tela/imagem via o modelo de visão do app (injetável). Núcleo determinístico (captura/decode/roteamento sem LLM). Ligado à MEMÓRIA: `remember` guarda o texto extraído via `Ingestor` (RAG + base). `capabilities()` diz honestamente o que dá agora (tela ✓; visão só com modelo; PDF só com pypdf). Endpoints `GET /api/vision/status`, `POST /api/vision/{screen,document}`. Front: console "👁️ Visão útil" no painel Ações (📸 ler tela / 📄 ler documento + guardar na memória). Verificação leve (testes formais adiados a pedido do Leo): captura 1280×720 ok, leitura de texto/imagem ok, app importa. **Nota:** descrever imagem exige modelo de visão — com o backend soberano text-only (llama.cpp) fica indisponível até um GGUF multimodal ou llava no Ollama.
+
 #### **Mês 23 — Presença ambiente**
 - Épico 23.1 — **Contexto contínuo:** o Apolo acompanha agenda + foco + hora e intervém no **momento certo** (evoluindo o briefing do M4), sem virar ruído.
 - Épico 23.2 — **Voz contínua soberana:** completar o loop de voz 100% local (openWakeWord/Whisper-loop) quando o `🔒 HW`/latência permitir — a última milha do M3/M5.

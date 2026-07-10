@@ -1447,6 +1447,50 @@
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  // ── Visão útil (M22.1): ler tela e documentos ──
+  async function readScreen() {
+    const box = document.getElementById('vis-result');
+    box.innerHTML = '<span style="color:#666">Capturando a tela…</span>';
+    try {
+      const d = await fetch('/api/vision/screen', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({describe:true})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      const imgTag = `<img src="data:image/png;base64,${d.image_b64}" style="max-width:100%;border:1px solid #1c2420;border-radius:8px;margin-top:6px" />`;
+      const desc = d.described
+        ? `<div style="color:#cde;font-size:12px;line-height:1.5;margin-top:6px">${escHtml(d.description)}</div>`
+        : `<div style="color:#fbbf24;font-size:11px;margin-top:6px">Capturei a tela (${d.size[0]}×${d.size[1]}), mas ${escHtml(d.describe_error||'não há modelo de visão para descrever')}.</div>`;
+      box.innerHTML = desc + imgTag;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function readDocument() {
+    const input = document.getElementById('vis-file');
+    const box = document.getElementById('vis-result');
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const remember = document.getElementById('vis-remember').checked;
+    box.innerHTML = `<span style="color:#666">Lendo ${escHtml(file.name)}…</span>`;
+    try {
+      const buf = await file.arrayBuffer();
+      let bin = ''; const bytes = new Uint8Array(buf);
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const data = btoa(bin);
+      const d = await fetch('/api/vision/document', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({filename:file.name, data, remember})}).then(r=>r.json());
+      input.value = '';
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      if (d.kind === 'image') {
+        box.innerHTML = d.described
+          ? `<div style="color:#cde;font-size:12px;line-height:1.5">${escHtml(d.description)}</div>`
+          : `<span style="color:#fbbf24">Imagem recebida, mas ${escHtml(d.error||'não há modelo de visão')}.</span>`;
+        return;
+      }
+      const mem = d.remembered ? ' <span style="color:#5eead4;font-size:10.5px">✓ guardado na memória</span>' : '';
+      box.innerHTML = `<div style="color:#777;font-size:10.5px;margin-bottom:4px">${escHtml(d.kind.toUpperCase())} · ${d.chars} caracteres${mem}</div>
+        <pre style="margin:0;white-space:pre-wrap;color:#bbb;font-size:11.5px;max-height:220px;overflow:auto;background:#08080b;border:1px solid #1c2420;border-radius:8px;padding:10px">${escHtml((d.text||'').slice(0,2000))}</pre>`;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   async function loadActionsLedger() {
     const el = document.getElementById('act-ledger');
     try {
