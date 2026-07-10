@@ -203,3 +203,59 @@ def run_plan(project: dict, ctx: ExecContext, *, confirm: str | None = None) -> 
         ran.append({"key": key, "label": s["label"], "ok": out.get("ok"),
                     "mutated": out.get("mutated", False), "measure": out.get("measure")})
     return {"status": "done", "ran": ran, "progress": 100, "total": len(steps)}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 19.3 — Fecha o loop "propõe → faz → MEDE".
+# Cada tipo de projeto tem uma MÉTRICA que o motivou; capturamos o valor no
+# adopt (baseline) e re-medimos ao concluir, mostrando se melhorou de verdade.
+# ─────────────────────────────────────────────────────────────────────────
+
+# kind -> (rótulo, direção melhor, função que lê o valor atual). "up" = maior é
+# melhor; "down" = menor é melhor.
+_METRICS: dict[str, tuple[str, str, Callable[["ExecContext"], object]]] = {
+    "summary_quality": ("% de sínteses estruturadas", "up",
+                        lambda ctx: ctx.db.get_summary_quality().get("pct_structured")),
+    "dedup": ("duplicatas no log", "down",
+              lambda ctx: ctx.db.count_topic_duplicates()),
+}
+
+
+def metric_for(kind: str, ctx: ExecContext) -> dict | None:
+    """Valor ATUAL da métrica que motiva um projeto deste tipo. None se o tipo
+    não tem métrica automática."""
+    m = _METRICS.get(kind)
+    if not m:
+        return None
+    label, direction, fn = m
+    try:
+        value = fn(ctx)
+    except Exception:
+        value = None
+    return {"label": label, "direction": direction, "value": value}
+
+
+def capture_baseline(kind: str, ctx: ExecContext) -> dict | None:
+    """Fotografa a métrica no momento do adopt (o 'antes')."""
+    return metric_for(kind, ctx)
+
+
+def outcome(project: dict, ctx: ExecContext) -> dict:
+    """O antes→depois do projeto: re-mede a métrica e compara com o baseline.
+    `measurable: False` quando o tipo não tem métrica automática."""
+    kind = (project or {}).get("kind")
+    m = metric_for(kind, ctx)
+    if not m or m["value"] is None:
+        return {"measurable": False, "kind": kind}
+    baseline = (project or {}).get("baseline") or {}
+    base_val = baseline.get("value")
+    current = m["value"]
+    delta = improved = None
+    if isinstance(base_val, (int, float)) and isinstance(current, (int, float)):
+        delta = round(current - base_val, 3)
+        improved = delta > 0 if m["direction"] == "up" else delta < 0
+        if delta == 0:
+            improved = None                  # estável: nem melhor nem pior
+    return {"measurable": True, "label": m["label"], "direction": m["direction"],
+            "baseline": base_val, "current": current, "delta": delta,
+            "improved": improved}

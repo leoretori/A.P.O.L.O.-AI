@@ -216,6 +216,7 @@ class SelfProject(Base):
     title      = Column(Text, nullable=False)
     why        = Column(Text, default="")             # o sinal que motivou a meta
     tasks_json = Column(Text, default="[]")           # [{text, done}]
+    baseline_json = Column(Text, default="")          # M19.3: métrica no adopt (antes→depois)
     status     = Column(String(20), default="active")  # active | done | dismissed
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now)

@@ -112,3 +112,13 @@ def test_plano_run_conclui_com_db_vazio():
 def test_plano_run_projeto_inexistente():
     c = _client({})
     assert c.post("/api/projects/9999/plan/run", json={}).json()["ok"] is False
+
+
+def test_adopt_captura_baseline_e_outcome_mede():
+    # adota um projeto de dedup: baseline capturado; DB vazio → 0 duplicatas
+    c = _client({"duplicates": 30})
+    proj = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "Limpar"}).json()["project"]
+    assert proj["baseline"] is not None and proj["baseline"]["direction"] == "down"
+    d = c.get(f"/api/projects/{proj['id']}/outcome").json()
+    assert d["ok"] and d["outcome"]["measurable"] is True
+    assert d["outcome"]["baseline"] == 0 and d["outcome"]["current"] == 0

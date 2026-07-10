@@ -213,6 +213,9 @@ def test_execucao_supervisionada_de_passos_ligada():
     # M19.2: plano multi-passo com checkpoints
     assert "function runPlanUI" in app_js and "/plan/run" in app_js
     assert "needs_confirmation" in app_js and ".pe-ckpt" in css
+    # M19.3: propõe→faz→mede (antes→depois)
+    assert "function loadOutcome" in app_js and "/outcome" in app_js
+    assert ".pe-outcome" in css
 
 
 def test_retrospectiva_do_ano_ligada():

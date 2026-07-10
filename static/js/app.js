@@ -1583,7 +1583,7 @@
       const d = await fetch(`/api/projects/${id}/plan`).then(r=>r.json());
       const plan = (d.ok && d.plan) || [];
       if (!plan.length) { box.innerHTML = '<div class="pe-empty">Este projeto ainda não tem passos automáticos — os itens acima são manuais.</div>'; return; }
-      box.innerHTML = `<div class="pe-planhead"><button class="pe-planrun" onclick="runPlanUI(${id})">▶ Executar plano (com checkpoints)</button><div id="planrun-${id}" class="pe-planrun-out"></div></div>` + plan.map(s => `
+      box.innerHTML = `<div class="pe-planhead"><button class="pe-planrun" onclick="runPlanUI(${id})">▶ Executar plano (com checkpoints)</button> <button class="pe-btn" onclick="loadOutcome(${id})">📊 Medir resultado</button><div id="planrun-${id}" class="pe-planrun-out"></div><div id="outcome-${id}"></div></div>` + plan.map(s => `
         <div class="pe-step" id="pe-${id}-${s.key}">
           <div class="pe-row">
             <span class="pe-label">${escHtml(s.label)}${s.mutates?' <em class="pe-mut">muda dados</em>':' <em class="pe-ro">só lê</em>'}</span>
@@ -1642,9 +1642,27 @@
         out.innerHTML = '<div class="pe-empty">Nada automático a rodar aqui.</div>';
       } else {
         out.innerHTML = ran + '<div class="pe-done">✓ Plano concluído (100%).</div>';
-        loadProjects();
+        loadOutcome(id);   // renderiza no #outcome-${id} do cabeçalho do plano
       }
     } catch(e) { out.innerHTML = '<div class="pe-err">Erro no plano.</div>'; }
+  }
+
+  // ── Fecha o loop propõe→faz→MEDE (M19.3): antes→depois ──
+  async function loadOutcome(id) {
+    const box = document.getElementById('outcome-' + id);
+    if (!box) return;
+    try {
+      const d = await fetch(`/api/projects/${id}/outcome`).then(r=>r.json());
+      const o = d.ok && d.outcome;
+      if (!o || !o.measurable) { box.innerHTML = '<div class="pe-empty">Sem métrica automática para este projeto.</div>'; return; }
+      const arrow = o.improved === true ? '📈 melhorou' : (o.improved === false ? '📉 piorou' : '➖ estável');
+      const cls = o.improved === true ? 'pe-imp-up' : (o.improved === false ? 'pe-imp-down' : 'pe-imp-flat');
+      const deltaStr = (o.delta === null || o.delta === undefined) ? '' : ` (Δ ${o.delta > 0 ? '+' : ''}${o.delta})`;
+      box.innerHTML = `<div class="pe-outcome ${cls}">
+        <div class="pe-oc-t">${arrow} — ${escHtml(o.label)}</div>
+        <div class="pe-oc-v">antes: <b>${o.baseline}</b> → agora: <b>${o.current}</b>${escHtml(deltaStr)}</div>
+      </div>`;
+    } catch(e) { box.innerHTML = ''; }
   }
 
   // ── Automação web em sandbox (M10 10.3) ──

@@ -10,18 +10,26 @@ from src.storage_models import SelfProject, _now
 def _project_dict(r) -> dict:
     from src.projects import project_progress
     tasks = _json.loads(r.tasks_json or "[]")
+    try:
+        baseline = _json.loads(getattr(r, "baseline_json", "") or "null")
+    except Exception:
+        baseline = None
     return {"id": r.id, "kind": r.kind, "title": r.title, "why": r.why,
             "tasks": tasks, "status": r.status, "progress": project_progress(tasks),
+            "baseline": baseline,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None}
 
 
 class ProjectsMixin:
-    def save_self_project(self, kind: str, title: str, why: str, tasks: list[str]) -> dict:
+    def save_self_project(self, kind: str, title: str, why: str, tasks: list[str],
+                          baseline: dict | None = None) -> dict:
         rows = [{"text": t, "done": False} for t in (tasks or [])]
         with Session(self.engine) as s:
             row = SelfProject(kind=kind, title=title[:300], why=(why or "")[:300],
-                              tasks_json=_json.dumps(rows, ensure_ascii=False))
+                              tasks_json=_json.dumps(rows, ensure_ascii=False),
+                              baseline_json=_json.dumps(baseline, ensure_ascii=False)
+                              if baseline is not None else "")
             s.add(row)
             s.commit()
             return _project_dict(row)

@@ -48,6 +48,9 @@ class DatabaseManager(ConversationsMixin, LearningMixin, AnalyticsMixin,
             ("question", "TEXT DEFAULT ''"),
             ("answer", "TEXT DEFAULT ''"),
         ],
+        "self_projects": [                      # M19.3: baseline p/ o antes→depois
+            ("baseline_json", "TEXT DEFAULT ''"),
+        ],
     }
 
     def _migrate(self) -> None:

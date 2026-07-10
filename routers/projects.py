@@ -77,7 +77,12 @@ async def adopt(payload: dict):
     if not kind or not title:
         return {"ok": False, "error": "informe 'kind' e 'title'"}
     tasks = p.get("tasks") or P.break_into_tasks({"kind": kind})
-    proj = await asyncio.to_thread(rt.db.save_self_project, kind, title, p.get("why", ""), tasks)
+    # M19.3: fotografa a métrica que motivou a meta AGORA (o "antes"), para
+    # medir o antes→depois quando o projeto concluir.
+    from src.project_exec import capture_baseline
+    baseline = await asyncio.to_thread(capture_baseline, kind, _exec_ctx())
+    proj = await asyncio.to_thread(rt.db.save_self_project, kind, title,
+                                   p.get("why", ""), tasks, baseline)
     return {"ok": True, "project": proj}
 
 
@@ -174,3 +179,14 @@ async def project_plan_run(project_id: int, payload: dict | None = None):
     confirm = (payload or {}).get("confirm")
     out = await asyncio.to_thread(run_plan, proj, _exec_ctx(), confirm=confirm)
     return {"ok": True, **out}
+
+
+@router.get("/api/projects/{project_id}/outcome")
+async def project_outcome(project_id: int):
+    """Fecha o loop propõe→faz→MEDE (M19.3): re-mede a métrica que motivou o
+    projeto e mostra o antes→depois (melhorou de verdade?)."""
+    from src.project_exec import outcome
+    proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
+    if proj is None:
+        return {"ok": False, "error": "projeto não encontrado"}
+    return {"ok": True, "outcome": await asyncio.to_thread(outcome, proj, _exec_ctx())}
