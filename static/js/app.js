@@ -1556,7 +1556,8 @@
             </div>
           </div>
           <div style="height:5px;background:#08080b;border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${p.progress}%;background:${done?'#4ade80':'#5b9cff'}"></div></div>
-          ${tasks}</div>`;
+          ${tasks}
+          <div class="proj-exec"><button class="pe-toggle" onclick="loadPlan(${p.id})">⚙ Passos que posso executar</button><div id="plan-${p.id}"></div></div></div>`;
       }).join('');
     } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
@@ -1571,6 +1572,51 @@
     try { await fetch(`/api/projects/${id}/status`, {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({status:'dismissed'})}); } catch {}
     loadProjects();
+  }
+
+  // ── Execução supervisionada dos passos (M19.1): preview → executar ──
+  async function loadPlan(id) {
+    const box = document.getElementById('plan-' + id);
+    if (!box) return;
+    box.innerHTML = '<div class="pe-empty">Carregando passos...</div>';
+    try {
+      const d = await fetch(`/api/projects/${id}/plan`).then(r=>r.json());
+      const plan = (d.ok && d.plan) || [];
+      if (!plan.length) { box.innerHTML = '<div class="pe-empty">Este projeto ainda não tem passos automáticos — os itens acima são manuais.</div>'; return; }
+      box.innerHTML = plan.map(s => `
+        <div class="pe-step" id="pe-${id}-${s.key}">
+          <div class="pe-row">
+            <span class="pe-label">${escHtml(s.label)}${s.mutates?' <em class="pe-mut">muda dados</em>':' <em class="pe-ro">só lê</em>'}</span>
+            <button class="pe-btn" onclick="previewStepUI(${id},'${s.key}')">Prever</button>
+          </div>
+          <div class="pe-out"></div>
+        </div>`).join('');
+    } catch(e) { box.innerHTML = '<div class="pe-empty">Erro ao carregar os passos.</div>'; }
+  }
+
+  async function previewStepUI(id, key) {
+    const out = document.querySelector(`#pe-${id}-${key} .pe-out`);
+    if (!out) return;
+    out.innerHTML = '<div class="pe-thinking">Prevendo...</div>';
+    try {
+      const d = await fetch(`/api/projects/${id}/steps/${key}/preview`, {method:'POST'}).then(r=>r.json());
+      if (!d.ok) { out.innerHTML = `<div class="pe-err">${escHtml(d.error||'falhou')}</div>`; return; }
+      const summary = (d.preview && d.preview.summary) || 'Pronto para executar.';
+      out.innerHTML = `<div class="pe-preview">${escHtml(summary)}</div>
+        <button class="pe-run ${d.mutates?'pe-run-mut':''}" onclick="runStepUI(${id},'${key}')">${d.mutates?'Confirmar e executar':'Executar'}</button>`;
+    } catch(e) { out.innerHTML = '<div class="pe-err">Erro na prévia.</div>'; }
+  }
+
+  async function runStepUI(id, key) {
+    const out = document.querySelector(`#pe-${id}-${key} .pe-out`);
+    if (!out) return;
+    out.innerHTML = '<div class="pe-thinking">Executando...</div>';
+    try {
+      const d = await fetch(`/api/projects/${id}/steps/${key}/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({})}).then(r=>r.json());
+      if (!d.ok) { out.innerHTML = `<div class="pe-err">${escHtml(d.error||'falhou')}</div>`; return; }
+      const measure = d.measure ? Object.entries(d.measure).map(([k,v])=>`${k}: ${v}`).join(' · ') : '';
+      out.innerHTML = `<div class="pe-done">✓ Executado.${measure?' Medição — '+escHtml(measure):''}</div>`;
+    } catch(e) { out.innerHTML = '<div class="pe-err">Erro ao executar.</div>'; }
   }
 
   // ── Automação web em sandbox (M10 10.3) ──

@@ -112,3 +112,51 @@ async def set_status(project_id: int, payload: dict):
 async def delete_project(project_id: int):
     ok = await asyncio.to_thread(rt.db.delete_self_project, project_id)
     return {"ok": ok}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Execução supervisionada (M19.1): do propor ao FAZER. Os passos ganham um
+# executor real, sempre no contrato de dois passos (preview → run).
+# ─────────────────────────────────────────────────────────────────────────
+
+def _exec_ctx():
+    from src.project_exec import ExecContext
+    return ExecContext(db=rt.db, rag=rt.rag, learner=rt.learner)
+
+
+@router.get("/api/projects/{project_id}/plan")
+async def project_plan(project_id: int):
+    """Os passos que o A.P.O.L.O. pode EXECUTAR sozinho neste projeto (os demais
+    seguem manuais, no checklist)."""
+    from src.project_exec import plan_for
+    proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
+    if proj is None:
+        return {"ok": False, "error": "projeto não encontrado"}
+    return {"ok": True, "project": proj, "plan": plan_for(proj)}
+
+
+@router.post("/api/projects/{project_id}/steps/{key}/preview")
+async def project_step_preview(project_id: int, key: str):
+    """Fase 1 — prévia do passo, SEM efeito (o que rodá-lo faria)."""
+    from src.project_exec import preview_step
+    proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
+    if proj is None:
+        return {"ok": False, "error": "projeto não encontrado"}
+    return await asyncio.to_thread(preview_step, key, _exec_ctx())
+
+
+@router.post("/api/projects/{project_id}/steps/{key}/run")
+async def project_step_run(project_id: int, key: str, payload: dict | None = None):
+    """Fase 2 — executa o passo de fato e RE-MEDE. Se `task_index` vier, marca
+    aquele item do checklist como feito (a execução avança o projeto)."""
+    from src.project_exec import run_step
+    proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
+    if proj is None:
+        return {"ok": False, "error": "projeto não encontrado"}
+    out = await asyncio.to_thread(run_step, key, _exec_ctx())
+    if out.get("ok"):
+        idx = (payload or {}).get("task_index")
+        if idx is not None:
+            proj = await asyncio.to_thread(rt.db.set_project_task, project_id, int(idx), True)
+        out["project"] = proj
+    return out

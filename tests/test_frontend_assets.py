@@ -200,6 +200,18 @@ def test_projetos_autodirigidos_ligados():
     assert "#projects-open-btn" in css
 
 
+def test_execucao_supervisionada_de_passos_ligada():
+    """M19.1 — o painel 🎯 Projetos ganha a EXECUÇÃO dos passos: cada projeto
+    lista os passos que o Apolo roda sozinho, no contrato preview→executar,
+    consumindo /api/projects/{id}/plan e .../steps/{key}/preview|run."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    for fn in ("function loadPlan", "function previewStepUI", "function runStepUI",
+               "/plan", "/steps/", "/preview", "/run"):
+        assert fn in app_js, fn
+    assert ".pe-step" in css and ".pe-run" in css
+
+
 def test_retrospectiva_do_ano_ligada():
     """M12 12.2 — o painel 🎯 Projetos tem a retrospectiva do ano com botão de FALAR
     (DoD do M12: apresenta por voz), consumindo /api/retrospective."""

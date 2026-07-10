@@ -773,6 +773,27 @@
     .tl-pc-last { font-size:10.5px; color:#6b6478; flex-shrink:0; }
     .tl-pc-ctx { font-size:12px; color:#8a8494; margin-top:4px; }
     .tl-pc-with { font-size:11px; color:#6b6478; margin-top:6px; }
+    /* Execução supervisionada de passos (M19.1) */
+    .proj-exec { margin-top:9px; border-top:1px dashed #1c1c24; padding-top:8px; }
+    .pe-toggle { background:none; border:1px solid #22222e; color:#8a8494; font-size:11px; padding:4px 10px; border-radius:7px; cursor:pointer; }
+    .pe-toggle:hover { border-color:#3a2f0a; color:var(--sun); }
+    .pe-empty { color:#555; font-size:11.5px; padding:8px 0; }
+    .pe-step { margin-top:8px; padding:8px 10px; background:#0c0c10; border:1px solid #1a1a22; border-radius:8px; }
+    .pe-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .pe-label { font-size:12px; color:#cdd; }
+    .pe-mut { font-style:normal; font-size:9px; color:#f0a; background:#22101c; border:1px solid #3a1a2e; border-radius:99px; padding:1px 6px; }
+    .pe-ro { font-style:normal; font-size:9px; color:#4ade80; background:#0c1a10; border:1px solid #1a2f1e; border-radius:99px; padding:1px 6px; }
+    .pe-btn { background:#12121a; border:1px solid #2a2a35; color:#aab; font-size:11px; padding:3px 10px; border-radius:6px; cursor:pointer; white-space:nowrap; }
+    .pe-btn:hover { border-color:#4a4a5a; color:#fff; }
+    .pe-out:empty { display:none; }
+    .pe-out { margin-top:7px; }
+    .pe-preview { font-size:11.5px; color:#9a94a4; line-height:1.5; margin-bottom:6px; }
+    .pe-run { background:#0c1a10; border:1px solid #1e3a24; color:#4ade80; font-size:11px; font-weight:600; padding:4px 12px; border-radius:6px; cursor:pointer; }
+    .pe-run-mut { background:#1a0a05; border-color:#3a2f0a; color:var(--sun); }
+    .pe-run:hover { filter:brightness(1.25); }
+    .pe-thinking { font-size:11px; color:#666; }
+    .pe-done { font-size:11.5px; color:#4ade80; line-height:1.5; }
+    .pe-err { font-size:11.5px; color:#f87171; }
     /* Modelo profundo do Leo (M16.1 seções / M16.2 candidatos) */
     .pf-sec { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#8a8494; margin:14px 0 7px; }
     .pf-sec:first-child { margin-top:0; }
