@@ -5,6 +5,7 @@ from src.project_exec import (
     get_op,
     plan_for,
     preview_step,
+    run_plan,
     run_step,
 )
 
@@ -94,3 +95,38 @@ def test_run_dedup_index_dry_run_no_preview():
 def test_passo_desconhecido():
     assert preview_step("nao_existe", _ctx())["ok"] is False
     assert run_step("nao_existe", _ctx())["ok"] is False
+
+
+# ───────────────────────────── M19.2 plano multi-passo ──────────────────────
+def test_plano_para_no_primeiro_passo_sensivel():
+    # dedup: [measure_duplicates(read), dedup_topics(mut), dedup_index(mut)]
+    db, rag = FakeDB(dups=5), FakeRag(dups=2)
+    out = run_plan({"kind": "dedup"}, _ctx(db=db, rag=rag))
+    assert out["status"] == "needs_confirmation"
+    assert out["checkpoint"] == "dedup_topics"       # parou na 1ª mutação
+    assert [r["key"] for r in out["ran"]] == ["measure_duplicates"]  # rodou a medição
+    assert db.deduped is False                        # NÃO mutou sem confirmar
+    assert out["preview"]["count"] == 5
+
+
+def test_plano_confirma_passo_e_avanca_ao_proximo_checkpoint():
+    db, rag = FakeDB(dups=5), FakeRag(dups=2)
+    out = run_plan({"kind": "dedup"}, _ctx(db=db, rag=rag), confirm="dedup_topics")
+    # rodou a medição + a mutação confirmada, e parou na PRÓXIMA mutação
+    assert out["status"] == "needs_confirmation"
+    assert out["checkpoint"] == "dedup_index"
+    assert db.deduped is True and rag.deleted is False
+    assert [r["key"] for r in out["ran"]] == ["measure_duplicates", "dedup_topics"]
+
+
+def test_plano_pula_mutacao_ja_resolvida_idempotente():
+    # sem duplicatas: as mutações re-medem 0 → puladas, plano conclui sozinho
+    db, rag = FakeDB(dups=0), FakeRag(dups=0)
+    out = run_plan({"kind": "dedup"}, _ctx(db=db, rag=rag))
+    assert out["status"] == "done" and out["progress"] == 100
+    skipped = [r["key"] for r in out["ran"] if r.get("skipped")]
+    assert "dedup_topics" in skipped and "dedup_index" in skipped
+
+
+def test_plano_vazio_para_tipo_manual():
+    assert run_plan({"kind": "gaps"}, _ctx())["status"] == "empty"

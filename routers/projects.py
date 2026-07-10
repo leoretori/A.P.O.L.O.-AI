@@ -160,3 +160,17 @@ async def project_step_run(project_id: int, key: str, payload: dict | None = Non
             proj = await asyncio.to_thread(rt.db.set_project_task, project_id, int(idx), True)
         out["project"] = proj
     return out
+
+
+@router.post("/api/projects/{project_id}/plan/run")
+async def project_plan_run(project_id: int, payload: dict | None = None):
+    """Executa o PLANO multi-passo (M19.2): roda os passos seguros sozinho e PARA
+    num checkpoint para confirmar cada passo sensível. `confirm` autoriza o passo
+    do checkpoint atual; chame de novo para seguir até o próximo. Retomável."""
+    from src.project_exec import run_plan
+    proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
+    if proj is None:
+        return {"ok": False, "error": "projeto não encontrado"}
+    confirm = (payload or {}).get("confirm")
+    out = await asyncio.to_thread(run_plan, proj, _exec_ctx(), confirm=confirm)
+    return {"ok": True, **out}

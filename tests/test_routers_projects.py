@@ -12,10 +12,16 @@ import routers.projects as pr
 from routers.projects import router
 
 
+class _FakeRag:
+    """Índice mínimo para os passos executáveis (M19.1/19.2) — sem duplicatas."""
+    def dedup_exact(self, dry_run=False):
+        return 0
+
+
 def _client(signals):
     d = tempfile.mkdtemp()
     db = DatabaseManager(f"sqlite:///{Path(d) / 'app.db'}")
-    rt.configure(db=db, learner=None)
+    rt.configure(db=db, learner=None, rag=_FakeRag())
     # injeta os sinais (evita depender das dezenas de métricas reais)
     pr._gather_signals = lambda: signals
     app = FastAPI()
@@ -92,3 +98,17 @@ def test_step_desconhecido():
     c = _client({"duplicates": 30})
     pid = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "L"}).json()["project"]["id"]
     assert c.post(f"/api/projects/{pid}/steps/nao_existe/run").json()["ok"] is False
+
+
+def test_plano_run_conclui_com_db_vazio():
+    # DB de teste vazio → sem duplicatas: as mutações re-medem 0 e são puladas,
+    # o plano roda até o fim sozinho (medição + mutações no-op).
+    c = _client({"duplicates": 30})
+    pid = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "Limpar"}).json()["project"]["id"]
+    d = c.post(f"/api/projects/{pid}/plan/run", json={}).json()
+    assert d["ok"] and d["status"] == "done" and d["progress"] == 100
+
+
+def test_plano_run_projeto_inexistente():
+    c = _client({})
+    assert c.post("/api/projects/9999/plan/run", json={}).json()["ok"] is False

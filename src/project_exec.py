@@ -160,3 +160,46 @@ def run_step(key: str, ctx: ExecContext) -> dict:
         return {"ok": True, "key": key, "label": op.label, "mutated": op.mutates, **out}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 19.2 — Plano multi-passo VERIFICÁVEL com checkpoints.
+# O Apolo roda a sequência sozinho: executa os passos SEGUROS (medições) e PARA
+# para confirmar nos pontos sensíveis (mutações). Idempotente e retomável SEM
+# store novo: uma mutação já aplicada re-mede 0 pendências → é pulada, e o plano
+# segue até o próximo checkpoint.
+# ─────────────────────────────────────────────────────────────────────────
+
+def _is_noop(preview: dict) -> bool:
+    """A mutação não tem o que fazer? (preview reporta contagem zero.)"""
+    return preview.get("count") == 0
+
+
+def run_plan(project: dict, ctx: ExecContext, *, confirm: str | None = None) -> dict:
+    """Roda o plano do projeto em ordem, parando no 1º passo sensível não
+    confirmado (checkpoint). `confirm` = a chave do passo que o Leo autorizou
+    AGORA. Devolve `status` ∈ {'done','needs_confirmation','empty'} + o que rodou
+    e o progresso, para o front reportar e retomar."""
+    steps = plan_for(project)
+    if not steps:
+        return {"status": "empty", "ran": [], "progress": 0, "total": 0}
+    ran: list[dict] = []
+    for i, s in enumerate(steps):
+        key = s["key"]
+        if s["mutates"]:
+            pv = preview_step(key, ctx)
+            preview = pv.get("preview", {}) if pv.get("ok") else {}
+            if _is_noop(preview):            # nada a fazer → já resolvido, pula
+                ran.append({"key": key, "label": s["label"], "ok": True,
+                            "mutated": False, "skipped": True})
+                continue
+            if key != confirm:               # checkpoint: para e pede confirmação
+                return {"status": "needs_confirmation", "checkpoint": key,
+                        "label": s["label"], "preview": preview,
+                        "ran": ran, "progress": round(100 * i / len(steps)),
+                        "total": len(steps)}
+            confirm = None                   # token consumido: vale p/ ESTA mutação
+        out = run_step(key, ctx)
+        ran.append({"key": key, "label": s["label"], "ok": out.get("ok"),
+                    "mutated": out.get("mutated", False), "measure": out.get("measure")})
+    return {"status": "done", "ran": ran, "progress": 100, "total": len(steps)}

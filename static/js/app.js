@@ -1583,7 +1583,7 @@
       const d = await fetch(`/api/projects/${id}/plan`).then(r=>r.json());
       const plan = (d.ok && d.plan) || [];
       if (!plan.length) { box.innerHTML = '<div class="pe-empty">Este projeto ainda não tem passos automáticos — os itens acima são manuais.</div>'; return; }
-      box.innerHTML = plan.map(s => `
+      box.innerHTML = `<div class="pe-planhead"><button class="pe-planrun" onclick="runPlanUI(${id})">▶ Executar plano (com checkpoints)</button><div id="planrun-${id}" class="pe-planrun-out"></div></div>` + plan.map(s => `
         <div class="pe-step" id="pe-${id}-${s.key}">
           <div class="pe-row">
             <span class="pe-label">${escHtml(s.label)}${s.mutates?' <em class="pe-mut">muda dados</em>':' <em class="pe-ro">só lê</em>'}</span>
@@ -1617,6 +1617,34 @@
       const measure = d.measure ? Object.entries(d.measure).map(([k,v])=>`${k}: ${v}`).join(' · ') : '';
       out.innerHTML = `<div class="pe-done">✓ Executado.${measure?' Medição — '+escHtml(measure):''}</div>`;
     } catch(e) { out.innerHTML = '<div class="pe-err">Erro ao executar.</div>'; }
+  }
+
+  // ── Plano multi-passo com checkpoints (M19.2) ──
+  function _measureStr(m) {
+    return m ? Object.entries(m).map(([k,v])=>`${k}: ${v}`).join(' · ') : '';
+  }
+  async function runPlanUI(id, confirm) {
+    const out = document.getElementById('planrun-' + id);
+    if (!out) return;
+    out.innerHTML = '<div class="pe-thinking">Executando o plano...</div>';
+    try {
+      const body = JSON.stringify(confirm ? {confirm} : {});
+      const d = await fetch(`/api/projects/${id}/plan/run`, {method:'POST', headers:{'Content-Type':'application/json'}, body}).then(r=>r.json());
+      if (!d.ok) { out.innerHTML = `<div class="pe-err">${escHtml(d.error||'falhou')}</div>`; return; }
+      const ran = (d.ran||[]).map(r=>`<div class="pe-ranrow">${r.skipped?'⏭️':'✓'} ${escHtml(r.label)}${r.measure?' <span class="pe-ranm">'+escHtml(_measureStr(r.measure))+'</span>':''}</div>`).join('');
+      if (d.status === 'needs_confirmation') {
+        out.innerHTML = ran + `<div class="pe-ckpt">
+          <div class="pe-ckpt-t">⏸️ Checkpoint — precisa da sua confirmação (${d.progress}%)</div>
+          <div class="pe-ckpt-p">${escHtml((d.preview&&d.preview.summary)||d.label)}</div>
+          <button class="pe-run pe-run-mut" onclick="runPlanUI(${id},'${d.checkpoint}')">Confirmar e continuar</button>
+        </div>`;
+      } else if (d.status === 'empty') {
+        out.innerHTML = '<div class="pe-empty">Nada automático a rodar aqui.</div>';
+      } else {
+        out.innerHTML = ran + '<div class="pe-done">✓ Plano concluído (100%).</div>';
+        loadProjects();
+      }
+    } catch(e) { out.innerHTML = '<div class="pe-err">Erro no plano.</div>'; }
   }
 
   // ── Automação web em sandbox (M10 10.3) ──
