@@ -232,6 +232,19 @@ def is_effect(step: dict) -> bool:
     return step.get("op") in EFFECT_OPS or bool(step.get("effect"))
 
 
+# Segredos (M20.3): logins não ficam em texto puro na receita. Um passo
+# `fill` pode trazer `secret: "NOME"` em vez de `value`; o valor é resolvido de
+# `APOLO_WEB_SECRET_<NOME>` na hora de rodar e é REDIGIDO em prévia/trilha/traço.
+SECRET_ENV_PREFIX = "APOLO_WEB_SECRET_"
+_REDACTED = "•••"
+
+
+def resolve_secret(name: str) -> str | None:
+    """Valor do segredo pelo ambiente (soberano, sem texto puro no banco)."""
+    import os
+    return os.environ.get(SECRET_ENV_PREFIX + (name or "").strip().upper())
+
+
 def describe_step(step: dict) -> str:
     """Frase legível do que o passo FARÁ — a base do 'preview de cada passo'."""
     op = step.get("op")
@@ -244,6 +257,8 @@ def describe_step(step: dict) -> str:
     if op == "click":
         return f"clicar em {step.get('selector') or '“' + step.get('contains', '') + '”'}"
     if op == "fill":
+        if step.get("secret"):
+            return f"preencher {step.get('selector', '')} com {_REDACTED} (segredo {step['secret']})"
         return f"preencher {step.get('selector', '')} com “{step.get('value', '')}”"
     if op == "submit":
         alvo = step.get('selector')
@@ -288,8 +303,8 @@ def validate_interactive(steps: list[dict], allowed: list[str]) -> list[str]:
         elif op == "fill":
             if not st.get("selector"):
                 errors.append(f"passo {i + 1}: 'fill' precisa de 'selector'")
-            if "value" not in st:
-                errors.append(f"passo {i + 1}: 'fill' precisa de 'value'")
+            if "value" not in st and not st.get("secret"):
+                errors.append(f"passo {i + 1}: 'fill' precisa de 'value' ou 'secret'")
         # 'submit' não tem args obrigatórios (form atual ou por selector)
     if navs > MAX_NAV:
         errors.append(f"navegações demais (máx {MAX_NAV})")
@@ -410,8 +425,18 @@ def run_interactive(steps: list[dict], driver, allowed: list[str], *,
                 if not page:
                     return {"ok": False, "error": "'fill' sem página aberta",
                             "results": results, "trace": trace, "visited": visited, "ledger": ledger}
-                page = driver.fill(st["selector"], st.get("value", ""))
-                _record("fill", describe_step(st))
+                if st.get("secret"):
+                    value = resolve_secret(st["secret"])
+                    if value is None:
+                        _record("fill", f"segredo '{st['secret']}' não definido", ok=False)
+                        return {"ok": False,
+                                "error": f"segredo '{st['secret']}' ausente — defina "
+                                         f"{SECRET_ENV_PREFIX}{st['secret'].upper()} no ambiente",
+                                "results": results, "trace": trace, "visited": visited, "ledger": ledger}
+                else:
+                    value = st.get("value", "")
+                page = driver.fill(st["selector"], value)
+                _record("fill", describe_step(st))       # describe_step redige o segredo
             elif op == "submit":
                 if not page:
                     return {"ok": False, "error": "'submit' sem página aberta",

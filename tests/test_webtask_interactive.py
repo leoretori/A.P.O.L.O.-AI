@@ -2,6 +2,7 @@
 cada passo e o gate de efeito ('nunca um clique cego')."""
 
 from src.webtask import (
+    SECRET_ENV_PREFIX,
     describe_step,
     is_effect,
     preview_interactive,
@@ -109,3 +110,35 @@ def test_submit_para_fora_da_sandbox_e_bloqueado():
     d = FakeInteractiveDriver(submit_url="https://evil.com/steal")
     out = run_interactive(_recipe(), d, ALLOWED, confirm_effects=True)
     assert out["ok"] is False and "sandbox" in out["error"]
+
+
+# ───────────────── M20.3 login seguro: segredos, nunca em texto puro ─────────
+def _login_recipe():
+    return [
+        {"op": "open", "url": "https://example.com/login"},
+        {"op": "fill", "selector": "#user", "value": "leo"},
+        {"op": "fill", "selector": "#pass", "secret": "MINHA_SENHA"},
+    ]
+
+
+def test_fill_aceita_secret_no_lugar_de_value():
+    errs = validate_interactive(_login_recipe(), ALLOWED)
+    assert errs == []
+
+
+def test_secret_e_redigido_na_previa_e_no_traco(monkeypatch):
+    monkeypatch.setenv(SECRET_ENV_PREFIX + "MINHA_SENHA", "s3nh4-secreta")
+    d = FakeInteractiveDriver()
+    out = run_interactive(_login_recipe(), d, ALLOWED)
+    # o valor REAL foi preenchido no campo...
+    assert d.filled["#pass"] == "s3nh4-secreta"
+    # ...mas NUNCA aparece na prévia nem no traço (redigido)
+    step = {"op": "fill", "selector": "#pass", "secret": "MINHA_SENHA"}
+    assert "s3nh4-secreta" not in describe_step(step) and "•••" in describe_step(step)
+    assert all("s3nh4-secreta" not in t["detail"] for t in out["trace"])
+
+
+def test_secret_ausente_falha_claro(monkeypatch):
+    monkeypatch.delenv(SECRET_ENV_PREFIX + "MINHA_SENHA", raising=False)
+    out = run_interactive(_login_recipe(), FakeInteractiveDriver(), ALLOWED)
+    assert out["ok"] is False and "MINHA_SENHA" in out["error"]
