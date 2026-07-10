@@ -319,6 +319,14 @@ async def chat(req: cc.ChatRequest):
                 system_content += PERSONAL_SECTION.format(facts=profile_facts)
             if proj_section:
                 system_content += proj_section
+            # Ritmo & tom (M17.2): diretriz de estilo derivada das preferências
+            # do perfil. Depende do MESMO profile → o cache (chaveado por
+            # profile_facts) já invalida quando a preferência muda.
+            if rt.profile:
+                from src.style import derive_tone, style_directive
+                directive = style_directive(derive_tone(rt.profile))
+                if directive:
+                    system_content += "\n\n" + directive
             _syscache_put(req.session_id, system_content, profile_facts, proj_section)
 
         # Memória de conversa longa: injeta o resumo das mensagens antigas (não enviadas).

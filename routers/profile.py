@@ -106,3 +106,11 @@ async def reject_candidate(cand_id: str):
     if not rt.profile or not hasattr(rt.profile, "reject"):
         return {"ok": False}
     return {"ok": rt.profile.reject(cand_id)}
+
+
+@router.get("/api/style")
+async def get_style():
+    """Tom que o A.P.O.L.O. adotou (M17.2) — derivado das suas preferências.
+    Transparente e reversível: mude as preferências no perfil e o tom muda."""
+    from src.style import describe
+    return describe(rt.profile)
