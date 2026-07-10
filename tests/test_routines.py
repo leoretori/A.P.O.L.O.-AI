@@ -9,7 +9,6 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-import pytest
 
 from src import routines as R
 from src.tools import files_write  # noqa: F401  registra a ação files.write

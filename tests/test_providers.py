@@ -1,6 +1,5 @@
 """Testes da abstração de provedor de inferência (Ollama vs motor próprio)."""
 
-import os
 
 import pytest
 

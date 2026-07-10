@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import random
 
 import httpx
 from bs4 import BeautifulSoup

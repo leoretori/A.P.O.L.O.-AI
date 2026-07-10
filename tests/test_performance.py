@@ -5,7 +5,6 @@ rápido e em CI. Garantem que uma regressão (ex.: cache removido sem querer) se
 pega cedo.
 """
 
-import time
 
 from src.knowledge import SupabaseKnowledge
 from src.telemetry import LatencyTracker

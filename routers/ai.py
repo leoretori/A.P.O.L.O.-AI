@@ -32,12 +32,12 @@ async def research(req: cc.ChatRequest):
         rt.learner.add_user_topic(question)
 
     async def stream():
-        answer, sources = "", []
+        answer = ""
         try:
             async for ev in rt.researcher.research(question):
                 if ev["type"] == "done":
                     answer = ev.get("answer", "")
-                    sources = ev.get("sources", [])
+                # as fontes já vão ao cliente no próprio evento streamado
                 yield f"data: {json.dumps(ev)}\n\n"
         except Exception as e:
             logger.error(f"Erro na pesquisa: {e}", exc_info=True)

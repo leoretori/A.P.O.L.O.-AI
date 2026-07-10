@@ -26,7 +26,6 @@ STATIC = ROOT / "static"
 def _draw_sun(draw: ImageDraw.ImageDraw, size: int) -> None:
     """Desenha o sol do A.P.O.L.O. no objeto ImageDraw."""
     cx = cy = size // 2
-    margin = int(size * 0.06)
 
     # Raios (8 barras arredondadas ao redor do núcleo)
     ray_len   = int(size * 0.165)

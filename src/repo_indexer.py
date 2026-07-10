@@ -11,7 +11,6 @@ Arquivos grandes são quebrados em chunks com overlap para preservar contexto.
 
 import asyncio
 import logging
-import os
 import re
 import shutil
 import subprocess

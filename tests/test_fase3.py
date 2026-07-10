@@ -1,6 +1,5 @@
 """Testes da Fase 3 — Percepção e Voz (DOCX, Whisper, chunking)."""
 
-import io
 import pytest
 
 
@@ -54,7 +53,6 @@ def test_whisper_is_available_false_sem_modulo(monkeypatch):
 def test_whisper_transcribe_retorna_none_sem_modulo(monkeypatch):
     """transcribe() retorna None graciosamente quando faster-whisper não existe."""
     import src.whisper_stt as w
-    import importlib
     # Garante que _model está None (nenhum modelo carregado)
     w._model = None
     w._model_size = None

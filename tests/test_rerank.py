@@ -49,7 +49,6 @@ def test_rerank_remove_quase_duplicata_de_conteudo():
         {"title": "C", "snippet": "kubernetes orquestra contêineres em produção", "relevance": 0.6},
     ]
     out = _rerank("python asyncio", cands, top=5)
-    snippets = " ".join(c["title"] for c in out)
     # A e B são quase idênticos → só um sobrevive; C entra.
     assert len(out) == 2
     assert "C" in [c["title"] for c in out]

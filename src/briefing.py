@@ -118,7 +118,7 @@ def _compose_text(greeting: str, learned_count: int, top_sectors: list,
 
     if schedules:
         topics = [s.get("topic", "") for s in schedules][:3]
-        parts.append(f"Na sua agenda de estudos: " + _join_natural(topics) + ".")
+        parts.append("Na sua agenda de estudos: " + _join_natural(topics) + ".")
 
     if reminders:
         rtexts = [r.get("text", "") for r in reminders][:3]

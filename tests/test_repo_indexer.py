@@ -1,9 +1,5 @@
 """Testes do analisador de repositórios (src/repo_indexer.py)."""
 
-import os
-import shutil
-import tempfile
-from pathlib import Path
 
 import pytest
 

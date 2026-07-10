@@ -1,6 +1,5 @@
 """Testes da base de conhecimento local (SQLite FTS5)."""
 
-import json
 import pytest
 
 from src.local_knowledge import LocalKnowledge

@@ -3263,14 +3263,67 @@
   async function loadProfile() {
     const body = document.getElementById('pf-body');
     try {
-      const d = await fetch('/api/profile').then(r => r.json());
+      const [d, cand] = await Promise.all([
+        fetch('/api/profile').then(r => r.json()),
+        fetch('/api/profile/candidates').then(r => r.json()).catch(() => ({candidates: []})),
+      ]);
       const facts = d.facts || [];
-      body.innerHTML = facts.length
-        ? facts.map(f => `<div class="pf-item"><span>${escHtml(f.fact)}${f.source === 'auto' ? ' <em class="pf-auto" title="Aprendido automaticamente da conversa">auto</em>' : ''}</span><button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button></div>`).join('')
-        : '<div class="pf-empty">Ainda não sei nada sobre você.<br>Adicione um fato acima, use <code>/remember ...</code> no chat — ou apenas converse, que eu aprendo sozinho.</div>';
+      const byCat = d.by_category || {};
+      const labels = d.categories || {};
+      const cands = (cand && cand.candidates) || [];
+
+      let html = '';
+      // Candidatos a confirmar (M16.2 — "Quem eu acho que você é")
+      if (cands.length) {
+        html += `<div class="pf-cand-head">💡 Aprendi isto de você — confirma?</div>`;
+        html += cands.map(c => `
+          <div class="pf-cand" data-id="${c.id}">
+            <span>${escHtml(c.text)} <em class="pf-auto">${escHtml(labels[c.category] || c.category)}</em></span>
+            <span class="pf-cand-btns">
+              <button class="pf-ok" onclick="confirmCandUI('${c.id}')" title="Confirmar">✓</button>
+              <button class="pf-del" onclick="rejectCandUI('${c.id}')" title="Descartar">✕</button>
+            </span>
+          </div>`).join('');
+      }
+
+      // Modelo confirmado, agrupado por seção (M16.1)
+      const cats = Object.keys(byCat);
+      if (cats.length) {
+        html += cats.map(cat => {
+          const items = byCat[cat] || [];
+          if (!items.length) return '';
+          return `<div class="pf-sec">${escHtml(labels[cat] || cat)}</div>` +
+            items.map(f => {
+              const hz = f.horizon === 'short' ? ' <em class="pf-auto">curto</em>'
+                       : f.horizon === 'long' ? ' <em class="pf-auto">longo</em>' : '';
+              const au = f.source === 'auto' ? ' <em class="pf-auto" title="Aprendido da conversa">auto</em>' : '';
+              return `<div class="pf-item"><span>${escHtml(f.fact)}${hz}${au}</span><button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button></div>`;
+            }).join('');
+        }).join('');
+      } else if (facts.length) {  // fallback: sem agrupamento (perfil legado)
+        html += facts.map(f => `<div class="pf-item"><span>${escHtml(f.fact)}</span><button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button></div>`).join('');
+      }
+
+      body.innerHTML = html ||
+        '<div class="pf-empty">Ainda não sei nada sobre você.<br>Adicione algo acima, use <code>/remember ...</code> no chat — ou apenas converse, que eu proponho e você confirma.</div>';
     } catch(e) {
       body.innerHTML = `<div class="pf-empty">Erro ao carregar: ${escHtml(e.message)}</div>`;
     }
+  }
+
+  async function confirmCandUI(id) {
+    try {
+      await fetch('/api/profile/candidates/' + encodeURIComponent(id) + '/confirm',
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      await loadProfile();
+    } catch(e) { showIngestToast(`⚠ Falha: ${escHtml(e.message)}`); }
+  }
+
+  async function rejectCandUI(id) {
+    try {
+      await fetch('/api/profile/candidates/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
+      await loadProfile();
+    } catch(e) { showIngestToast(`⚠ Falha: ${escHtml(e.message)}`); }
   }
 
   async function addFactUI() {

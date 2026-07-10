@@ -2,7 +2,6 @@
 normaliza, tolera preâmbulo e erro de transcrição (edit-distance ≤1), e devolve
 o comando após a wake word. Endpoints config/detect.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from app import app

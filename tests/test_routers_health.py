@@ -36,7 +36,6 @@ def test_rotas_registradas():
 
 
 def test_boot_agrega(monkeypatch):
-    import routers.health as h
 
     class FakeProvider:
         def list_models(self): return ["qwen2.5-coder:3b"]

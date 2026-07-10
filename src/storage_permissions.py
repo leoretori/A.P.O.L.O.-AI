@@ -3,7 +3,7 @@
 Mixin: guarda os consentimentos do usuário (grants por escopo) e o log de toda
 invocação de ferramenta que toca o mundo. É a base da agência com permissão."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 

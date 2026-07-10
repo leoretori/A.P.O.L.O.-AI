@@ -291,9 +291,10 @@ class RAGManager:
 
 # Reranker compartilhado (também usado pela base Supabase). Re-exportado com os
 # nomes "privados" históricos para manter compatibilidade de imports/testes.
-from src.rerank import tokenize as _tokenize          # noqa: E402
-from src.rerank import lexical_overlap as _lexical_overlap  # noqa: E402
-from src.rerank import rerank as _rerank              # noqa: E402
+# F401: são RE-EXPORTS (usados por tests/test_rerank.py) — nunca remover.
+from src.rerank import tokenize as _tokenize          # noqa: E402,F401
+from src.rerank import lexical_overlap as _lexical_overlap  # noqa: E402,F401
+from src.rerank import rerank as _rerank              # noqa: E402,F401
 
 
 def _parse_learned_doc(doc: str) -> tuple[str, str, str]:

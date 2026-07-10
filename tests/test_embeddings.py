@@ -6,7 +6,6 @@ sem modelo baixado.
 """
 import math
 
-import pytest
 
 from src import embeddings as E
 

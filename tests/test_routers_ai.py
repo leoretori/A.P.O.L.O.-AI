@@ -81,7 +81,6 @@ def test_research_persiste_conversa():
 
 # ── orchestrate ───────────────────────────────────────────────────
 def test_orchestrate_streama(monkeypatch):
-    import routers.ai as ai_mod
 
     async def fake_orchestrate(**kwargs):
         yield {"type": "agent_start", "agent": "researcher"}

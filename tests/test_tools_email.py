@@ -4,7 +4,7 @@ Read-only por construção: EXAMINE (readonly=True) + credenciais só do .env. O
 parsing é puro (testável com bytes canônicos); a conexão IMAP é injetada por um
 fake, sem rede nem servidor real.
 """
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.message import EmailMessage
 
 import pytest

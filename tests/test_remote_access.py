@@ -3,7 +3,6 @@
 Trava o gate de autorização: sem token → tudo passa (comportamento atual);
 loopback (dono) sempre passa; de fora exige o token certo (comparação constante).
 """
-import pytest
 
 from src import remote_access as R
 

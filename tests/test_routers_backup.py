@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from src import backup_service, crypto
 from src import runtime as rt
 from src.storage import DatabaseManager
-import routers.backup as bk
 from routers.backup import router
 
 pytestmark = pytest.mark.skipif(not crypto.is_available(),

@@ -1,7 +1,6 @@
 """Verificação de fatos (M8, Épico 8.2). Corroboração + deriva numérica,
 determinísticas. Hook do learner avisa contradição ao re-estudar.
 """
-import asyncio
 
 from fastapi.testclient import TestClient
 

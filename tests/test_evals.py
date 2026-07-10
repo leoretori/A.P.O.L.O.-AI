@@ -6,7 +6,6 @@ agregada — o número que fecha o DoD do M7. O runner é injetável (fake aqui)
 """
 import asyncio
 
-import pytest
 
 from src import evals
 

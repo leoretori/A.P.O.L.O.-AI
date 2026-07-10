@@ -75,6 +75,7 @@ def test_ensure_review_scheduled_nao_sobrescreve(db):
     async def run():
         await db_to_thread_ensure(eng, "Tópico A")          # cria
         first = db.get_review("Tópico A")
+        assert first is not None                             # agenda criada
         # marca como avançado; segundo save NÃO deve resetar
         db.upsert_review("Tópico A", 2.6, 6, 2, 0,
                          datetime.now(timezone.utc), datetime.now(timezone.utc))

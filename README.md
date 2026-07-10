@@ -12,6 +12,8 @@
 > *O objetivo do Apolo é o mesmo — uma IA pessoal, local, ilimitada, que cresce com o tempo e se torna cada vez mais inteligente.*
 > *Não é um produto. É o meu assistente. É o Apolo.*
 
+> 🌌 **[PLANO MESTRE DE 10 ANOS](PLANO_MESTRE_APOLO_10_ANOS.md)** — a visão que une o **cérebro** (a LLM própria, do zero) com o **corpo** (o assistente soberano) num só projeto de uma década. Começa aqui: v1.0.0 + Apolo-Nano v1.
+
 ---
 
 ## O que é o Apolo AI

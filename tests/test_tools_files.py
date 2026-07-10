@@ -5,7 +5,6 @@ Regra de ouro: nada fora das pastas autorizadas é lido — nem com `..`, nem po
 symlink, nem com o grant concedido. E sem grant, o run_tool nega antes de tocar
 o disco. Tudo read-only.
 """
-import os
 
 import pytest
 

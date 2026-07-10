@@ -3,7 +3,6 @@ com DB real e sinais injetados via um fake mínimo."""
 import tempfile
 from pathlib import Path
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 

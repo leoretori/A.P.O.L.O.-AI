@@ -731,6 +731,15 @@
     .pf-auto { font-style:normal; font-size:9.5px; color:#6b6450; background:#16140c; border:1px solid #2a2410; border-radius:99px; padding:1px 6px; margin-left:6px; vertical-align:middle; }
     .pf-empty { color:#555; font-size:12.5px; padding:18px 0; text-align:center; line-height:1.6; }
     .pf-empty code { background:#1e1e28; border:1px solid #2a2a35; padding:1px 6px; border-radius:4px; color:var(--sun); font-size:11.5px; }
+    /* Modelo profundo do Leo (M16.1 seções / M16.2 candidatos) */
+    .pf-sec { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; color:#8a8494; margin:14px 0 7px; }
+    .pf-sec:first-child { margin-top:0; }
+    .pf-cand-head { font-size:12.5px; color:var(--sun); margin:2px 0 8px; font-weight:600; }
+    .pf-cand { display:flex; align-items:center; gap:8px; padding:9px 12px; margin-bottom:7px; background:#14120a; border:1px solid #2a2410; border-radius:9px; font-size:13px; color:#cdd; }
+    .pf-cand span:first-child { flex:1; line-height:1.5; }
+    .pf-cand-btns { display:flex; gap:2px; flex-shrink:0; }
+    .pf-ok { background:none; border:none; color:#4ade80; cursor:pointer; font-size:14px; padding:2px 7px; border-radius:5px; }
+    .pf-ok:hover { background:#122a16; }
     .cur-head { font-size:13px; color:#cbcbd4; line-height:1.6; margin-bottom:14px; }
     .cur-head b { color:var(--sun); }
     .cur-chroma { color:#7a7a85; font-size:11.5px; }

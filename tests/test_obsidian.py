@@ -2,12 +2,10 @@
 
 import io
 import zipfile
-import pytest
 
 from src.obsidian import (
     _safe_filename, _tokenize, _related_topics,
-    _build_index, _build_sector_file, _build_map,
-    generate_vault,
+    _build_index, _build_sector_file, generate_vault,
 )
 
 TOPICS = [

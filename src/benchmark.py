@@ -11,7 +11,6 @@ de termos esperados, salva no banco para comparar antes/depois de melhorias.
 from __future__ import annotations
 import logging
 import time
-import re
 
 logger = logging.getLogger(__name__)
 

@@ -10,10 +10,8 @@ Centraliza três otimizações de latência:
 
 import asyncio
 import logging
-import os
 import threading
 
-import ollama
 
 from src.resilience import CircuitBreaker, retry_call
 

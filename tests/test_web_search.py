@@ -10,7 +10,6 @@ levanta NameError.
 """
 import asyncio
 
-import pytest
 
 import src.web_search as ws
 

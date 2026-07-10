@@ -4,7 +4,6 @@ Trava o núcleo determinístico: allowlist de domínios (sandbox), validação d
 receita, execução contra driver FAKE (sem rede), seguir link, e o parser de HTML.
 A sandbox é reforçada tanto na validação quanto EM TEMPO DE EXECUÇÃO.
 """
-import pytest
 
 from src import webtask as W
 

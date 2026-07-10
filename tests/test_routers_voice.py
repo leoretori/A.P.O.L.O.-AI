@@ -4,7 +4,7 @@ reportam qual engine respondeu, sem exigir piper/edge instalados."""
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src import tts, tts_edge, tts_piper
+from src import tts_edge, tts_piper
 from routers.voice import router
 
 

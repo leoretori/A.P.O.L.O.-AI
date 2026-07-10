@@ -1,6 +1,5 @@
 """Testes da memória episódica (src/episodic.py)."""
 
-import pytest
 from src.episodic import make_episodic_doc, index_session, _condense
 
 
