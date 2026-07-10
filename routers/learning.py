@@ -190,7 +190,8 @@ async def briefing(hours: int = 12):
     e pendências. Retorna dados estruturados + `text` pronto p/ TTS."""
     from src.briefing import build_briefing
     hours = max(1, min(hours, 168))
-    return await asyncio.to_thread(build_briefing, rt.db, rt.episodic, rt.learner, hours)
+    return await asyncio.to_thread(build_briefing, rt.db, rt.episodic, rt.learner,
+                                   rt.profile, hours)
 
 
 @router.get("/api/learning/agents")

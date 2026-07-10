@@ -27,9 +27,78 @@ def _plural(n: int, singular: str, plural: str) -> str:
     return f"{n} {singular if n == 1 else plural}"
 
 
-def build_briefing(db=None, episodic=None, learner=None,
+# Categorias do perfil que representam "no que o Leo está focado agora" (M17.1).
+_FOCUS_CATEGORIES = ("project", "goal")
+# Só conta como "relevante para você" acima deste Jaccard de conceitos.
+_FOCUS_MIN_STRENGTH = 0.06
+
+
+def _focus_items(profile) -> list[dict]:
+    """Metas e projetos ativos do perfil — o que importa PARA VOCÊ agora."""
+    if not profile:
+        return []
+    try:
+        groups = profile.by_category()
+    except Exception as e:
+        logger.debug(f"briefing focus: {e}")
+        return []
+    items: list[dict] = []
+    for cat in _FOCUS_CATEGORIES:
+        for f in groups.get(cat, []):
+            text = f.get("fact", "")
+            if text:
+                items.append({"text": text, "category": cat})
+    return items
+
+
+def relevant_learned(learned: list[dict], focus_items: list[dict],
+                     limit: int = 3) -> list[dict]:
+    """Casa o que foi aprendido com as metas/projetos ativos do Leo.
+
+    Para cada tópico aprendido, acha o foco de MAIOR conexão (Jaccard de
+    conceitos via src.graph); mantém só os acima do limiar, os mais fortes
+    primeiro. Determinístico e sem LLM.
+    """
+    if not learned or not focus_items:
+        return []
+    from src.graph import shared_concepts, strength
+
+    scored: list[dict] = []
+    for it in learned:
+        topic = it.get("topic", "")
+        if not topic:
+            continue
+        best, best_s, best_shared = None, 0.0, []
+        for foc in focus_items:
+            s = strength(topic, foc["text"])
+            if s > best_s:
+                best, best_s = foc, s
+                best_shared = shared_concepts(topic, foc["text"], limit=3)
+        if best and best_s >= _FOCUS_MIN_STRENGTH:
+            scored.append({"topic": topic, "focus": best["text"],
+                           "focus_category": best["category"],
+                           "strength": best_s, "shared": best_shared})
+    scored.sort(key=lambda x: x["strength"], reverse=True)
+    # dedup por foco: no máx. 1 destaque por meta/projeto (evita repetir o foco)
+    seen_focus: set[str] = set()
+    out: list[dict] = []
+    for s in scored:
+        if s["focus"] in seen_focus:
+            continue
+        seen_focus.add(s["focus"])
+        out.append(s)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def build_briefing(db=None, episodic=None, learner=None, profile=None,
                    hours: int = 12, now: datetime | None = None) -> dict:
-    """Monta o briefing. `hours` = janela de 'enquanto você esteve fora'."""
+    """Monta o briefing. `hours` = janela de 'enquanto você esteve fora'.
+
+    Com `profile` (M17.1), o briefing PRIORIZA o que se conecta com as suas
+    metas e projetos ativos, em vez de um resumo genérico.
+    """
     now = now or datetime.now()
     greeting = _greeting(now)
 
@@ -46,6 +115,10 @@ def build_briefing(db=None, episodic=None, learner=None,
         by_sector[classify_sector(it.get("topic", ""))] = \
             by_sector.get(classify_sector(it.get("topic", "")), 0) + 1
     top_sectors = sorted(by_sector.items(), key=lambda x: x[1], reverse=True)[:3]
+
+    # ── Priorização pessoal (M17.1): o que aprendi que toca suas metas/projetos ──
+    focus_items = _focus_items(profile)
+    relevant = relevant_learned(learned, focus_items)
 
     # ── O que fizemos (episódios recentes) ──
     episodes: list[dict] = []
@@ -80,12 +153,15 @@ def build_briefing(db=None, episodic=None, learner=None,
             logger.debug(f"briefing unread: {e}")
 
     text = _compose_text(greeting, len(learned), top_sectors, episodes,
-                         schedules, reminders, unread)
+                         schedules, reminders, unread, relevant)
     return {
         "greeting": greeting,
         "generated_at": now.isoformat(),
         "learned_count": len(learned),
         "top_sectors": [{"sector": s, "count": c} for s, c in top_sectors],
+        "relevant_to_you": [{"topic": r["topic"], "focus": r["focus"],
+                             "focus_category": r["focus_category"],
+                             "shared": r["shared"]} for r in relevant],
         "episodes": [{"title": e.get("title"), "occurred_at": e.get("occurred_at")}
                      for e in episodes],
         "schedules_today": [{"topic": s.get("topic"), "time": s.get("time_of_day")}
@@ -98,7 +174,8 @@ def build_briefing(db=None, episodic=None, learner=None,
 
 
 def _compose_text(greeting: str, learned_count: int, top_sectors: list,
-                  episodes: list, schedules: list, reminders: list, unread: int) -> str:
+                  episodes: list, schedules: list, reminders: list, unread: int,
+                  relevant: list | None = None) -> str:
     from src.topics import SECTOR_LABELS
     parts = [f"{greeting}!"]
 
@@ -110,6 +187,12 @@ def _compose_text(greeting: str, learned_count: int, top_sectors: list,
         parts.append(frase + ".")
     else:
         parts.append("Ainda não estudei nada novo nesta janela.")
+
+    # M17.1: destaca o que se conecta com o que VOCÊ está tocando (vem cedo,
+    # logo após o resumo do aprendizado — é o que mais importa).
+    for r in relevant or []:
+        alvo = "seu projeto" if r["focus_category"] == "project" else "sua meta"
+        parts.append(f"Isso conecta com {alvo} “{r['focus']}”: {r['topic']}.")
 
     if episodes:
         titles = [e.get("title", "") for e in episodes if e.get("title")]

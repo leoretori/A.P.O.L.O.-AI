@@ -98,6 +98,8 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 17.3 — **Antecipação útil:** conecta metas + agenda + hábitos para lembrar/sugerir no momento certo ("você queria retomar X, tem uma janela amanhã").
 - **DoD M17:** a experiência muda de forma perceptível e mensurável conforme o modelo do Leo.
 
+> **Progresso — Épico 17.1 ENTREGUE (2026-07-09):** o modelo profundo (M16) começa a MUDAR o comportamento. `src/briefing.py` ganhou `_focus_items(profile)` (metas+projetos ativos do perfil) e `relevant_learned(learned, focus)` — casa o que o Apolo aprendeu com o que o Leo está tocando via `src.graph` (Jaccard de conceitos + `shared_concepts`), no máx. 1 destaque por foco, acima do limiar (sem ruído). `build_briefing(profile=...)` PRIORIZA: o texto falado passa a dizer "isso conecta com seu projeto/sua meta 'X': [tópico]" logo após o resumo. Retrocompatível (sem profile = briefing genérico de antes). Wiring: `rt.profile` passado no scheduler (app.py) e no `GET /api/briefing`. VERIFICADO AO VIVO: entre "asyncio streaming" e "história romana", destacou só o primeiro (conecta com o projeto), ignorou o romano. 6 testes novos. Falta 17.2 (ritmo & tom) e 17.3 (antecipação útil).
+
 #### **Mês 18 — Memória relacional & temporal profunda**
 - Épico 18.1 — **Linha do tempo da vida:** episódios (M2) conectados a metas, pessoas e projetos — "o que estava rolando quando fizemos X".
 - Épico 18.2 — **Pessoas & contexto:** um grafo leve de quem-é-quem, ligado às conversas e compromissos.

@@ -338,7 +338,8 @@ async def _scheduler_loop():
                     _last_briefing_date = _today.date()
                     try:
                         from src.briefing import build_briefing
-                        b = await asyncio.to_thread(build_briefing, db, rt.episodic, learner, 12)
+                        b = await asyncio.to_thread(build_briefing, db, rt.episodic,
+                                                    learner, profile, 12)
                         db.add_notification(f"☀️ {b['text'][:400]}", kind="briefing")
                         logger.info("[briefing] briefing diário enviado")
                     except Exception as e:

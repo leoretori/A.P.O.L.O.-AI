@@ -2,7 +2,13 @@
 resumo falável. Testa a composição do texto e os dados estruturados."""
 from datetime import datetime
 
-from src.briefing import build_briefing, _greeting, _join_natural, _plural
+from src.briefing import (
+    _greeting,
+    _join_natural,
+    _plural,
+    build_briefing,
+    relevant_learned,
+)
 
 
 class FakeDB:
@@ -20,6 +26,12 @@ class FakeDB:
 class FakeEpisodic:
     def __init__(self, eps=None): self._eps = eps or []
     def recent(self, n): return self._eps[:n]
+
+
+class FakeProfile:
+    """Perfil com by_category — só o que o briefing consome (M17.1)."""
+    def __init__(self, groups=None): self._g = groups or {}
+    def by_category(self): return self._g
 
 
 def test_greeting_por_periodo():
@@ -59,6 +71,50 @@ def test_briefing_completo():
     assert "fechamos o M3" in t
     assert "Rust" in t
     assert "2 notificações não lidas" in t
+
+
+# ─────────────────────────── M17.1: priorização pessoal ───────────────────────
+def test_relevant_learned_casa_com_projeto():
+    learned = [{"topic": "asyncio event loop em python"},
+               {"topic": "receitas de bolo de cenoura"}]
+    focus = [{"text": "projeto Apolo AI com python e asyncio", "category": "project"}]
+    rel = relevant_learned(learned, focus)
+    assert len(rel) == 1                          # só o tópico relacionado
+    assert "asyncio" in rel[0]["topic"]
+    assert rel[0]["focus_category"] == "project"
+    assert "asyncio" in rel[0]["shared"] or "python" in rel[0]["shared"]
+
+
+def test_relevant_learned_sem_foco_ou_sem_aprendizado():
+    assert relevant_learned([], [{"text": "x", "category": "goal"}]) == []
+    assert relevant_learned([{"topic": "algo"}], []) == []
+
+
+def test_relevant_learned_dedup_por_foco():
+    # 2 tópicos casam o MESMO projeto → só 1 destaque (o mais forte)
+    learned = [{"topic": "python asyncio avancado"}, {"topic": "python typing e asyncio"}]
+    focus = [{"text": "projeto em python asyncio", "category": "project"}]
+    rel = relevant_learned(learned, focus)
+    assert len(rel) == 1
+
+
+def test_briefing_prioriza_metas_e_projetos():
+    db = FakeDB(learned=[{"topic": "asyncio streaming em python"},
+                         {"topic": "jardinagem urbana"}])
+    prof = FakeProfile({"project": [{"fact": "Apolo AI em python asyncio", "category": "project"}]})
+    b = build_briefing(db=db, episodic=FakeEpisodic(), profile=prof,
+                       now=datetime(2026, 7, 6, 8))
+    assert b["relevant_to_you"], "deveria destacar o que toca o projeto"
+    assert b["relevant_to_you"][0]["focus_category"] == "project"
+    assert "seu projeto" in b["text"] and "Apolo AI" in b["text"]
+
+
+def test_briefing_sem_profile_igual_a_antes():
+    """Sem profile, o briefing é o de sempre (retrocompatível)."""
+    db = FakeDB(learned=[{"topic": "asyncio"}])
+    b = build_briefing(db=db, episodic=FakeEpisodic(), now=datetime(2026, 7, 6, 8))
+    assert b["relevant_to_you"] == []
+    assert "conecta com" not in b["text"]
 
 
 def test_briefing_dia_vazio():
