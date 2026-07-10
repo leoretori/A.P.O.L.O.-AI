@@ -24,7 +24,7 @@ Três eixos, costurados pelo Apolo-Nano:
 2. **Conhecer o Leo de verdade.** O Ano 1 deu memória; falta o **modelo profundo** — metas, hábitos, pessoas, projetos, contexto de vida — e a personalização que adapta o comportamento a você.
 3. **Agência que conduz.** O Ano 1 leu e escreveu o mundo (com undo); o Ano 2 faz o Apolo **executar** os projetos que ele mesmo propõe (12.1), operar um **navegador interativo** e **apps nativos** — sempre com confirmação e trilha reversível.
 
-**A honestidade de sempre:** o salto de cérebro grande é `🔒 HW` (GPU). O Ano 2 constrói **todo o software que fica pronto no dia em que a GPU chegar** — e extrai o máximo do CPU agora. Nada de fingir que dá para treinar um chatbot em CPU; muito de deixar a estrada pavimentada.
+**A honestidade de sempre — agora como engenharia de restrição, não espera:** não fingimos que um Ryzen faz GPT-4. Mas o cérebro soberano **começa a ser desenvolvido AGORA no hardware atual** (destilação de tarefa estreita, escala incremental do Nano de madrugada, iGPU via Vulkan) em vez de esperar a GPU. A GPU dedicada acelera tudo — vira **upside, não pré-requisito** (§6 e §10/Ano 3).
 
 ---
 
@@ -39,7 +39,7 @@ Três eixos, costurados pelo Apolo-Nano:
 | Y5 | **Multimodal raso.** Visão existe mas é subutilizada; tela, câmera e documentos não são entrada rica de contexto. | Médio-alto | visão |
 | Y6 | **Presença intermitente.** Responde e faz briefing, mas não é um ambiente contínuo que acompanha o seu dia. | Médio | presença |
 | Y7 | **Prova de melhora só pontual.** O M9 mede num instante; falta o **loop fechado** (medir → agir → re-medir automático) que prove evolução no longo prazo. | Médio | qualidade |
-| 🔒 | **Teto de hardware.** GPU é o multiplicador do Ano 2 (cérebro maior, LoRA do 14B, Nano 100M+, latência de voz tempo-real). | Fundamental | máquina |
+| ⚙️ | **Hardware modesto (não mais trava).** Ryzen 5 4600G + iGPU Vega + 16GB. GPU dedicada acelera, mas o cérebro próprio se desenvolve no que temos: iGPU/Vulkan, destilação, escala incremental. | Oportunidade | máquina |
 
 ---
 
@@ -75,7 +75,7 @@ Três eixos, costurados pelo Apolo-Nano:
 #### **Mês 15 — O flywheel: aprender → treinar → servir**
 - Épico 15.1 — **Corpus vivo:** o `corpus_export` do Nano roda periodicamente (o Apolo estuda todo dia → o corpus cresce sozinho); agendado pelas **rotinas do M10**, sem competir com o 14B.
 - Épico 15.2 — **Promoção com gate de qualidade:** um novo checkpoint só substitui o ativo se o **harness de eval do Nano** melhorar (ppl/amostras-sonda) — nada de "atualizei e piorou em silêncio". Trilha reversível (undo do M10).
-- Épico 15.3 — **Estrada da GPU:** deixar pronto o caminho de **fine-tune LoRA do 14B** com os dados do Leo (dataset gerado localmente) — desligado por `🔒 HW`, mas testável no fluxo e pronto para ligar no dia da GPU.
+- Épico 15.3 — **Fine-tune no hardware atual:** em vez de esperar LoRA do 14B na GPU, **destilar o Nano** dos dados do Leo (dataset gerado localmente pelo Qwen) e treinar de madrugada; explorar LoRA de modelos **pequenos** (0,5–1,5B) no CPU/iGPU. A estrada da GPU continua pronta (liga mais rápido no dia), mas **não é pré-requisito**.
 - **DoD M15:** um comando (ou rotina) fecha o ciclo "o Apolo estudou → o Nano re-treinou → só sobe se melhorou".
 
 ### 🗓️ Q2 (Y2) — CONHECER O LEO DE VERDADE *(P8)*
@@ -162,7 +162,7 @@ Três eixos, costurados pelo Apolo-Nano:
 
 #### **Mês 23 — Presença ambiente**
 - Épico 23.1 — **Contexto contínuo:** o Apolo acompanha agenda + foco + hora e intervém no **momento certo** (evoluindo o briefing do M4), sem virar ruído.
-- Épico 23.2 — **Voz contínua soberana:** completar o loop de voz 100% local (openWakeWord/Whisper-loop) quando o `🔒 HW`/latência permitir — a última milha do M3/M5.
+- Épico 23.2 — **Voz contínua soberana:** completar o loop de voz 100% local (openWakeWord/Whisper-loop) **no hardware atual** — Whisper `tiny`/`base` + VAD + quantização, medindo e otimizando a latência (sem esperar GPU). A última milha do M3/M5.
 - Épico 23.3 — **Modos de presença:** foco, descanso, trabalho — o Apolo se comporta conforme o momento do seu dia.
 - **DoD M23:** o Apolo é um ambiente presente que aborda na hora certa, por voz, sem incomodar.
 
@@ -174,15 +174,20 @@ Três eixos, costurados pelo Apolo-Nano:
 
 ---
 
-## 6. Itens travados por hardware `🔒 HW`
+## 6. Estratégias no hardware atual — **DESTRAVADO** (decisão do Leo, 2026-07-10)
 
-A GPU é o **multiplicador central do Ano 2**. Sem ela ficam fora do alcance (mas com a estrada pronta):
-- **Fine-tune LoRA do 14B** com os dados do Leo (o software fica pronto no M15; liga no dia da GPU).
-- **Apolo-Nano 100M+ params** e contexto longo (ver [APOLO_NANO_ROADMAP.md](docs/APOLO_NANO_ROADMAP.md) §7).
-- **Latência de voz em tempo real** para a presença contínua (M23).
-- **Chat de verdade num modelo próprio** — nem com GPU de entrada; segue no Qwen até lá.
+> **Mudança de doutrina:** saímos do "esperar a GPU" para **"desenvolver o cérebro próprio AGORA, no hardware que temos"** (Ryzen 5 4600G + iGPU Radeon Vega + 16GB). A GPU dedicada continua sendo o multiplicador — mas deixa de ser um portão. Nada fica `🔒` esperando: cada item ganha uma **estratégia de CPU/iGPU** e entra no plano.
 
-**A recomendação honesta segue de pé:** uma GPU de 12–16GB VRAM destrava simultaneamente o cérebro do Jarvis (LoRA) e muda a classe do Nano. O M24 propõe a decisão com números reais do seu uso.
+**A honestidade permanece** (não fingimos que um Ryzen faz GPT-4), mas ela vira **engenharia de restrição**, não desculpa:
+
+- **iGPU via Vulkan (usar a placa que temos):** o `llama.cpp` tem backend **Vulkan** que roda no **Radeon Vega integrado**. Compilar com `-DGGML_VULKAN=ON` e descarregar camadas (`LLAMACPP_GPU_LAYERS>0`) tira carga do CPU. Ganho modesto (RAM compartilhada), mas real — e é a nossa "GPU".
+- **Cérebro próprio por DESTILAÇÃO de tarefa estreita:** o Nano de 3,4M não faz chat geral, mas **crava tarefas estreitas** se treinado para IMITAR o Qwen nelas (título de conversa, tags, classificação de setor, roteamento de intenção, autocomplete, gates sim/não). Geramos rótulos com o Qwen → treinamos o Nano supervisionado → ele assume aquela fatia. É o **"Nano como cérebro" honesto**: cérebro do que ele já dá conta, expandindo.
+- **Escala incremental no CPU:** crescer o Nano de 3,4M → ~10–30M, treinado **de madrugada** (a máquina ociosa vira treino — agendado pelas rotinas do M10). Lento e de graça. Cada salto de tamanho amplia a cobertura.
+- **Takeover progressivo (o flywheel ligado):** o roteador manda **mais tarefas** ao Nano conforme ele prova qualidade (portão do 15.2); o Qwen cobre o resto; a **% servida pelo Nano sobe mês a mês**. A métrica de soberania do cérebro vira a estrela-guia.
+- **Fine-tune realista:** LoRA do 14B no CPU é inviável — mas **LoRA/full-FT de modelos PEQUENOS** (0,5–1,5B) no CPU/iGPU de madrugada é factível, e a destilação do Nano não precisa de LoRA. Fazemos o que cabe.
+- **Voz contínua:** o loop 100% local (openWakeWord + Whisper) é **construído e OTIMIZADO no hardware atual** (modelos `tiny`/`base`, VAD, quantização) — mede-se a latência e melhora-se, sem esperar GPU.
+
+**A recomendação da GPU não some — vira upside, não pré-requisito:** uma GPU de 12–16GB acelera tudo isto de uma vez. Mas o desenvolvimento do cérebro soberano **começa agora**, e o **Ano 3** (§10) é dedicado a isso.
 
 ---
 
@@ -221,8 +226,23 @@ Os **M13–M15 são o lado-Apolo do pilar D6 (Integração & Produto)** do roadm
 O primeiro ciclo do [Apolo-Nano](docs/APOLO_NANO.md) já entregou o lado-app:
 
 - **🏁 M13 (Ponte Nano ↔ Apolo) — ENTREGUE.** 13.1 `NanoEngine` + `POST /api/nano/complete` + card 🧬 no painel Saúde; 13.2 gate de recursos (`GpuGate.user_enter/exit` na completion — o learner espera pelo Nano); 13.3 params/ppl/latência no `/api/health`. O app carrega e serve o Nano sem travar a máquina.
-- **🔨 M14 (Roteamento híbrido) — parcial + teto medido.** 14.2 construído: título de conversa Nano-first com fallback garantido (`generate_session_title` + portão de qualidade). Mas a **medição honesta** (título 1/6, classificação de setor 31%) confirmou o teto 🔒 HW: um modelo de 3,4M no CPU não faz tarefas ancoradas com qualidade de produção. **O flywheel (M15) e a promoção por qualidade (15.2) estão prontos em infraestrutura; o que falta é ESCALA (GPU)** — não mais código. O fallback garante que a produção nunca piora.
+- **🔨 M14 (Roteamento híbrido) — parcial + teto medido, agora ATACADO.** 14.2 construído: título de conversa Nano-first com fallback garantido (`generate_session_title` + portão de qualidade). A **medição honesta** (título 1/6, classificação de setor 31%) mostrou que um modelo de 3,4M **generalista** no CPU não basta — mas a resposta deixou de ser "esperar GPU": é **destilação de tarefa estreita + escala incremental** (§6/§10). O flywheel (M15) e a promoção por qualidade (15.2) estão prontos; agora **ligam no hardware atual** treinando o Nano para imitar o Qwen nas tarefas que ele consegue. O fallback garante que a produção nunca piora enquanto o Nano cresce.
 
 ---
 
-*Documento vivo. Criado em 2026-07-09, no fechamento do Ano 1 (v1.0.0). O ciclo do Apolo-Nano adiantou **M13 (completo)** e **M14.2 (medido, teto de HW confirmado)**. Próximo passo real: **M15 (flywheel) quando houver GPU**, ou seguir para **Q2 (M16 — modelo profundo do Leo)**, que é software puro e não depende de hardware.*
+## 10. Ano 3 — **O cérebro soberano assume** (no hardware atual)
+
+> Decisão do Leo (2026-07-10): destravar tudo e desenvolver o **Apolo-Nano como cérebro** com o que temos. O objetivo do Ano 3 é subir a **% de tarefas servidas pelo modelo próprio** de perto de 0 para o máximo que a máquina permitir — cada mês, mais uma fatia sai do Qwen e passa para o Nano. Honestidade mantida: o Qwen (motor próprio llama.cpp) continua cobrindo o chat geral **enquanto** o Nano cresce; ninguém fica sem resposta boa no caminho.
+
+**Pilar P12 · Cérebro próprio que assume** — a estrela: soberania do raciocínio subindo, medida.
+
+- **M25 — Flywheel de destilação ligado.** O `corpus_export` + gerador de rótulos (o Qwen rotula tarefas reais do Leo: títulos, tags, setores, roteamento) alimenta um treino do Nano **agendado de madrugada** (rotinas do M10, com o gate de recursos). Promoção só por qualidade (15.2). **DoD:** o Nano re-treina sozinho e melhora numa sonda, sem intervenção.
+- **M26 — iGPU & escala incremental.** Compilar o `llama.cpp` com **Vulkan** (usa a Vega integrada) e medir o ganho; crescer o Nano (3,4M → 10–30M) e medir cobertura por tarefa. **DoD:** ≥1 tarefa estreita servida pelo Nano em produção com qualidade ≥ Qwen, e inferência acelerada pela iGPU.
+- **M27 — Takeover progressivo & medição.** O roteador migra tarefas ao Nano conforme o portão de qualidade libera; painel mostra a **% do cérebro que já é próprio** subindo. **DoD:** uma família de tarefas (ex.: toda a organização de conversas — títulos, tags, setores) 100% no Nano, Qwen só no chat aberto.
+- **M28+ — Rumo ao chat próprio.** Distilar um Nano maior para diálogo curto/factual ancorado na memória do Leo; medir contra o Qwen às cegas. Aqui a GPU dedicada, **se e quando vier**, multiplica — mas o caminho já está andando.
+
+**Métrica-mãe do Ano 3:** *% de tarefas do dia servidas pelo cérebro próprio* (Nano), subindo mês a mês — a soberania saindo do disco (dados, ✅) e do motor (llama.cpp, ✅) e chegando aos **pesos que são do Leo**.
+
+---
+
+*Documento vivo. Criado em 2026-07-09, no fechamento do Ano 1 (v1.0.0). Atualizado 2026-07-10: **DESTRAVADO** — o desenvolvimento do cérebro soberano (Apolo-Nano) começa no hardware atual via destilação + escala incremental + iGPU/Vulkan (§6), e o **Ano 3** (§10) é dedicado a isso. A GPU dedicada vira aceleração, não pré-requisito.*

@@ -130,17 +130,18 @@ Um modelo de linguagem **inteiramente do Leo** — tokenizer, arquitetura, pesos
 
 ---
 
-## 7. Itens travados por hardware `🔒 HW`
+## 7. Estratégias no hardware atual — **DESTRAVADO** (Leo, 2026-07-10)
 
-Sem GPU, ficam fora do alcance deste ciclo:
-- **Modelos >30M params** (treino viraria semanas/meses de CPU).
-- **Contexto longo** (>512 tokens de bloco — atenção O(T²) em RAM e tempo).
-- **Chat de verdade no Nano** (exigiria centenas de M de params + RLHF-like — nem com GPU de entrada).
-- **Treino multi-época de corpus grande** (100M+ tokens).
+Doutrina nova: em vez de listar o que a GPU destravaria, listamos **o que fazemos AGORA** para o cérebro próprio assumir, aceitando as restrições como engenharia:
 
-**O multiplicador:** uma GPU de 12–16GB não só destrava o Jarvis (fine-tuning LoRA do 14B) como muda a classe do Nano: 100M+ params treináveis em dias, e o mesmo código NumPy serve de referência/verificação para uma futura versão acelerada.
+- **Destilação de tarefa estreita (o caminho principal):** o modelo pequeno não faz chat geral, mas **imita o Qwen** em tarefas de alta frequência do Leo (título, tags, setor, roteamento, autocomplete, gates). Geramos rótulos com o Qwen → treino supervisionado → o Nano assume aquela fatia. Um modelo de 3–30M **crava tarefa estreita**; é aí que a soberania começa.
+- **Escala incremental de madrugada:** crescer 3,4M → 10–30M treinando com a máquina ociosa (rotinas do M10 + gate de recursos). Lento e de graça; cada salto amplia a cobertura. Multi-época de corpus grande fica para a GPU, mas o corpus destilado é enxuto.
+- **iGPU via Vulkan (para o MOTOR, não o treino NumPy):** o `llama.cpp` compilado com `-DGGML_VULKAN=ON` **usa a Vega 7** para acelerar a inferência do Qwen (offload de camadas). Não acelera o treino NumPy do Nano (isso segue CPU), mas tira carga do motor que serve o chat hoje.
+- **Contexto:** mantém-se curto (256–512) por enquanto; atenção O(T²) é cara em CPU. Estende quando houver folga/GPU.
 
-**E a iGPU (Vega 7 do 4600G)? Avaliada e descartada (2026-07-09):** (a) NumPy é CPU; usar a iGPU exigiria ROCm (AMD não suporta APU Vega no Windows), DirectML via PyTorch/ONNX (libs de ML de terceiros — contra o princípio 1) ou kernels OpenCL à mão (semanas de trabalho); (b) a iGPU **divide a mesma banda de RAM DDR4** com a CPU — e o gargalo medido do treino É banda, não computação (threads 4→12 e batch 12→48 mudam a velocidade em ~5%). Ganho realista ~2× no melhor caso. Não é o atalho; a GPU dedicada é.
+**A iGPU para TREINO NumPy segue descartada (medido 2026-07-09):** o gargalo é banda de RAM DDR4 (threads 4→12 e batch 12→48 mudam ~5%); a Vega divide a mesma banda, e usá-la exigiria ROCm/DirectML/OpenCL (contra o princípio 1 ou semanas de trabalho). Por isso o treino é CPU e o caminho é **destilação enxuta**, não modelos gigantes. A Vega entra só via Vulkan no **motor** (llama.cpp), não no treino.
+
+**A GPU dedicada continua sendo o acelerador** (100M+ params em dias, LoRA de modelos maiores) — mas agora **acelera** o que já andamos, em vez de dar a partida.
 
 ---
 

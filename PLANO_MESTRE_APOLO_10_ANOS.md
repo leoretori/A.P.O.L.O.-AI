@@ -26,7 +26,7 @@ O arco em uma frase por época:
 | **Soberania plena** | 9 | 100% local, cifrado, portátil: cérebro, dados, memória e agência, tudo do Leo. |
 | **O parceiro de uma década** | 10 | Um AI pessoal maduro, com 10 anos de memória compartilhada. Retrospectiva + próximo ciclo. |
 
-O **teto honesto** segue nomeado o tempo todo: em CPU, o cérebro próprio é um laboratório. **A GPU é o multiplicador que destrava as Épocas 3+.** O plano é desenhado para render o máximo antes dela e para "acender" na hora que ela chegar — sem reescrever nada.
+**Doutrina atualizada (Leo, 2026-07-10) — DESTRAVADO:** o cérebro próprio **começa a assumir no hardware atual**, via destilação de tarefa estreita + escala incremental + iGPU/Vulkan. A honestidade permanece (um Ryzen não faz GPT-4), mas vira engenharia de restrição, não espera. **A GPU acelera as Épocas 3+ — deixa de ser o portão que as libera.** Ver §6 e o Ano 3.
 
 ---
 
@@ -66,7 +66,7 @@ O **flywheel** é o coração de 10 anos: *quanto mais o APOLO aprende, melhor f
 
 ## 5. O calendário de 10 anos
 
-> Cada ano tem 3–4 pilares; cada pilar herda o detalhamento dos roadmaps vivos (Ano 1 ✅, Ano 2 M13–M24, Nano A–C). Anos 3+ são direção honesta, refinados a cada ciclo com o hardware real. "🔒 HW" = travado por GPU.
+> Cada ano tem 3–4 pilares; cada pilar herda o detalhamento dos roadmaps vivos (Ano 1 ✅, Ano 2 M13–M24, Nano A–C). Anos 3+ são direção honesta, refinados a cada ciclo com o hardware real. **DESTRAVADO (2026-07-10):** nenhum ano espera GPU — a GPU acelera; o desenvolvimento do cérebro próprio começa no hardware atual.
 
 ### 🗓️ Ano 1 — FUNDAÇÃO ✅ *(2026, concluído)*
 Corpo completo (`JARVIS_ROADMAP.md`, M1–M12) + cérebro nascido (`APOLO_NANO_ROADMAP.md`, Fases A–B). **Entregue: v1.0.0 + Nano v1.**
@@ -79,14 +79,14 @@ Detalhe em [`JARVIS_ROADMAP_ANO2.md`](JARVIS_ROADMAP_ANO2.md) (M13–M24).
 - **Estrada da GPU pronta:** LoRA do 14B e re-treino do Nano testáveis, "acendem" no dia da GPU.
 - **DoD do ano:** o APOLO te conhece, serve parte do dia com cérebro próprio, e está pronto para escalar.
 
-### 🗓️ Ano 3 — A ERA DA GPU `🔒 HW` *(2027–2028)*
-*Assume a aquisição de uma GPU de entrada (12–16GB) — o multiplicador central.*
-- **Nano escala:** 3M → 30–100M params, contexto longo, treino em dias (não semanas). Qualidade de tarefa cruza o limiar de produção.
-- **LoRA do 14B com os dados do Leo:** o modelo grande ganha a personalidade e o conhecimento do Leo nos pesos.
-- **Hybrid brain real:** roteador maduro decide Nano vs. 14B-LoRA vs. reserva, por custo e confiança.
-- **DoD:** o cérebro próprio faz, com qualidade medida, o que só o modelo alugado fazia.
+### 🗓️ Ano 3 — O CÉREBRO PRÓPRIO ASSUME *(a partir de 2026-07 — DESTRAVADO)*
+*Doutrina nova (Leo, 2026-07-10): desenvolver o cérebro próprio **no hardware atual**, já. A GPU acelera — não é mais portão.*
+- **Nano por destilação de tarefa estreita:** treinado para imitar o Qwen nas tarefas reais do Leo (títulos, tags, setores, roteamento); assume fatia por fatia. Escala incremental 3M→10–30M **de madrugada** no CPU.
+- **iGPU via Vulkan:** `llama.cpp` compilado com Vulkan usa a Radeon Vega integrada — a "GPU que temos" — para acelerar a inferência do motor próprio.
+- **Takeover progressivo:** o roteador migra tarefas ao Nano conforme o portão de qualidade libera; a **% do dia servida pelo cérebro próprio** sobe mês a mês (métrica-mãe).
+- **DoD:** ≥1 família de tarefas 100% no cérebro próprio, com qualidade medida ≥ Qwen. (GPU dedicada, quando vier, multiplica — ver §6.)
 
-### 🗓️ Ano 4 — RACIOCÍNIO SOBERANO `🔒 HW` *(2028–2029)*
+### 🗓️ Ano 4 — RACIOCÍNIO SOBERANO *(GPU acelera, não trava)*
 - O modelo próprio responde a **maioria** das interações diárias; o alugado vira fallback.
 - **Multimodal nativo:** visão (tela/câmera opt-in), voz contínua soberana (wake word + loop <1s), documentos.
 - **Auto-avaliação de capacidade:** a série histórica prova que o cérebro fica mais capaz, não só mais ativo.
@@ -97,7 +97,7 @@ Detalhe em [`JARVIS_ROADMAP_ANO2.md`](JARVIS_ROADMAP_ANO2.md) (M13–M24).
 - **Projetos autodirigidos:** o APOLO define metas próprias, quebra em tarefas, executa e te reporta — supervisão evoluída.
 - **DoD:** o APOLO conduz um projeto real do Leo de ponta a ponta, com trilha auditável e reversível.
 
-### 🗓️ Ano 6 — CÉREBRO EM CONJUNTO `🔒 HW` *(2030–2031)*
+### 🗓️ Ano 6 — CÉREBRO EM CONJUNTO *(GPU acelera, não trava)*
 - **Ensemble de especialistas:** vários Nanos afinados por domínio (código, escrita, planejamento) + roteamento/mistura.
 - **Edge:** o APOLO no bolso (mobile/local) e em casa, sincronizado e soberano.
 - **DoD:** o cérebro é um conjunto que escolhe o especialista certo; roda além do desktop.
@@ -123,18 +123,18 @@ Detalhe em [`JARVIS_ROADMAP_ANO2.md`](JARVIS_ROADMAP_ANO2.md) (M13–M24).
 
 ---
 
-## 6. Estratégia de hardware `🔒 HW` — o eixo do plano
+## 6. Estratégia de hardware — **DESTRAVADA** (o cérebro começa AGORA)
 
-A capacidade do cérebro é limitada por hardware, e o plano é explícito sobre isso:
+Mudança de doutrina (Leo, 2026-07-10): **o hardware deixa de ser portão.** Desenvolvemos o cérebro próprio no que temos; a GPU acelera cada fase, não a libera.
 
-| Fase | Hardware | O que destrava |
+| Fase | Hardware | O que fazemos NELE |
 |------|----------|----------------|
-| **Hoje** | Ryzen 4600G, 16GB, CPU-only | Nano ≤ ~7M (laboratório); scaffolding ilimitado; 14B alugado como cérebro |
-| **Marco 1** | GPU entrada 12–16GB VRAM | Nano 30–100M em dias; LoRA do 14B com dados do Leo; era da GPU (Anos 3–4) |
-| **Marco 2** | GPU 24GB+ / 2ª GPU | Ensemble de especialistas; contexto longo; treino contínuo (Anos 6+) |
-| **Marco 3** | Cluster local / edge | Cérebro distribuído, soberania plena em múltiplos dispositivos (Anos 9–10) |
+| **Agora** | Ryzen 4600G + iGPU Vega + 16GB | **Destilação de tarefa estreita** (Nano imita o Qwen), **escala incremental** 3M→10–30M de madrugada, **iGPU via Vulkan** no llama.cpp, takeover progressivo. O cérebro próprio já assume fatias. |
+| **Acelera 1** | GPU entrada 12–16GB VRAM | O mesmo, **10–100× mais rápido**: Nano 30–100M em dias, LoRA de modelos maiores. Não abre um caminho novo — encurta o que já andamos. |
+| **Acelera 2** | GPU 24GB+ / 2ª GPU | Ensemble de especialistas, contexto longo, treino contínuo. |
+| **Acelera 3** | Cluster local / edge | Cérebro distribuído, soberania plena em múltiplos dispositivos. |
 
-**Recomendação honesta que atravessa a década:** a primeira GPU é o maior salto de valor por real gasto — ela sozinha muda a classe do cérebro e destrava as Épocas 3–4. O plano mede, a cada ano, se o momento chegou (o Ano 2/M24 já propõe essa decisão com dados reais do uso).
+**Honestidade que atravessa a década:** um Ryzen não faz GPT-4 — mas faz **muito** com destilação de tarefa estreita e escala incremental, e cada tarefa que o cérebro próprio assume é soberania real. A primeira GPU segue sendo o maior salto de valor por real gasto (o Ano 2/M24 mede se o momento chegou) — só que agora ela **acelera um trem em movimento**, não dá a partida.
 
 ---
 
