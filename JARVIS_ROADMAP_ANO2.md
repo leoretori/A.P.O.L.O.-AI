@@ -136,6 +136,12 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 20.3 — **Tarefas repetitivas reais:** uma automação de ponta a ponta que o Leo faz toda semana, feita pelo Apolo.
 - **DoD M20:** o Apolo completa uma tarefa web interativa multi-passo, auditada, com você no comando.
 
+> **Progresso — Épico 20.1 ENTREGUE (2026-07-10):** navegador interativo em sandbox. `src/webtask.py` sobe a automação de read-only para INTERATIVA — ops `click`/`fill`/`submit` no núcleo determinístico com driver injetável (fake nos testes). Padrão soberano mantido: o driver real é `PlaywrightDriver` (lazy, 🔒 opt-in, erro claro se faltar o pacote). Segurança reforçada: mesma sandbox de domínios checada em CADA navegação; `preview_interactive()` descreve cada passo e destaca os de EFEITO; a fronteira do efeito (`submit`) NUNCA roda num clique cego — `run_interactive` exige `confirm_effects=True`, senão para com `needs_confirmation`. Novo escopo `browser.interact` + tool (via M6). Endpoints `/api/webtask/interactive/{example,plan,run}`. Front: console "🖱️ Navegador interativo" no painel Ações. +13 testes.
+>
+> **Progresso — Épico 20.2 ENTREGUE (2026-07-10):** trilha reversível/auditável. Cada ação com EFEITO executada de fato entra numa trilha durável (o handler persiste o ledger via `db.log_tool "web.effect"`). `GET /api/webtask/interactive/trail`; front "🧾 Trilha de efeitos". Honesto: web submits não são auto-reversíveis — a garantia é o registro + o gate de confirmação do 20.1 (nunca um clique cego). +3 testes. Suite → 1269.
+>
+> **⏳ Épico 20.3 — PENDENTE DO LEO:** o motor está pronto (20.1+20.2); fechar o DoD exige (1) `pip install playwright` + `playwright install chromium` (🔒 opt-in — hoje não instalado) e (2) escolher a tarefa semanal REAL a automatizar ("a definir com você"). Assim que houver os dois, monto a receita ponta-a-ponta e demonstro auditada.
+
 #### **Mês 21 — Apps nativos & sistema**
 - Épico 21.1 — **Ações no desktop com permissão:** abrir apps, mover/organizar arquivos **com undo**, automações simples — reusando o framework de consentimento + auditoria do M6/M10.
 - Épico 21.2 — **Integrações do seu fluxo:** as ferramentas nativas que o Leo mais usa (a definir com você), sempre opt-in e reversível.
