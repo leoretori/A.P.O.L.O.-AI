@@ -1,5 +1,5 @@
 // A.P.O.L.O. Service Worker — PWA offline + cache
-const CACHE = 'apolo-v4';
+const CACHE = 'apolo-v5';
 const STATIC = [
   '/',
   '/apolo-icon.svg',
