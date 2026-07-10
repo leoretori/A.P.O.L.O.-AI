@@ -138,6 +138,22 @@ def test_painel_saude_mostra_apolo_nano():
     assert "nanoCard" in saude_render
 
 
+def test_painel_perfil_curadoria_completa():
+    """M16.1/16.2/16.3 — o painel Sobre mim mostra o modelo agrupado (by_category),
+    os candidatos a confirmar/descartar, e o editor inline (curado por você)."""
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "css" / "app.css").read_text(encoding="utf-8")
+    # M16.1: agrupamento por seção
+    assert "by_category" in app_js and "pf-sec" in css
+    # M16.2: candidatos
+    for fn in ("confirmCandUI", "rejectCandUI", "/api/profile/candidates"):
+        assert fn in app_js, fn
+    # M16.3: editor inline usa o PATCH
+    for fn in ("function editFactUI", "function saveFactEdit", "'PATCH'"):
+        assert fn in app_js, fn
+    assert ".pf-edit" in css and ".pf-ed-input" in css
+
+
 def test_painel_acoes_reversiveis_ligado():
     """M10 10.1 — o painel 🛠️ Ações precisa do botão, do fluxo preview→confirmar
     e do histórico com desfazer (a trilha reversível). Confirmar só habilita

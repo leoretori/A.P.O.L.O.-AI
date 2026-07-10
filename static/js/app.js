@@ -3252,6 +3252,7 @@
   function closeMindIfBg(e) { if (e.target === document.getElementById('mind-overlay')) closeMind(); }
 
   // ── Memória pessoal: Sobre mim ───────────────────────────────
+  let _pfCategories = {};  // slug→rótulo, do /api/profile — usado pelo editor inline
   async function openProfile() {
     document.getElementById('profile-overlay').classList.add('open');
     await loadProfile();
@@ -3270,6 +3271,7 @@
       const facts = d.facts || [];
       const byCat = d.by_category || {};
       const labels = d.categories || {};
+      _pfCategories = labels;  // usado pelo editor inline (M16.3)
       const cands = (cand && cand.candidates) || [];
 
       let html = '';
@@ -3293,15 +3295,10 @@
           const items = byCat[cat] || [];
           if (!items.length) return '';
           return `<div class="pf-sec">${escHtml(labels[cat] || cat)}</div>` +
-            items.map(f => {
-              const hz = f.horizon === 'short' ? ' <em class="pf-auto">curto</em>'
-                       : f.horizon === 'long' ? ' <em class="pf-auto">longo</em>' : '';
-              const au = f.source === 'auto' ? ' <em class="pf-auto" title="Aprendido da conversa">auto</em>' : '';
-              return `<div class="pf-item"><span>${escHtml(f.fact)}${hz}${au}</span><button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button></div>`;
-            }).join('');
+            items.map(f => pfItemHtml(f)).join('');
         }).join('');
       } else if (facts.length) {  // fallback: sem agrupamento (perfil legado)
-        html += facts.map(f => `<div class="pf-item"><span>${escHtml(f.fact)}</span><button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button></div>`).join('');
+        html += facts.map(f => pfItemHtml(f)).join('');
       }
 
       body.innerHTML = html ||
@@ -3309,6 +3306,58 @@
     } catch(e) {
       body.innerHTML = `<div class="pf-empty">Erro ao carregar: ${escHtml(e.message)}</div>`;
     }
+  }
+
+  // Item do perfil com editar (✎) + esquecer (✕). data-* levam os valores
+  // atuais para o editor inline sem inliná-los no onclick (aspas/acentos).
+  function pfItemHtml(f) {
+    const hz = f.horizon === 'short' ? ' <em class="pf-auto">curto</em>'
+             : f.horizon === 'long' ? ' <em class="pf-auto">longo</em>' : '';
+    const au = f.source === 'auto' ? ' <em class="pf-auto" title="Aprendido da conversa">auto</em>' : '';
+    return `<div class="pf-item" id="pf-${f.id}" data-fact="${escHtml(f.fact)}" data-cat="${escHtml(f.category || 'fact')}" data-hz="${escHtml(f.horizon || '')}">
+      <span>${escHtml(f.fact)}${hz}${au}</span>
+      <span class="pf-item-btns">
+        <button class="pf-edit" onclick="editFactUI('${f.id}')" title="Editar">✎</button>
+        <button class="pf-del" onclick="removeFactUI('${f.id}')" title="Esquecer">✕</button>
+      </span></div>`;
+  }
+
+  // Editor inline (M16.3 — "curado por você"): troca o item por texto + setor.
+  function editFactUI(id) {
+    const el = document.getElementById('pf-' + id);
+    if (!el) return;
+    const curText = el.dataset.fact, curCat = el.dataset.cat, curHz = el.dataset.hz;
+    const opts = Object.keys(_pfCategories).map(c =>
+      `<option value="${c}"${c === curCat ? ' selected' : ''}>${escHtml(_pfCategories[c])}</option>`).join('');
+    // horizonte (curto/longo) faz sentido sobretudo em metas, mas deixo sempre
+    // editável — o backend só grava se o valor for válido.
+    const hzOpts = `<select class="pf-ed-hz"><option value=""${!curHz ? ' selected' : ''}>—</option><option value="short"${curHz === 'short' ? ' selected' : ''}>curto</option><option value="long"${curHz === 'long' ? ' selected' : ''}>longo</option></select>`;
+    el.innerHTML = `
+      <input class="pf-ed-input" type="text" maxlength="300" value="${escHtml(curText)}"
+             onkeydown="if(event.key==='Enter')saveFactEdit('${id}');if(event.key==='Escape')loadProfile()" />
+      <select class="pf-ed-cat">${opts}</select>${hzOpts}
+      <span class="pf-item-btns">
+        <button class="pf-ok" onclick="saveFactEdit('${id}')" title="Salvar">✓</button>
+        <button class="pf-del" onclick="loadProfile()" title="Cancelar">✕</button>
+      </span>`;
+    el.querySelector('.pf-ed-input').focus();
+  }
+
+  async function saveFactEdit(id) {
+    const el = document.getElementById('pf-' + id);
+    if (!el) return;
+    const fact = el.querySelector('.pf-ed-input').value.trim();
+    const category = el.querySelector('.pf-ed-cat').value;
+    const hzSel = el.querySelector('.pf-ed-hz');
+    const horizon = hzSel ? hzSel.value : undefined;
+    if (!fact) return;
+    try {
+      await fetch('/api/profile/' + encodeURIComponent(id), {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fact, category, horizon }),
+      });
+      await loadProfile();
+    } catch(e) { showIngestToast(`⚠ Falha: ${escHtml(e.message)}`); }
   }
 
   async function confirmCandUI(id) {
