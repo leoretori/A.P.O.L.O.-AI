@@ -4,7 +4,7 @@
 import pytest
 
 from src.providers import (
-    LlamaCppProvider, OllamaProvider, get_provider, reset_provider,
+    LlamaCppProvider, OllamaProvider, backend_status, get_provider, reset_provider,
 )
 
 
@@ -66,6 +66,40 @@ def test_get_levanta_erro_claro_sem_gguf(monkeypatch):
     # Sem o arquivo, deve falhar com mensagem útil (não um ImportError obscuro)
     with pytest.raises((FileNotFoundError, ImportError)):
         p._get("x")
+
+
+# ── backend_status: "posso cortar o cordão do Ollama?" ──────────
+def test_status_ollama_padrao(monkeypatch):
+    monkeypatch.delenv("LLM_BACKEND", raising=False)
+    s = backend_status()
+    assert s["backend"] == "ollama" and s["sovereign"] is False and s["ready"] is True
+
+
+def test_status_llamacpp_falta_modelo(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "llamacpp")
+    monkeypatch.delenv("LLAMACPP_MODELS", raising=False)
+    s = backend_status()
+    assert s["backend"] == "llamacpp" and s["sovereign"] is True
+    assert s["ready"] is False and "LLAMACPP_MODELS" in s["detail"]
+
+
+def test_status_llamacpp_gguf_inexistente(monkeypatch):
+    monkeypatch.setenv("LLM_BACKEND", "llamacpp")
+    monkeypatch.setenv("LLAMACPP_MODELS", "x=models/nao_existe_999.gguf")
+    s = backend_status()
+    assert s["ready"] is False and "gguf" in s["detail"].lower()
+
+
+def test_status_llamacpp_pronto(monkeypatch, tmp_path):
+    gguf = tmp_path / "modelo.gguf"
+    gguf.write_bytes(b"fake")
+    monkeypatch.setenv("LLM_BACKEND", "llamacpp")
+    monkeypatch.setenv("LLAMACPP_MODELS", f"meu={gguf}")
+    # lib pode não estar instalada no CI → simula presença do módulo
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    s = backend_status()
+    assert s["ready"] is True and "pronto" in s["detail"]
 
 
 # ── OllamaProvider: normalização do formato de resposta ──────────

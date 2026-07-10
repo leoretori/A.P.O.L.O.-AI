@@ -2243,8 +2243,15 @@
       const profLabel = hw.profile === 'max'
         ? '<span style="color:#fbbf24">máx (dedicada)</span>'
         : '<span style="color:#888">balanceado</span>';
+      const sov = o.sovereignty || {};
+      const sovLabel = !sov.sovereign
+        ? `<span style="color:#888">Ollama ativo — ${escHtml(sov.detail||'')}</span>`
+        : (sov.ready
+            ? '<span style="color:#4ade80">✓ motor próprio pronto — Ollama dispensável</span>'
+            : `<span style="color:#fbbf24">motor próprio incompleto — ${escHtml(sov.detail||'')}</span>`);
       const ollamaCard = card(`${dot(o.installed&&o.installed.length)} 🧩 Motor de inferência`,
         line('Backend', backendLabel) +
+        (sov.detail ? line('Soberania', sovLabel) : '') +
         line('Chat', escHtml(o.chat_model||'—')) +
         line('Pesado (14b)', escHtml(o.heavy_model||'—')) +
         line('Visão', o.has_vision ? escHtml(o.vision_model) : '<span style="color:#888">não instalado</span>') +

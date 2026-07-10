@@ -104,9 +104,11 @@ async def health():
                     "heavy_model": heavy_model, "vision_model": vision_model,
                     "has_vision": bool(vision_model)}
         from src.hardware import summary as _hw_summary
+        from src.providers import backend_status
         return {"installed": models, "chat_model": chat_model, "heavy_model": heavy_model,
                 "vision_model": vision_model, "has_vision": bool(vision_model),
                 "backend": get_provider().name, "breaker": ollama_breaker_state(),
+                "sovereignty": backend_status(),  # motor próprio pronto p/ dispensar o Ollama?
                 "hardware": _hw_summary()}
 
     async def _database():

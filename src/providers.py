@@ -172,3 +172,32 @@ def reset_provider():
     """Limpa o singleton — usado em testes para trocar de backend."""
     global _provider
     _provider = None
+
+
+def backend_status() -> dict:
+    """Estado do motor de LLM selecionado, para o 'cortar o cordão do Ollama':
+    diz se o motor PRÓPRIO (llama.cpp) está de fato pronto para assumir — lib
+    instalada + modelo GGUF apontado e presente — ou o que falta. Determinístico
+    e barato (não carrega modelo): dá para checar antes de virar a chave.
+
+    Retorna {backend, sovereign, ready, detail}.
+    """
+    backend = os.getenv("LLM_BACKEND", "ollama").strip().lower()
+    if backend != "llamacpp":
+        return {"backend": "ollama", "sovereign": False, "ready": True,
+                "detail": "usando Ollama — troque com LLM_BACKEND=llamacpp para o motor próprio"}
+    import importlib.util
+    lib = importlib.util.find_spec("llama_cpp") is not None
+    models = LlamaCppProvider._parse_model_map(os.getenv("LLAMACPP_MODELS", ""))
+    paths_ok = bool(models) and all(os.path.exists(p) for p in models.values())
+    missing: list[str] = []
+    if not lib:
+        missing.append("instale llama-cpp-python")
+    if not models:
+        missing.append("defina LLAMACPP_MODELS=nome=caminho.gguf")
+    elif not paths_ok:
+        missing.append("arquivo .gguf apontado não existe")
+    ready = lib and paths_ok
+    return {"backend": "llamacpp", "sovereign": True, "ready": ready,
+            "detail": "motor próprio pronto (Ollama dispensável)" if ready
+                      else "falta: " + "; ".join(missing)}
