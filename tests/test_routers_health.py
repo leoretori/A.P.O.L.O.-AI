@@ -38,6 +38,7 @@ def test_rotas_registradas():
 def test_boot_agrega(monkeypatch):
 
     class FakeProvider:
+        name = "llamacpp"
         def list_models(self): return ["qwen2.5-coder:3b"]
     monkeypatch.setattr("src.providers.get_provider", lambda: FakeProvider())
 

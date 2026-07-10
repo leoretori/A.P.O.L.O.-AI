@@ -30,10 +30,12 @@ async def boot_data():
         try:
             installed = get_provider().list_models()
             return {"chat_model": chat_model, "heavy_model": heavy_model,
-                    "vision_model": vision_model, "installed": installed}
+                    "vision_model": vision_model, "installed": installed,
+                    "backend": get_provider().name}
         except Exception:
             return {"chat_model": chat_model, "heavy_model": heavy_model,
-                    "vision_model": vision_model, "installed": []}
+                    "vision_model": vision_model, "installed": [],
+                    "backend": get_provider().name}
 
     async def _kb_stats():
         if not rt.knowledge_db:

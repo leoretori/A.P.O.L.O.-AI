@@ -140,6 +140,7 @@ def test_history_le_do_db():
 
 def test_models_usa_getters_do_runtime(monkeypatch):
     class FakeProvider:
+        name = "ollama"
         def list_models(self):
             return ["qwen2.5-coder:3b", "qwen2.5-coder:14b"]
 
@@ -159,6 +160,7 @@ def test_models_sugere_3b_quando_chat_pesado(monkeypatch):
     monkeypatch.setattr(sysmod, "get_provider", lambda: None, raising=False)
 
     class FakeProvider:
+        name = "ollama"
         def list_models(self):
             return []
     monkeypatch.setattr("src.providers.get_provider", lambda: FakeProvider())

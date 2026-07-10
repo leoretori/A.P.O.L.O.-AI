@@ -4443,7 +4443,7 @@
     try {
       const m = await fetch('/api/models').then(r => r.json());
       if (m.chat_model) {
-        document.getElementById('cap-model').textContent = `${m.chat_model} · chat · Ollama local`;
+        document.getElementById('cap-model').textContent = `${m.chat_model} · ${m.backend === 'llamacpp' ? 'motor próprio' : 'Ollama'} · local`;
       }
       visionAvailable = !!m.has_vision;
       const ib = document.getElementById('image-btn');
@@ -4503,7 +4503,7 @@
       if (d.models) {
         const m = d.models;
         document.getElementById('cap-model').textContent =
-          `${m.chat_model || m.heavy_model} · Ollama local`;
+          `${m.chat_model || m.heavy_model} · ${m.backend === 'llamacpp' ? 'motor próprio' : 'Ollama'} · local`;
         if (m.chat_model && m.chat_model !== m.heavy_model) {
           const hint = document.getElementById('speed-hint');
           if (hint) hint.style.display = 'none';

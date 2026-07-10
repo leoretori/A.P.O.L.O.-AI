@@ -129,7 +129,9 @@ async def models_info():
         "vision_model": vision_model,
         "has_vision": bool(vision_model),
         "installed": installed,
+        "backend": get_provider().name,
         "chat_is_fast": chat_is_fast,
-        # Sugere um 3B só se o chat ainda não usa um modelo rápido.
-        "suggestion": "" if chat_is_fast else "qwen2.5-coder:3b",
+        # Sugere um 3B do Ollama só se ainda estiver no Ollama e sem modelo rápido.
+        # No motor próprio (llama.cpp) a troca é por GGUF no .env — sem "ollama pull".
+        "suggestion": "" if (chat_is_fast or get_provider().name == "llamacpp") else "qwen2.5-coder:3b",
     }

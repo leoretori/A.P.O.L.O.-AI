@@ -79,11 +79,8 @@
   </div>
 
   <div id="caps-bar">
-    <div class="cap"><div class="dot on"></div><span id="cap-model">qwen2.5-coder:14b · Ollama local</span></div>
-    <div class="cap"><div class="dot on"></div><span>ChromaDB + SQLite · Memória local</span></div>
-    <div class="cap"><div class="dot on"></div><span>🌐 DuckDuckGo · Busca ao vivo</span></div>
-    <div class="cap"><div class="dot on"></div><span>GitHub · Repos trending</span></div>
-    <div class="cap"><div class="dot off" id="dot-sb"></div><span id="lbl-sb">Supabase · verificando...</span></div>
+    <div class="cap"><div class="dot on"></div><span id="cap-model">motor próprio · local</span></div>
+    <div class="cap"><div class="dot on" id="dot-sb"></div><span id="lbl-sb">memória local · 100% offline</span></div>
   </div>
   <div id="speed-hint" style="display:none" title="Clique para copiar o comando">
     ⚡ <b>Respostas lentas?</b> Baixe um modelo leve p/ chat:
@@ -187,59 +184,75 @@
 
   <div class="nav-sec">Você</div>
   <button id="profile-open-btn" onclick="openProfile()">
-    👤 <span>Sobre mim</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>
+    <span>Sobre mim</span>
   </button>
   <button id="timeline-open-btn" onclick="openTimeline()">
-    📜 <span>Linha do tempo</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+    <span>Linha do tempo</span>
   </button>
 
   <div class="nav-sec">Conhecimento</div>
   <button id="kb-btn" onclick="openKnowledge()">
-    📚 <span>Base de Conhecimento</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h11a1 1 0 0 1 1 1v15H7a2 2 0 0 1-2-2V6a2 2 0 0 1 1-2z"/><path d="M9 4v16"/></svg>
+    <span>Base de Conhecimento</span>
     <span class="kb-count" id="kb-count">0</span>
   </button>
   <button id="obsidian-import-btn" onclick="openObsidianImport()">
-    📒 <span>Importar Obsidian / Pasta</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10v6m0 0l-2.5-2.5M12 16l2.5-2.5"/></svg>
+    <span>Importar Obsidian / Pasta</span>
   </button>
   <button id="repo-btn" onclick="openRepoModal()">
-    🐙 <span>Analisar Repositório</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.2"/><circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="8" r="2.2"/><path d="M6 8.2v7.6M18 10.2c0 3-2 4.8-5 4.8H8"/></svg>
+    <span>Analisar Repositório</span>
   </button>
 
   <div class="nav-sec">Trabalho</div>
   <button id="coder-open-btn" onclick="openCoder()">
-    💻 <span>A.P.O.L.O. Coder</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-3 3 3 3M16 9l3 3-3 3M14 6l-4 12"/></svg>
+    <span>A.P.O.L.O. Coder</span>
   </button>
   <button id="review-open-btn" onclick="openReview()">
-    🔍 <span>Revisar Código</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <span>Revisar Código</span>
   </button>
   <button id="projects-open-btn" onclick="openProjects()">
-    🎯 <span>Projetos</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2"/></svg>
+    <span>Projetos</span>
   </button>
   <button id="actions-open-btn" onclick="openActions()">
-    🛠️ <span>Ações reversíveis</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13a7 7 0 1 0 2-5.5"/><path d="M4 4v4h4"/></svg>
+    <span>Ações reversíveis</span>
   </button>
 
   <div class="nav-sec">Sistema</div>
   <button id="mind-open-btn" onclick="openMind()">
-    🧠 <span>Mente do A.P.O.L.O.</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3"/></svg>
+    <span>Mente do A.P.O.L.O.</span>
   </button>
   <button id="health-open-btn" onclick="openHealth()">
-    🩺 <span>Saúde do Sistema</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 6 4-14 2 8h6"/></svg>
+    <span>Saúde do Sistema</span>
   </button>
   <button id="analytics-open-btn" onclick="openAnalytics()">
-    📊 <span>Analytics</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 20v-6M12 20V6M18 20v-9M3 20h18"/></svg>
+    <span>Analytics</span>
   </button>
   <button id="audit-open-btn" onclick="openAudit()">
-    🕒 <span>Atividade (24h)</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5v4h4"/><path d="M3.5 9a9 9 0 1 1-.5 5"/><path d="M12 8v4l3 2"/></svg>
+    <span>Atividade (24h)</span>
   </button>
   <button id="perm-open-btn" onclick="openPermissions()">
-    🔐 <span>Permissões</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/></svg>
+    <span>Permissões</span>
   </button>
   <button id="backup-open-btn" onclick="openBackup()">
-    🔒 <span>Backup cifrado</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <span>Backup cifrado</span>
   </button>
   <button id="remote-open-btn" onclick="openRemote()">
-    📱 <span>Acesso remoto</span>
+    <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+    <span>Acesso remoto</span>
   </button>
 
   <input id="import-file" type="file" accept="application/json" style="display:none" onchange="importBackup(event)">
