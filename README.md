@@ -1,8 +1,8 @@
 # ☀️ APOLO AI
 
-> **v1.0.0 · 🎉 Ano 1 do roadmap Jarvis completo (2026-07-09).** Os 12 milestones entregues em software — da arquitetura e memória à voz local, proatividade, agência com permissão, cérebro com verificação anti-alucinação, ação no mundo com undo, soberania (cripto + acesso remoto + embeddings locais) e automelhoria supervisionada com retrospectiva falada. Veja o [JARVIS_ROADMAP.md](JARVIS_ROADMAP.md). Pendências restantes são de hardware (GPU) e setup local.
+> **v1.0.0 · 🎉 Ano 1 do roadmap Jarvis completo (2026-07-09).** Os 12 milestones entregues em software — da arquitetura e memória à voz local, proatividade, agência com permissão, cérebro com verificação anti-alucinação, ação no mundo com undo, soberania (cripto + acesso remoto + embeddings locais) e automelhoria supervisionada com retrospectiva falada. Veja o [JARVIS_ROADMAP.md](docs/JARVIS_ROADMAP.md). Pendências restantes são de hardware (GPU) e setup local.
 >
-> **▶️ Ano 2 já traçado:** [JARVIS_ROADMAP_ANO2.md](JARVIS_ROADMAP_ANO2.md) — o cérebro se torna seu (integração do [Apolo-Nano](APOLO_NANO_ROADMAP.md) + roteamento híbrido + flywheel aprender→treinar→servir), conhecer o Leo de verdade (modelo profundo), agência que conduz (executa projetos, navegador interativo, apps nativos) e multimodal + presença + prova de evolução.
+> **▶️ Ano 2 já traçado:** [JARVIS_ROADMAP_ANO2.md](JARVIS_ROADMAP_ANO2.md) — o cérebro se torna seu (integração do [Apolo-Nano](docs/APOLO_NANO_ROADMAP.md) + roteamento híbrido + flywheel aprender→treinar→servir), conhecer o Leo de verdade (modelo profundo), agência que conduz (executa projetos, navegador interativo, apps nativos) e multimodal + presença + prova de evolução.
 
 ---
 
@@ -404,8 +404,8 @@ Prioridade na fila:  1º User question  2º Auto-Currículo  3º rotação dos a
 
 ## 🧬 Apolo-Nano — LLM própria, treinada do zero
 
-> 📋 **Plano completo:** [`APOLO_NANO_ROADMAP.md`](APOLO_NANO_ROADMAP.md) — roadmap de 6 meses (dados → treino → integração → escala), no mesmo formato do plano-mãe do Jarvis.
-> 📄 **Paper caseiro:** [`APOLO_NANO.md`](APOLO_NANO.md) — arquitetura, dados, treino e resultados **medidos** do 1º ciclo (v1: 3,39M params, ppl 158, tarefas confirmam o teto de HW).
+> 📋 **Plano completo:** [`APOLO_NANO_ROADMAP.md`](docs/APOLO_NANO_ROADMAP.md) — roadmap de 6 meses (dados → treino → integração → escala), no mesmo formato do plano-mãe do Jarvis.
+> 📄 **Paper caseiro:** [`APOLO_NANO.md`](docs/APOLO_NANO.md) — arquitetura, dados, treino e resultados **medidos** do 1º ciclo (v1: 3,39M params, ppl 158, tarefas confirmam o teto de HW).
 
 O Apolo tem um motor de LLM **construído inteiramente do zero** em `src/nanollm/` — sem PyTorch, sem HuggingFace, sem autograd, sem pesos pré-treinados de terceiros. Tudo é NumPy + Python puro:
 

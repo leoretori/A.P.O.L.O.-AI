@@ -614,7 +614,7 @@
     /* ════ PAINEL SOBRE MIM ════ */
     #profile-open-btn { width:100%; padding:9px 13px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:9px; color:#555; font-size:11.5px; transition:all .15s; text-align:left; border-top:1px solid var(--border); }
     #profile-open-btn:hover { background:#111118; color:var(--sun); }
-    #health-open-btn, #coder-open-btn, #analytics-open-btn, #audit-open-btn, #perm-open-btn, #actions-open-btn, #projects-open-btn, #timeline-open-btn { width:100%; padding:9px 13px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:9px; color:#555; font-size:11.5px; transition:all .15s; text-align:left; border-top:1px solid var(--border); }
+    #health-open-btn, #coder-open-btn, #analytics-open-btn, #audit-open-btn, #perm-open-btn, #actions-open-btn, #projects-open-btn, #timeline-open-btn, #obsidian-import-btn, #repo-btn, #backup-open-btn, #remote-open-btn { width:100%; padding:9px 13px; border:none; background:none; cursor:pointer; display:flex; align-items:center; gap:9px; color:#555; font-size:11.5px; transition:all .15s; text-align:left; border-top:1px solid var(--border); }
     #timeline-open-btn:hover { background:#111118; color:#c084fc; }
     #health-open-btn:hover { background:#111118; color:#5b9cff; }
     #analytics-open-btn:hover { background:#111118; color:#4ade80; }
@@ -622,6 +622,12 @@
     #perm-open-btn:hover { background:#111118; color:#a78bfa; }
     #actions-open-btn:hover { background:#111118; color:#fbbf24; }
     #projects-open-btn:hover { background:#111118; color:#4ade80; }
+    #obsidian-import-btn:hover { background:#111118; color:#a78bfa; }
+    #repo-btn:hover { background:#111118; color:#4ade80; }
+    #backup-open-btn:hover { background:#111118; color:#5eead4; }
+    #remote-open-btn:hover { background:#111118; color:#5b9cff; }
+    /* Seções da navegação lateral (M-limpeza visual) — agrupa as abas */
+    .nav-sec { font-size:9.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:#3a3a44; padding:12px 14px 4px; user-select:none; }
 
     /* ════ PAINEL ANALYTICS ════ */
     #analytics-overlay { display:none; position:fixed; inset:0; background:#000a; z-index:100; backdrop-filter:blur(3px); }

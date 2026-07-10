@@ -177,8 +177,6 @@
       <span onclick="exportSessionMd()" title="Exportar conversa atual em Markdown" style="cursor:pointer">📄</span>
       <span onclick="exportBackup()" title="Baixar backup completo (JSON)" style="cursor:pointer">⬇️</span>
       <span onclick="document.getElementById('import-file').click()" title="Restaurar backup (JSON)" style="cursor:pointer">⬆️</span>
-      <span onclick="openBackup()" title="Backup local criptografado" style="cursor:pointer">🔒</span>
-      <span onclick="openRemote()" title="Acesso remoto (celular)" style="cursor:pointer">📱</span>
       <span onclick="loadSessions()" title="Atualizar" style="cursor:pointer">↻</span>
     </span>
   </div>
@@ -187,61 +185,61 @@
          style="margin:0 7px 6px;padding:6px 9px;width:calc(100% - 14px);background:#0e0e12;border:1px solid #1c1c24;border-radius:7px;color:#ccc;font-size:11px;outline:none;box-sizing:border-box">
   <div id="sessions-list"></div>
 
-  <button id="kb-btn" onclick="openKnowledge()">
-    📚 <span>Base de Conhecimento</span>
-    <span class="kb-count" id="kb-count">0</span>
-  </button>
-
-  <button id="review-open-btn" onclick="openReview()">
-    🔍 <span>Revisar Código</span>
-  </button>
-
-  <button id="mind-open-btn" onclick="openMind()">
-    🧠 <span>Mente do A.P.O.L.O.</span>
-  </button>
-
+  <div class="nav-sec">Você</div>
   <button id="profile-open-btn" onclick="openProfile()">
     👤 <span>Sobre mim</span>
   </button>
-
   <button id="timeline-open-btn" onclick="openTimeline()">
     📜 <span>Linha do tempo</span>
   </button>
 
+  <div class="nav-sec">Conhecimento</div>
+  <button id="kb-btn" onclick="openKnowledge()">
+    📚 <span>Base de Conhecimento</span>
+    <span class="kb-count" id="kb-count">0</span>
+  </button>
+  <button id="obsidian-import-btn" onclick="openObsidianImport()">
+    📒 <span>Importar Obsidian / Pasta</span>
+  </button>
+  <button id="repo-btn" onclick="openRepoModal()">
+    🐙 <span>Analisar Repositório</span>
+  </button>
+
+  <div class="nav-sec">Trabalho</div>
   <button id="coder-open-btn" onclick="openCoder()">
     💻 <span>A.P.O.L.O. Coder</span>
   </button>
-
-  <button id="health-open-btn" onclick="openHealth()">
-    🩺 <span>Saúde do Sistema</span>
+  <button id="review-open-btn" onclick="openReview()">
+    🔍 <span>Revisar Código</span>
   </button>
-
-  <button id="analytics-open-btn" onclick="openAnalytics()">
-    📊 <span>Analytics</span>
+  <button id="projects-open-btn" onclick="openProjects()">
+    🎯 <span>Projetos</span>
   </button>
-
-  <button id="audit-open-btn" onclick="openAudit()">
-    🕒 <span>Atividade (24h)</span>
-  </button>
-
-  <button id="perm-open-btn" onclick="openPermissions()">
-    🔐 <span>Permissões</span>
-  </button>
-
   <button id="actions-open-btn" onclick="openActions()">
     🛠️ <span>Ações reversíveis</span>
   </button>
 
-  <button id="projects-open-btn" onclick="openProjects()">
-    🎯 <span>Projetos</span>
+  <div class="nav-sec">Sistema</div>
+  <button id="mind-open-btn" onclick="openMind()">
+    🧠 <span>Mente do A.P.O.L.O.</span>
   </button>
-
-  <button id="obsidian-import-btn" onclick="openObsidianImport()" style="width:100%;padding:9px 13px;border:none;background:none;cursor:pointer;display:flex;align-items:center;gap:9px;color:#555;font-size:11.5px;transition:all .15s;text-align:left;border-top:1px solid var(--border);" onmouseover="this.style.color='#a78bfa'" onmouseout="this.style.color='#555'">
-    📒 <span>Importar Obsidian / Pasta</span>
+  <button id="health-open-btn" onclick="openHealth()">
+    🩺 <span>Saúde do Sistema</span>
   </button>
-
-  <button id="repo-btn" onclick="openRepoModal()" style="width:100%;padding:9px 13px;border:none;background:none;cursor:pointer;display:flex;align-items:center;gap:9px;color:#555;font-size:11.5px;transition:all .15s;text-align:left;border-top:1px solid var(--border);" onmouseover="this.style.color='#4ade80'" onmouseout="this.style.color='#555'">
-    🐙 <span>Analisar Repositório</span>
+  <button id="analytics-open-btn" onclick="openAnalytics()">
+    📊 <span>Analytics</span>
+  </button>
+  <button id="audit-open-btn" onclick="openAudit()">
+    🕒 <span>Atividade (24h)</span>
+  </button>
+  <button id="perm-open-btn" onclick="openPermissions()">
+    🔐 <span>Permissões</span>
+  </button>
+  <button id="backup-open-btn" onclick="openBackup()">
+    🔒 <span>Backup cifrado</span>
+  </button>
+  <button id="remote-open-btn" onclick="openRemote()">
+    📱 <span>Acesso remoto</span>
   </button>
 
   <input id="import-file" type="file" accept="application/json" style="display:none" onchange="importBackup(event)">

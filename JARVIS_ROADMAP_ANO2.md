@@ -1,6 +1,6 @@
 # 🛰️ JARVIS — Roadmap do Ano 2 (Apolo AI)
 
-> Continuação do [JARVIS_ROADMAP.md](JARVIS_ROADMAP.md) (Ano 1, M1–M12, **v1.0.0** ✅). Mesma cadência: **1 incremento por dia**, testado, commitado no branch e mergeado no `main`, com README e memória atualizados. Sem regressões (a suíte fica verde). Documento vivo.
+> Continuação do [JARVIS_ROADMAP.md](docs/JARVIS_ROADMAP.md) (Ano 1, M1–M12, **v1.0.0** ✅). Mesma cadência: **1 incremento por dia**, testado, commitado no branch e mergeado no `main`, com README e memória atualizados. Sem regressões (a suíte fica verde). Documento vivo.
 
 **Início:** 2026-07-09 · **Alvo:** 2027-07 · **Dono:** Leo · **Copiloto:** Claude Code · **Milestones:** M13–M24
 
@@ -10,7 +10,7 @@
 
 Em 12 meses construímos **todo o scaffolding do Jarvis** e chegamos ao **v1.0.0**: arquitetura modular + observabilidade, tecido de memória unificado + episódica, voz local, proatividade/briefing, wake word, ler o mundo com permissão, roteamento + verificação anti-alucinação, aprendizado que entende (repetição espaçada + grafo), harness de avaliação, ação no mundo com undo + rotinas + web sandbox, criptografia + acesso remoto + embeddings locais, e automelhoria supervisionada + retrospectiva falada. Suíte **>1080 verde**.
 
-A aposta do Ano 1 se confirmou: **80% da experiência "Jarvis" é scaffolding — e está de pé.** O que ficou para trás foi, quase inteiramente, o **cérebro** (os pesos do modelo) e o que depende de **hardware**. O Ano 2 ataca exatamente essa fronteira — e agora temos uma arma nova que o Ano 1 não tinha: o **[Apolo-Nano](APOLO_NANO_ROADMAP.md)**, a LLM própria em construção.
+A aposta do Ano 1 se confirmou: **80% da experiência "Jarvis" é scaffolding — e está de pé.** O que ficou para trás foi, quase inteiramente, o **cérebro** (os pesos do modelo) e o que depende de **hardware**. O Ano 2 ataca exatamente essa fronteira — e agora temos uma arma nova que o Ano 1 não tinha: o **[Apolo-Nano](docs/APOLO_NANO_ROADMAP.md)**, a LLM própria em construção.
 
 ---
 
@@ -58,7 +58,7 @@ Três eixos, costurados pelo Apolo-Nano:
 
 > Cada mês tem 3 épicos; cada épico vira ~15–20 incrementos diários pequenos, testados e verdes. "DoD" = Definition of Done. O padrão que funcionou o Ano 1 continua: **determinístico primeiro + dependências injetáveis** (fake nos testes), verificação no preview, suíte cheia, merge, push.
 
-### 🗓️ Q1 (Y2) — O CÉREBRO SE TORNA SEU *(P7)* — costura com o [Apolo-Nano](APOLO_NANO_ROADMAP.md)
+### 🗓️ Q1 (Y2) — O CÉREBRO SE TORNA SEU *(P7)* — costura com o [Apolo-Nano](docs/APOLO_NANO_ROADMAP.md)
 
 #### **Mês 13 — Ponte Nano ↔ Apolo**
 - Épico 13.1 — **Engine do Nano no app:** `src/nanollm/engine.py` carrega um checkpoint 1× e gera thread-safe; `POST /api/nano/complete`; card **🧬 Apolo-Nano** no painel Saúde (`nano_ready`, params, ppl do checkpoint). É o lado-app do D6/M3 do roadmap do Nano.
@@ -178,7 +178,7 @@ Três eixos, costurados pelo Apolo-Nano:
 
 A GPU é o **multiplicador central do Ano 2**. Sem ela ficam fora do alcance (mas com a estrada pronta):
 - **Fine-tune LoRA do 14B** com os dados do Leo (o software fica pronto no M15; liga no dia da GPU).
-- **Apolo-Nano 100M+ params** e contexto longo (ver [APOLO_NANO_ROADMAP.md](APOLO_NANO_ROADMAP.md) §7).
+- **Apolo-Nano 100M+ params** e contexto longo (ver [APOLO_NANO_ROADMAP.md](docs/APOLO_NANO_ROADMAP.md) §7).
 - **Latência de voz em tempo real** para a presença contínua (M23).
 - **Chat de verdade num modelo próprio** — nem com GPU de entrada; segue no Qwen até lá.
 
@@ -205,7 +205,7 @@ Igual ao Ano 1 (`JARVIS_ROADMAP.md` §10) e ao Nano (`APOLO_NANO_ROADMAP.md` §9
 
 ## 9. Como o Ano 2 se conecta com o Apolo-Nano
 
-O Ano 2 e o [Apolo-Nano](APOLO_NANO_ROADMAP.md) são **dois lados do mesmo aperto de mão**:
+O Ano 2 e o [Apolo-Nano](docs/APOLO_NANO_ROADMAP.md) são **dois lados do mesmo aperto de mão**:
 
 | O Apolo dá ao Nano | O Nano dá ao Apolo |
 |---|---|
@@ -218,7 +218,7 @@ Os **M13–M15 são o lado-Apolo do pilar D6 (Integração & Produto)** do roadm
 
 ### Progresso M13–M14 (adiantado no ciclo do Nano — 2026-07-09)
 
-O primeiro ciclo do [Apolo-Nano](APOLO_NANO.md) já entregou o lado-app:
+O primeiro ciclo do [Apolo-Nano](docs/APOLO_NANO.md) já entregou o lado-app:
 
 - **🏁 M13 (Ponte Nano ↔ Apolo) — ENTREGUE.** 13.1 `NanoEngine` + `POST /api/nano/complete` + card 🧬 no painel Saúde; 13.2 gate de recursos (`GpuGate.user_enter/exit` na completion — o learner espera pelo Nano); 13.3 params/ppl/latência no `/api/health`. O app carrega e serve o Nano sem travar a máquina.
 - **🔨 M14 (Roteamento híbrido) — parcial + teto medido.** 14.2 construído: título de conversa Nano-first com fallback garantido (`generate_session_title` + portão de qualidade). Mas a **medição honesta** (título 1/6, classificação de setor 31%) confirmou o teto 🔒 HW: um modelo de 3,4M no CPU não faz tarefas ancoradas com qualidade de produção. **O flywheel (M15) e a promoção por qualidade (15.2) estão prontos em infraestrutura; o que falta é ESCALA (GPU)** — não mais código. O fallback garante que a produção nunca piora.

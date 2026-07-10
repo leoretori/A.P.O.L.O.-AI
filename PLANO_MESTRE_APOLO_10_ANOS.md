@@ -1,6 +1,6 @@
 # 🌌 A.P.O.L.O. — Plano Mestre de 10 Anos
 
-> O documento-raiz. Une os dois fios do projeto num só: **o cérebro** (a LLM própria, do zero — [Apolo-Nano](APOLO_NANO_ROADMAP.md)) e **o corpo** (o assistente soberano — [Jarvis Ano 1](JARVIS_ROADMAP.md) ✅ + [Ano 2](JARVIS_ROADMAP_ANO2.md)). A meta não é um chatbot: é um **parceiro de vida e engenharia, soberano, que raciocina com um cérebro treinado pelo próprio Leo, se lembra de uma década de convivência, age no mundo com segurança e melhora sozinho todo dia.**
+> O documento-raiz. Une os dois fios do projeto num só: **o cérebro** (a LLM própria, do zero — [Apolo-Nano](docs/APOLO_NANO_ROADMAP.md)) e **o corpo** (o assistente soberano — [Jarvis Ano 1](docs/JARVIS_ROADMAP.md) ✅ + [Ano 2](JARVIS_ROADMAP_ANO2.md)). A meta não é um chatbot: é um **parceiro de vida e engenharia, soberano, que raciocina com um cérebro treinado pelo próprio Leo, se lembra de uma década de convivência, age no mundo com segurança e melhora sozinho todo dia.**
 
 **Início:** 2026-07-09 · **Horizonte:** 2036 · **Dono:** Leo · **Copiloto:** Claude Code
 **Ponto de partida real:** APOLO **v1.0.0** (Ano 1 completo) + **Apolo-Nano v1** (3,39M params, treinado do zero, integrado ao app).
@@ -152,9 +152,9 @@ A capacidade do cérebro é limitada por hardware, e o plano é explícito sobre
 ## 8. Como este plano se lê com os outros
 
 - **Este documento** = a visão de 10 anos e a costura dos dois fios. Muda devagar.
-- [`JARVIS_ROADMAP.md`](JARVIS_ROADMAP.md) = Ano 1, **concluído** (o corpo).
+- [`JARVIS_ROADMAP.md`](docs/JARVIS_ROADMAP.md) = Ano 1, **concluído** (o corpo).
 - [`JARVIS_ROADMAP_ANO2.md`](JARVIS_ROADMAP_ANO2.md) = Ano 2, em curso (cérebro híbrido + conhecer o Leo).
-- [`APOLO_NANO_ROADMAP.md`](APOLO_NANO_ROADMAP.md) + [`APOLO_NANO.md`](APOLO_NANO.md) = o cérebro próprio (arquitetura, dados, resultados medidos, teto).
+- [`APOLO_NANO_ROADMAP.md`](docs/APOLO_NANO_ROADMAP.md) + [`APOLO_NANO.md`](docs/APOLO_NANO.md) = o cérebro próprio (arquitetura, dados, resultados medidos, teto).
 - Anos 3–10 aqui são **direção honesta**, não promessa: cada ciclo os refina com o hardware e os números reais. O que não muda é o destino — um cérebro soberano num corpo que conhece o Leo e age por ele.
 
 > **Regra de ouro da década:** todo dia o sistema termina melhor e verde do que começou. A GPU acelera; a disciplina constrói.

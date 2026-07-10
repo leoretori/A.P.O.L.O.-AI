@@ -4043,19 +4043,26 @@
 
   // ── Reparo de sínteses cruas (timeouts antigos) ───────────────
   async function repairSummaries() {
-    const btn = document.getElementById('mind-repair');
-    const orig = btn.textContent;
-    btn.disabled = true; btn.textContent = '🩹 Verificando…';
+    const body = document.getElementById('mind-body');
+    body.innerHTML = '<div id="mind-loading">🩹 Procurando sínteses cruas…</div>';
     try {
       const d = await fetch('/api/learning/repair', {method:'POST'}).then(r => r.json());
-      if (!d.ok) { btn.textContent = '✗ ' + (d.error || 'erro'); }
-      else if (!d.found) { btn.textContent = '✨ Nada cru'; }
-      else {
-        btn.textContent = `🩹 Reparando ${d.started}/${d.found}…`;
-        alert(`🩹 Encontrei ${d.found} síntese(s) crua(s) — re-sintetizando ${d.started} em segundo plano.\nO resultado chega nas 🔔 notificações. Rode de novo para reparar as demais.`);
+      if (!d.ok) {
+        body.innerHTML = `<div class="mind-empty">Não consegui reparar: ${escHtml(d.error || 'erro')}</div>`;
+      } else if (!d.found) {
+        body.innerHTML = '<div class="mind-empty">✨ Nada cru — todas as sínteses já estão bem estruturadas.</div>';
+      } else {
+        const resto = d.found > d.started
+          ? '<div style="color:#7a7a88;font-size:12px;margin-top:8px">Clique em 🩹 Reparar de novo para tratar as demais.</div>' : '';
+        body.innerHTML = `<div style="padding:20px;text-align:center">
+          <div style="font-size:15px;color:#4ade80;margin-bottom:8px">🩹 Reparando ${d.started} de ${d.found} síntese(s) crua(s)</div>
+          <div style="color:#9a9aa8;font-size:12.5px;line-height:1.6;max-width:420px;margin:0 auto">Estão sendo re-sintetizadas em segundo plano (texto corrido → seções organizadas). O resultado chega nas 🔔 notificações.</div>
+          ${resto}
+        </div>`;
       }
-    } catch(e) { btn.textContent = '✗ Erro'; }
-    setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 4000);
+    } catch(e) {
+      body.innerHTML = `<div class="mind-empty">Erro ao reparar: ${escHtml(e.message)}</div>`;
+    }
   }
 
   // ── Curador de Memória (dedup) ───────────────────────────────
