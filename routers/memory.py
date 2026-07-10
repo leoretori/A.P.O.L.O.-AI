@@ -33,3 +33,13 @@ async def get_timeline(entity: str | None = None, when: str | None = None,
         eps = ep.recent(limit)
     from src.timeline import timeline
     return {"events": timeline(eps, rt.profile, entity=entity)}
+
+
+@router.get("/api/people")
+async def get_people(limit: int = 60):
+    """Quem-é-quem (M18.2): as pessoas do modelo com o contexto derivado da
+    linha do tempo — última vez, projetos e com quem coaparecem."""
+    ep = rt.episodic
+    eps = ep.recent(limit) if ep else []
+    from src.timeline import people_overview
+    return {"people": people_overview(eps, rt.profile)}

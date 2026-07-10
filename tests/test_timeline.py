@@ -1,6 +1,12 @@
 """Linha do tempo da vida (M18.1): episódios datados ligados às entidades."""
 
-from src.timeline import _anchors, entities, link_event, timeline
+from src.timeline import (
+    _anchors,
+    entities,
+    link_event,
+    people_overview,
+    timeline,
+)
 
 
 class FakeProfile:
@@ -82,3 +88,31 @@ def test_timeline_sem_profile():
         "id": "e1", "date": "2026-07-06T09:00:00", "title": "x",
         "summary": "", "refs": {},
     }]
+
+
+# ---------------------------------------------------------- 18.2 quem-é-quem
+def test_people_overview_contexto_e_coaparicao():
+    prof = _prof(persons=["Maria", "João"], projects=["Apolo AI"])
+    eps = [
+        _ep("Reunião", "Maria e João revisaram o Apolo AI",
+            occurred_at="2026-07-06T09:00:00", id="a"),
+        _ep("Café", "papo com a Maria", occurred_at="2026-07-04T09:00:00", id="b"),
+    ]
+    ov = {p["name"]: p for p in people_overview(eps, prof)}
+    maria = ov["Maria"]
+    assert maria["mentions"] == 2
+    assert maria["last_date"] == "2026-07-06T09:00:00"  # o mais recente
+    assert maria["projects"] == ["Apolo AI"]
+    assert maria["also_with"] == ["João"]               # coaparecem no ep "a"
+    assert ov["João"]["mentions"] == 1
+
+
+def test_people_overview_pessoa_sem_episodio():
+    prof = _prof(persons=["Ana"])
+    ov = people_overview([_ep("Bolo", "receita de cenoura")], prof)
+    assert ov[0]["name"] == "Ana"
+    assert ov[0]["mentions"] == 0 and ov[0]["last_date"] is None
+
+
+def test_people_overview_sem_pessoas():
+    assert people_overview([_ep("x")], _prof(projects=["Apolo AI"])) == []

@@ -20,12 +20,16 @@ class FakeEpisodic:
 
 
 class FakeProfile:
+    def __init__(self, groups=None):
+        self._g = groups or {"project": [{"fact": "Apolo AI",
+                                          "category": "project", "id": "pr0"}]}
+
     def by_category(self):
-        return {"project": [{"fact": "Apolo AI", "category": "project", "id": "pr0"}]}
+        return self._g
 
 
-def _client(episodes):
-    rt.configure(episodic=FakeEpisodic(episodes), profile=FakeProfile())
+def _client(episodes, profile=None):
+    rt.configure(episodic=FakeEpisodic(episodes), profile=profile or FakeProfile())
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
@@ -45,7 +49,7 @@ def test_timeline_filtra_por_entidade():
         {"id": "b", "title": "Bolo", "summary": "receita de cenoura",
          "occurred_at": "2026-07-05T09:00:00"},
     ]
-    d = c = _client(eps)
+    c = _client(eps)
     got = c.get("/api/timeline", params={"entity": "apolo"}).json()
     assert [e["id"] for e in got["events"]] == ["a"]
 
@@ -63,3 +67,13 @@ def test_timeline_sem_episodic():
     app = FastAPI()
     app.include_router(router)
     assert TestClient(app).get("/api/timeline").json() == {"events": []}
+
+
+def test_people_endpoint():
+    prof = FakeProfile({"person": [{"fact": "Maria", "category": "person", "id": "p0"}],
+                        "project": [{"fact": "Apolo AI", "category": "project", "id": "pr0"}]})
+    c = _client([{"id": "a", "title": "Reunião", "summary": "Maria revisou o Apolo AI",
+                  "occurred_at": "2026-07-06T09:00:00"}], profile=prof)
+    people = c.get("/api/people").json()["people"]
+    assert people[0]["name"] == "Maria"
+    assert people[0]["projects"] == ["Apolo AI"]

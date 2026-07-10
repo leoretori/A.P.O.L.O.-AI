@@ -112,3 +112,39 @@ def timeline(episodes: list[dict], profile, *, entity: str | None = None) -> lis
             if any(key in _norm(n) for names in ev["refs"].values() for n in names)
         ]
     return events
+
+
+def people_overview(episodes: list[dict], profile) -> list[dict]:
+    """Quem-é-quem (M18.2): cada pessoa do modelo com seu contexto derivado da
+    linha do tempo — quando foi vista por último, em que projetos/metas apareceu
+    e com quem coaparece. O grafo leve de relações, sem LLM.
+
+    Pessoas que o Apolo conhece mas nunca surgiram num episódio vêm com
+    `mentions: 0` (útil: "você me falou dela, mas não voltamos ao assunto").
+    Ordenado por atividade (mais mencionada / mais recente primeiro).
+    """
+    ents = entities(profile)
+    people = [e for e in ents if e["category"] == "person"]
+    if not people:
+        return []
+    events = [link_event(ep, ents) for ep in (episodes or [])]
+    out: list[dict] = []
+    for p in people:
+        name = p["name"]
+        seen = [ev for ev in events if name in ev["refs"].get("person", [])]
+        projects, goals, others = set(), set(), set()
+        for ev in seen:
+            projects.update(ev["refs"].get("project", []))
+            goals.update(ev["refs"].get("goal", []))
+            others.update(n for n in ev["refs"].get("person", []) if n != name)
+        out.append({
+            "name": name,
+            "mentions": len(seen),
+            "last_date": seen[0]["date"] if seen else None,   # events já ordenados
+            "last_title": seen[0]["title"] if seen else None,
+            "projects": sorted(projects),
+            "goals": sorted(goals),
+            "also_with": sorted(others),
+        })
+    out.sort(key=lambda x: (x["mentions"], x["last_date"] or ""), reverse=True)
+    return out
