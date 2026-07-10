@@ -152,8 +152,15 @@ def build_briefing(db=None, episodic=None, learner=None, profile=None,
         except Exception as e:
             logger.debug(f"briefing unread: {e}")
 
+    # ── Antecipação útil (M17.3): metas/projetos que a atividade recente NÃO
+    # tocou → sugestão de retomar, ancorada no hábito. ──
+    from src.anticipation import suggest_anticipations
+    recent_texts = [e.get("title", "") for e in episodes] + \
+                   [it.get("topic", "") for it in learned]
+    anticipations = suggest_anticipations(profile, recent_texts)
+
     text = _compose_text(greeting, len(learned), top_sectors, episodes,
-                         schedules, reminders, unread, relevant)
+                         schedules, reminders, unread, relevant, anticipations)
     return {
         "greeting": greeting,
         "generated_at": now.isoformat(),
@@ -162,6 +169,7 @@ def build_briefing(db=None, episodic=None, learner=None, profile=None,
         "relevant_to_you": [{"topic": r["topic"], "focus": r["focus"],
                              "focus_category": r["focus_category"],
                              "shared": r["shared"]} for r in relevant],
+        "anticipations": anticipations,
         "episodes": [{"title": e.get("title"), "occurred_at": e.get("occurred_at")}
                      for e in episodes],
         "schedules_today": [{"topic": s.get("topic"), "time": s.get("time_of_day")}
@@ -175,7 +183,7 @@ def build_briefing(db=None, episodic=None, learner=None, profile=None,
 
 def _compose_text(greeting: str, learned_count: int, top_sectors: list,
                   episodes: list, schedules: list, reminders: list, unread: int,
-                  relevant: list | None = None) -> str:
+                  relevant: list | None = None, anticipations: list | None = None) -> str:
     from src.topics import SECTOR_LABELS
     parts = [f"{greeting}!"]
 
@@ -210,7 +218,14 @@ def _compose_text(greeting: str, learned_count: int, top_sectors: list,
     if unread:
         parts.append(f"Você tem {_plural(unread, 'notificação não lida', 'notificações não lidas')}.")
 
-    if learned_count == 0 and not episodes and not schedules and not reminders and not unread:
+    # M17.3: antecipação útil — sugere retomar o que anda esquecido (por último,
+    # é um empurrão gentil, não um alarme).
+    for a in anticipations or []:
+        parts.append(a["text"])
+
+    empty = (learned_count == 0 and not episodes and not schedules
+             and not reminders and not unread and not anticipations)
+    if empty:
         parts.append("Nada de novo por aqui — estou pronto quando você quiser.")
 
     return " ".join(parts)

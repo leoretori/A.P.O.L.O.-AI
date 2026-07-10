@@ -194,6 +194,27 @@ async def briefing(hours: int = 12):
                                    rt.profile, hours)
 
 
+@router.get("/api/anticipations")
+async def anticipations(hours: int = 48):
+    """Antecipação útil (M17.3): metas/projetos ativos que a atividade recente
+    NÃO tocou → sugestões de retomar, ancoradas nos seus hábitos."""
+    def _build():
+        from src.anticipation import suggest_anticipations
+        recent: list[str] = []
+        if rt.episodic:
+            try:
+                recent += [e.get("title", "") for e in rt.episodic.recent(8)]
+            except Exception:
+                pass
+        if rt.db:
+            try:
+                recent += [it.get("topic", "") for it in rt.db.get_learned_since(hours)]
+            except Exception:
+                pass
+        return {"anticipations": suggest_anticipations(rt.profile, recent)}
+    return await asyncio.to_thread(_build)
+
+
 @router.get("/api/learning/agents")
 async def learning_agents():
     """Status em tempo real de cada mini-agente."""
