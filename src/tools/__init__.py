@@ -38,6 +38,7 @@ from src.tools import email_read     # noqa: E402,F401  email.recent
 
 # ── Ações que MODIFICAM o mundo (M10) — preview + confirmação + undo ──
 from src.tools import files_write    # noqa: E402,F401  ação files.write
+from src.tools import files_move     # noqa: E402,F401  ação files.move (M21.1)
 
 # ── Automação web em sandbox (M10 10.3) — read-only, allowlist de domínios ──
 from src.tools import browser        # noqa: E402,F401  tool browser.run

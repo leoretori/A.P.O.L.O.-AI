@@ -148,6 +148,8 @@ Três eixos, costurados pelo Apolo-Nano:
 - Épico 21.3 — **Segurança da agência nativa:** sandbox, limites e trilha — a mesma disciplina do resto, aplicada ao sistema.
 - **DoD M21:** o Apolo executa uma tarefa de sistema real, com permissão explícita e reversível.
 
+> **Progresso — Épico 21.1 ENTREGUE (2026-07-10):** a primeira ação de SISTEMA (fora do texto) — **mover/organizar arquivos com desfazer**. `src/tools/files_move.py` registra a ação `files.move` reusando integralmente o framework do M10/M6: grant `files.write` + allowlist de pastas (`ctx.note`) + as defesas de `files.py` (`_within` neutraliza `..`/symlink). É a tarefa de sistema mais REVERSÍVEL possível — desfazer = mover de volta (recusa se a origem foi reocupada; nunca sobrescreve destino existente). Ciclo `preview → apply → undo` puro e testável com pastas temporárias; auditado como `files.move:{preview,apply,undo}`. Front: console "📦 Mover / organizar" no painel 🛠️ Ações (preview→confirmar→desfazer, botão só habilita após a prévia). **21.3 (sandbox/limites/trilha) já vem de graça:** a allowlist é a sandbox, o ledger é a trilha, o undo é a reversibilidade. +13 testes (suite 1276→1288). **DoD do M21 batido** para arquivos. Falta o opt-in do Leo p/ "abrir apps" (21.1 estendido) e as integrações do fluxo dele (21.2, "a definir com você").
+
 ### 🗓️ Q4 (Y2) — MULTIMODAL, PRESENÇA & PROVA *(P10 + P11)*
 
 #### **Mês 22 — Visão útil**

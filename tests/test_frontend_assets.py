@@ -187,6 +187,17 @@ def test_painel_acoes_reversiveis_ligado():
     assert "#actions-open-btn" in css                              # não fica branco
 
 
+def test_mover_organizar_arquivo_ligado():
+    """M21.1 — o painel 🛠️ Ações ganha o console de MOVER/organizar arquivo, no
+    mesmo fluxo preview→confirmar→desfazer (kind files.move), reversível."""
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    app_js = (STATIC / "js" / "app.js").read_text(encoding="utf-8")
+    assert 'id="mv-src"' in html and 'id="mv-dst"' in html
+    assert 'onclick="previewMoveAction()"' in html and 'id="mv-confirm-btn"' in html
+    for fn in ("function previewMoveAction", "function confirmMoveAction", "'files.move'"):
+        assert fn in app_js, fn
+
+
 def test_projetos_autodirigidos_ligados():
     """M12 12.1 — o painel 🎯 Projetos: sugestões (das próprias métricas) + adotar +
     checklist de passos, consumindo /api/projects*."""

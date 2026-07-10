@@ -515,6 +515,20 @@
       <div id="act-preview" style="margin-top:10px"></div>
     </div>
 
+    <!-- Mover/organizar arquivo (M21.1) — preview → confirmar → desfazer -->
+    <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
+      <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">📦 Mover / organizar um arquivo</div>
+      <input id="mv-src" type="text" placeholder="origem (arquivo dentro da pasta autorizada)"
+             style="width:100%;box-sizing:border-box;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:8px 10px;font-size:12px;margin-bottom:8px" />
+      <input id="mv-dst" type="text" placeholder="destino (pasta ou novo caminho, dentro da autorizada)"
+             style="width:100%;box-sizing:border-box;background:#08080b;border:1px solid #23232c;color:#ddd;border-radius:7px;padding:8px 10px;font-size:12px" />
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button onclick="previewMoveAction()" style="background:#0a1a2a;border:1px solid #1a3a5a;color:#5b9cff;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px">👁️ Prévia</button>
+        <button id="mv-confirm-btn" onclick="confirmMoveAction()" disabled style="background:#0a1f0a;border:1px solid #1a4a1a;color:#4ade80;padding:6px 12px;border-radius:7px;cursor:pointer;font-size:12px;opacity:.4">✓ Confirmar movimentação</button>
+      </div>
+      <div id="mv-preview" style="margin-top:10px"></div>
+    </div>
+
     <!-- Rotinas automatizadas (M10 10.2) -->
     <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
       <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">⏰ Rotinas automatizadas</div>

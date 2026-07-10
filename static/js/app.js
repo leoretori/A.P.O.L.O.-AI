@@ -1406,6 +1406,47 @@
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  // ── Mover/organizar arquivo (M21.1): preview → confirmar → desfazer ──
+  async function previewMoveAction() {
+    const src = document.getElementById('mv-src').value.trim();
+    const dst = document.getElementById('mv-dst').value.trim();
+    const box = document.getElementById('mv-preview');
+    const confirmBtn = document.getElementById('mv-confirm-btn');
+    confirmBtn.disabled = true; confirmBtn.style.opacity = '.4';
+    if (!src || !dst) { box.innerHTML = '<span style="color:#f87171">Informe origem e destino.</span>'; return; }
+    box.innerHTML = '<span style="color:#666">Gerando prévia…</span>';
+    try {
+      const d = await fetch('/api/actions/preview', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({kind:'files.move', args:{src, dst}})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'não foi possível pré-visualizar')}</span>`; return; }
+      const p = d.preview;
+      const verb = p.action === 'rename' ? '✏️ Renomear' : '📦 Mover';
+      box.innerHTML = `<div style="background:#08080b;border:1px solid #1c1c24;border-radius:8px;padding:10px;font-size:11.5px">
+        <div style="color:#5b9cff;margin-bottom:4px">${verb}${p.target_exists?' <span style="color:#f87171">(destino já existe — será recusado)</span>':''}</div>
+        <div style="color:#a88"><code>${escHtml(p.src)}</code></div>
+        <div style="color:#777;margin:2px 0">↓</div>
+        <div style="color:#8b8"><code>${escHtml(p.dst)}</code></div>
+      </div>`;
+      if (!p.target_exists) { confirmBtn.disabled = false; confirmBtn.style.opacity = '1'; }
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
+  async function confirmMoveAction() {
+    const src = document.getElementById('mv-src').value.trim();
+    const dst = document.getElementById('mv-dst').value.trim();
+    const box = document.getElementById('mv-preview');
+    const btn = document.getElementById('mv-confirm-btn');
+    btn.disabled = true; btn.style.opacity = '.4';
+    try {
+      const d = await fetch('/api/actions/confirm', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({kind:'files.move', args:{src, dst}})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      box.innerHTML = `<span style="color:#4ade80">✓ ${escHtml(d.description||'Movido')} — pode desfazer abaixo.</span>`;
+      document.getElementById('mv-src').value = ''; document.getElementById('mv-dst').value = '';
+      loadActionsLedger();
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   async function loadActionsLedger() {
     const el = document.getElementById('act-ledger');
     try {
