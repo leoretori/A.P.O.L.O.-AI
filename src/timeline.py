@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import datetime
 
 from src import graph
 
@@ -148,3 +149,84 @@ def people_overview(episodes: list[dict], profile) -> list[dict]:
         })
     out.sort(key=lambda x: (x["mentions"], x["last_date"] or ""), reverse=True)
     return out
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 18.3 — Recall que entende relações
+# "o que o fulano me pediu?", "onde parei no projeto Y?" respondidos pela
+# memória relacional, sempre DATADOS.
+# ─────────────────────────────────────────────────────────────────────────
+
+# (kind, regex). A ordem importa: padrões mais específicos primeiro.
+_QUESTION_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("where_stopped", re.compile(
+        r"onde\s+(?:eu\s+|a\s+gente\s+|n[óo]s\s+)?"
+        r"(?:parei|paramos|paramos|ficamos|estava|est[aá]vamos|ficou)\s+"
+        r"(?:n[oa]s?\s+|em\s+|com\s+)?(?:projeto\s+|meta\s+)?(.+)", re.I)),
+    ("where_stopped", re.compile(
+        r"(?:como|em\s+que\s+p[ée])\s+(?:est[aá]|anda|vai|ficou)\s+"
+        r"(?:o\s+|a\s+)?(?:projeto|meta)\s+(.+)", re.I)),
+    ("where_stopped", re.compile(r"status\s+d[oae]s?\s+(?:projeto\s+|meta\s+)?(.+)", re.I)),
+    ("asked", re.compile(
+        r"o\s+que\s+(?:o|a|os|as)\s+(.+?)\s+(?:me\s+|nos\s+)?"
+        r"(?:pediu|pediram|falou|falaram|disse|disseram|mandou|mandaram|"
+        r"queria|quer|precisa|precisava|sugeriu|comentou|combinou)\b", re.I)),
+    ("about", re.compile(
+        r"o\s+que\s+(?:rolou|aconteceu|houve|sei|temos|tem|teve)\s+"
+        r"(?:com|sobre|de|d[oa])\s+(.+)", re.I)),
+]
+
+
+def parse_relational_question(text: str) -> dict | None:
+    """Extrai {kind, entity} de uma pergunta relacional. None se não casar.
+
+    kind ∈ {'asked' (o que alguém pediu), 'where_stopped' (onde parei em X),
+    'about' (o que rolou com X)}.
+    """
+    t = (text or "").strip().rstrip("?.! ")
+    for kind, rx in _QUESTION_PATTERNS:
+        m = rx.search(t)
+        if m:
+            entity = m.group(1).strip(" \"'").rstrip("?.! ")
+            if entity:
+                return {"kind": kind, "entity": entity}
+    return None
+
+
+def _when(iso: str | None) -> str | None:
+    """ISO → data legível 'dd/mm/aaaa'. Devolve o cru se não parsear."""
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso).strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        return str(iso)[:10]
+
+
+def answer_relational(text: str, episodes: list[dict], profile,
+                      *, limit: int = 3) -> dict | None:
+    """Responde uma pergunta relacional pela linha do tempo, SEMPRE datada.
+    None se a pergunta não for relacional. Se for mas nada casar, retorna
+    `found: False` com uma resposta honesta."""
+    q = parse_relational_question(text)
+    if not q:
+        return None
+    entity, kind = q["entity"], q["kind"]
+    hits = timeline(episodes, profile, entity=entity)  # recente → antigo
+    if not hits:
+        return {"found": False, "kind": kind, "entity": entity, "episode": None,
+                "when": None, "recent": [],
+                "answer": f"Não encontrei nada na memória sobre “{entity}”."}
+    latest = hits[0]
+    when = _when(latest["date"])
+    title = (latest["title"] or "").strip()
+    summary = (latest["summary"] or "").strip()
+    tail = f" {summary}" if summary else ""
+    if kind == "asked":
+        answer = f"A vez mais recente que “{entity}” aparece foi em {when}: {title}.{tail}"
+    elif kind == "where_stopped":
+        answer = f"Em “{entity}”, você parou em {when}: {title}.{tail}"
+    else:
+        answer = f"Sobre “{entity}”, o mais recente foi em {when}: {title}.{tail}"
+    return {"found": True, "kind": kind, "entity": entity, "episode": latest,
+            "when": when, "recent": hits[:limit], "answer": answer}

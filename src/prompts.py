@@ -192,7 +192,15 @@ MENSAGEM: "{message}"
 Se houver um fato pessoal claro, responda APENAS com ele, numa frase curta em português.
 Se não houver nada pessoal, responda exatamente: NONE"""
 
-GENERATE_PROMPT = """{memory_section}{knowledge_section}{web_section}Pergunta: {request}"""
+GENERATE_PROMPT = """{relational_section}{memory_section}{knowledge_section}{web_section}Pergunta: {request}"""
+
+RELATIONAL_SECTION = """== Memória relacional (linha do tempo do Leo, datada) ==
+Isto vem da memória relacional do A.P.O.L.O. — episódios reais e datados sobre
+pessoas, projetos e metas do Leo. É a fonte de verdade para a pergunta; use a
+data e responda com ela, sem inventar o que não está aqui.
+{context}
+
+"""
 
 MEMORY_SECTION = """== Memória própria (trechos estudados pelo A.P.O.L.O.) ==
 Sintetize o que for relevante diretamente na resposta — integre num argumento,

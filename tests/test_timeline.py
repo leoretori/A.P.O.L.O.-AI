@@ -2,8 +2,10 @@
 
 from src.timeline import (
     _anchors,
+    answer_relational,
     entities,
     link_event,
+    parse_relational_question,
     people_overview,
     timeline,
 )
@@ -116,3 +118,54 @@ def test_people_overview_pessoa_sem_episodio():
 
 def test_people_overview_sem_pessoas():
     assert people_overview([_ep("x")], _prof(projects=["Apolo AI"])) == []
+
+
+# ---------------------------------------------------------- 18.3 recall relacional
+def test_parse_onde_parei():
+    q = parse_relational_question("onde parei no projeto Apolo AI?")
+    assert q == {"kind": "where_stopped", "entity": "Apolo AI"}
+
+
+def test_parse_o_que_fulano_pediu():
+    q = parse_relational_question("o que a Maria me pediu?")
+    assert q["kind"] == "asked" and q["entity"] == "Maria"
+
+
+def test_parse_status_e_sobre():
+    assert parse_relational_question("status do projeto Zeta")["kind"] == "where_stopped"
+    assert parse_relational_question("o que rolou com o Pedro")["kind"] == "about"
+
+
+def test_parse_nao_relacional():
+    assert parse_relational_question("qual a capital da França?") is None
+
+
+def test_answer_onde_parei_datado():
+    prof = _prof(projects=["Apolo AI"])
+    eps = [
+        _ep("Deploy", "subimos o Apolo AI v2", occurred_at="2026-07-06T09:00:00", id="a"),
+        _ep("Kickoff", "iniciamos o Apolo AI", occurred_at="2026-06-01T09:00:00", id="b"),
+    ]
+    ans = answer_relational("onde parei no projeto Apolo AI?", eps, prof)
+    assert ans["found"] and ans["when"] == "06/07/2026"     # o mais recente
+    assert ans["episode"]["id"] == "a"
+    assert "06/07/2026" in ans["answer"] and "Deploy" in ans["answer"]
+    assert len(ans["recent"]) == 2
+
+
+def test_answer_o_que_pediu_pessoa():
+    prof = _prof(persons=["Maria"])
+    eps = [_ep("Almoço", "a Maria me pediu o relatório", occurred_at="2026-07-05T12:00:00")]
+    ans = answer_relational("o que a Maria me pediu?", eps, prof)
+    assert ans["found"] and "05/07/2026" in ans["answer"]
+    assert "relatório" in ans["answer"]
+
+
+def test_answer_sem_registro():
+    prof = _prof(projects=["Projeto Fantasma"])
+    ans = answer_relational("onde parei no projeto Fantasma?", [_ep("x", "nada a ver")], prof)
+    assert ans["found"] is False and "não encontrei" in ans["answer"].lower()
+
+
+def test_answer_pergunta_nao_relacional_none():
+    assert answer_relational("bom dia", [_ep("x")], _prof()) is None

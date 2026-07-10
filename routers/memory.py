@@ -43,3 +43,17 @@ async def get_people(limit: int = 60):
     eps = ep.recent(limit) if ep else []
     from src.timeline import people_overview
     return {"people": people_overview(eps, rt.profile)}
+
+
+@router.get("/api/recall")
+async def get_recall(q: str, limit: int = 60):
+    """Recall relacional (M18.3): 'o que o fulano me pediu?', 'onde parei no
+    projeto Y?' respondidos pela linha do tempo, sempre datados. `matched:
+    False` quando a pergunta não é relacional."""
+    ep = rt.episodic
+    eps = ep.recent(limit) if ep else []
+    from src.timeline import answer_relational
+    ans = answer_relational(q, eps, rt.profile)
+    if ans is None:
+        return {"matched": False}
+    return {"matched": True, **ans}

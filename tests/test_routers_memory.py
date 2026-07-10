@@ -77,3 +77,17 @@ def test_people_endpoint():
     people = c.get("/api/people").json()["people"]
     assert people[0]["name"] == "Maria"
     assert people[0]["projects"] == ["Apolo AI"]
+
+
+def test_recall_endpoint_datado():
+    prof = FakeProfile({"project": [{"fact": "Apolo AI", "category": "project", "id": "pr0"}]})
+    c = _client([{"id": "a", "title": "Deploy", "summary": "subimos o Apolo AI",
+                  "occurred_at": "2026-07-06T09:00:00"}], profile=prof)
+    d = c.get("/api/recall", params={"q": "onde parei no projeto Apolo AI?"}).json()
+    assert d["matched"] and d["found"]
+    assert d["when"] == "06/07/2026" and "Deploy" in d["answer"]
+
+
+def test_recall_nao_relacional():
+    c = _client([], profile=FakeProfile())
+    assert c.get("/api/recall", params={"q": "bom dia"}).json() == {"matched": False}

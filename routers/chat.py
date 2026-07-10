@@ -34,6 +34,7 @@ from src.prompts import (
     SYSTEM_PROMPT, GENERATE_PROMPT, PERSONAL_SECTION,
     MEMORY_SECTION, KNOWLEDGE_SECTION, WEB_SECTION, FACT_EXTRACT_PROMPT,
     CONVERSATION_SUMMARY_PROMPT, CONVERSATION_SUMMARY_SECTION, AGENT_SELFEVAL_PROMPT,
+    RELATIONAL_SECTION,
 )
 
 router = APIRouter()
@@ -248,7 +249,34 @@ async def chat(req: cc.ChatRequest):
                 logger.warning(f"Knowledge FTS error: {e}")
             return ""
 
-        memories, knowledge_context = await asyncio.gather(_do_recall(), _do_fts())
+        async def _do_relational() -> dict | None:
+            """Recall relacional (M18.3): se a pergunta é 'o que o fulano me
+            pediu?' / 'onde parei no projeto Y?', responde pela linha do tempo
+            datada. None quando não é pergunta relacional (o comum)."""
+            if _is_short or not rt.episodic:
+                return None
+            from src.timeline import parse_relational_question, answer_relational
+            if not parse_relational_question(request):
+                return None
+            try:
+                eps = await asyncio.to_thread(rt.episodic.recent, 60)
+                return answer_relational(request, eps, rt.profile)
+            except Exception as e:
+                logger.debug(f"relational recall: {e}")
+                return None
+
+        memories, knowledge_context, relational = await asyncio.gather(
+            _do_recall(), _do_fts(), _do_relational())
+
+        # Recall relacional datado (M18.3): quando casou uma pergunta relacional
+        # com um episódio real, entra como fonte de verdade no prompt.
+        relational_block = ""
+        if relational and relational.get("found"):
+            rows = [f"- {r.get('date', '')[:10]}: {r.get('title', '')}. "
+                    f"{(r.get('summary') or '').strip()}".rstrip()
+                    for r in relational.get("recent", [])]
+            relational_block = (f"Pergunta sobre: {relational['entity']}\n"
+                                + "\n".join(rows))
 
         # Lacuna de conhecimento: nenhuma memória semântica relevante.
         is_gap = not memories
@@ -302,6 +330,7 @@ async def chat(req: cc.ChatRequest):
 
         # ── Fase 4: Monta prompt ──────────────────────────────
         user_content = GENERATE_PROMPT.format(
+            relational_section=RELATIONAL_SECTION.format(context=relational_block) if relational_block else "",
             memory_section=MEMORY_SECTION.format(context=memory_block) if memory_block else "",
             knowledge_section=KNOWLEDGE_SECTION.format(context=knowledge_context) if knowledge_context else "",
             web_section=WEB_SECTION.format(context=web_context) if web_context else "",
