@@ -73,6 +73,7 @@ from routers.embeddings import router as embeddings_router
 from routers.projects import router as projects_router
 from routers.retrospective import router as retrospective_router
 from routers.nano import router as nano_router
+from routers.memory import router as memory_router
 import src.tools  # noqa: F401 — registra as ferramentas de agência no import (M6)
 
 # Windows: o console cp1252 não encoda emoji (☀️, 🎯, ✓...) e quebra prints/logs.
@@ -644,6 +645,7 @@ app.include_router(embeddings_router)
 app.include_router(projects_router)
 app.include_router(retrospective_router)
 app.include_router(nano_router)
+app.include_router(memory_router)
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
