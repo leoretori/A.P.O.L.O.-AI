@@ -822,27 +822,27 @@
       <p>Seu <strong>J.A.R.V.I.S.</strong> pessoal — 100% local, aprende sozinho e fica mais inteligente a cada dia.</p>
       <div class="cap-cards">
         <div class="cap-card" onclick="activateResearchFromCard()" title="Ativar Pesquisa Profunda">
-          <div class="cap-ico">🔬</div>
+          <div class="cap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v5.5L5.6 17A2 2 0 0 0 7.4 20h9.2a2 2 0 0 0 1.8-3L14 8.5V3"/><path d="M8.5 14h7"/></svg></div>
           <div class="cap-card-title">Pesquisa Profunda</div>
           <div class="cap-card-desc">Decompõe, investiga memória + web e responde com fontes</div>
         </div>
         <div class="cap-card" onclick="openReview()" title="Abrir Code Review">
-          <div class="cap-ico">🔍</div>
+          <div class="cap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div>
           <div class="cap-card-title">Code Review</div>
           <div class="cap-card-desc">Revisa seu código com as boas práticas que estudou</div>
         </div>
         <div class="cap-card" onclick="toggleLearnDash()" title="Abrir painel de aprendizado">
-          <div class="cap-ico">♻️</div>
+          <div class="cap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.5-5.8L20 8.5"/><path d="M20 3v5.5h-5.5"/><path d="M20 12a8 8 0 0 1-13.5 5.8L4 15.5"/><path d="M4 21v-5.5h5.5"/></svg></div>
           <div class="cap-card-title">Aprende sozinho</div>
           <div class="cap-card-desc">7 agentes estudando 24/7 com currículo auto-dirigido</div>
         </div>
         <div class="cap-card" onclick="openMind()" title="Ver a mente do A.P.O.L.O.">
-          <div class="cap-ico">🧠</div>
+          <div class="cap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 4v3M14 4v3M10 17v3M14 17v3M4 10h3M4 14h3M17 10h3M17 14h3"/></svg></div>
           <div class="cap-card-title">Mente do A.P.O.L.O.</div>
           <div class="cap-card-desc">Veja tudo o que ele já sabe — por categoria e fonte</div>
         </div>
         <div class="cap-card" onclick="openCoder()" title="Abrir o A.P.O.L.O. Coder">
-          <div class="cap-ico">💻</div>
+          <div class="cap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-3 3 3 3M16 9l3 3-3 3M14 6l-4 12"/></svg></div>
           <div class="cap-card-title">A.P.O.L.O. Coder</div>
           <div class="cap-card-desc">Lê, escreve e roda código num workspace — um "Claude Code" local</div>
         </div>
@@ -853,12 +853,12 @@
   <div id="input-bar">
     <div id="img-preview" style="display:none"></div>
     <div id="mode-bar">
-      <button id="smart-btn" class="mode-chip" onclick="toggleSmart()" title="Modo Inteligente: usa o modelo 14b para raciocínio mais profundo (mais lento)">🧠 <span>Inteligente</span></button>
-      <button id="agent-btn" class="mode-chip" onclick="toggleAgent()" title="Modo Agente: o A.P.O.L.O. escreve e EXECUTA código de verdade (cálculos, lógica, dados)">🤖 <span>Agente</span></button>
-      <button id="research-btn" class="mode-chip" onclick="toggleResearch()" title="Pesquisa Profunda: decompõe, investiga memória + web e sintetiza com fontes">🔬 <span>Profundo</span></button>
-      <button id="multi-btn" class="mode-chip" onclick="toggleMulti()" title="Multi-agente: orquestra Researcher, Analyst e Coder para tarefas complexas">🤝 <span>Multi</span></button>
-      <button id="web-btn" class="mode-chip" onclick="toggleWeb()" title="Buscar na internet antes de responder">🌐 <span>Web</span></button>
-      <button id="hf-btn" class="mode-chip" onclick="startHandsFree()" title="Mãos livres: fale → A.P.O.L.O. responde em voz → repete">🎙️ <span>Mãos Livres</span></button>
+      <button id="smart-btn" class="mode-chip" onclick="toggleSmart()" title="Modo Inteligente: usa o modelo 14b para raciocínio mais profundo (mais lento)"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg> <span>Inteligente</span></button>
+      <button id="agent-btn" class="mode-chip" onclick="toggleAgent()" title="Modo Agente: o A.P.O.L.O. escreve e EXECUTA código de verdade (cálculos, lógica, dados)"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 10l2.5 2L7 14M13 14h4"/></svg> <span>Agente</span></button>
+      <button id="research-btn" class="mode-chip" onclick="toggleResearch()" title="Pesquisa Profunda: decompõe, investiga memória + web e sintetiza com fontes"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v5.5L5.6 17A2 2 0 0 0 7.4 20h9.2a2 2 0 0 0 1.8-3L14 8.5V3"/></svg> <span>Profundo</span></button>
+      <button id="multi-btn" class="mode-chip" onclick="toggleMulti()" title="Multi-agente: orquestra Researcher, Analyst e Coder para tarefas complexas"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="17" r="2.2"/><path d="M7.7 8.6l3 6.8M16.3 8.6l-3 6.8M8.2 7h7.6"/></svg> <span>Multi</span></button>
+      <button id="web-btn" class="mode-chip" onclick="toggleWeb()" title="Buscar na internet antes de responder"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.7 2.8 2.7 15.2 0 18M12 3c-2.7 2.8-2.7 15.2 0 18"/></svg> <span>Web</span></button>
+      <button id="hf-btn" class="mode-chip" onclick="startHandsFree()" title="Mãos livres: fale → A.P.O.L.O. responde em voz → repete"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v3"/></svg> <span>Mãos Livres</span></button>
     </div>
     <div id="input-wrap" id="input-wrap"
          ondragover="event.preventDefault();this.classList.add('drag-over')"
