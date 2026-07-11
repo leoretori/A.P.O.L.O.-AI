@@ -2373,6 +2373,12 @@
              line('Parâmetros', nn.params_m ? nn.params_m + 'M' : '—') +
              (nn.val_ppl ? line('Perplexity (val)', nn.val_ppl) : '') +
              (nn.passo_treino ? line('Passos de treino', nn.passo_treino) : '') +
+             (() => {
+               const ov = (nn.coverage||{}).overall;
+               if (!ov || !ov.total) return '';
+               const c = ov.pct >= 50 ? '#4ade80' : (ov.pct > 0 ? '#fbbf24' : '#888');
+               return line('Cérebro próprio', `<span style="color:${c}">${ov.pct}% das tarefas (${ov.nano}/${ov.total})</span>`);
+             })() +
              line('Soberano', '<span style="color:#4ade80">100% — pesos, tokenizer e dados próprios</span>') +
              `<div style="color:#666;font-size:10.5px;margin-top:4px">${escHtml((nn.ckpt||'').split(/[\\/]/).pop()||'')} · POST /api/nano/complete</div>`));
 

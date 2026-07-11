@@ -23,13 +23,14 @@ from src.storage_permissions import PermissionsMixin
 from src.storage_evals import EvalsMixin
 from src.storage_actions import ActionsMixin
 from src.storage_projects import ProjectsMixin
+from src.storage_nano import NanoRoutingMixin
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseManager(ConversationsMixin, LearningMixin, AnalyticsMixin,
                       EpisodesMixin, RemindersMixin, PermissionsMixin, EvalsMixin,
-                      ActionsMixin, ProjectsMixin):
+                      ActionsMixin, ProjectsMixin, NanoRoutingMixin):
     def __init__(self, database_url: str = "sqlite:///data/apolo.db"):
         self.engine = create_engine(database_url, echo=False)
         Base.metadata.create_all(self.engine)   # cria TABELAS novas (não altera existentes)

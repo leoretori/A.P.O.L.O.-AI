@@ -31,6 +31,18 @@ async def nano_status():
     return await asyncio.to_thread(rt.nano.info)
 
 
+@router.get("/api/nano/coverage")
+async def nano_coverage():
+    """Takeover progressivo (M27): % das tarefas estreitas servidas pelo cérebro
+    próprio (Nano) vs. o professor — a métrica-mãe do Ano 3, por tarefa e geral."""
+    if not rt.db:
+        return {"overall": {"nano": 0, "teacher": 0, "total": 0, "pct": 0.0}, "tasks": {}}
+    cov = await asyncio.to_thread(rt.db.nano_coverage)
+    from src.nanollm.routing import NANO_TASKS, task_enabled
+    cov["candidates"] = {t: task_enabled(t) for t in NANO_TASKS}
+    return cov
+
+
 @router.post("/api/nano/complete")
 async def nano_complete(req: NanoCompleteRequest):
     if not rt.nano or not rt.nano.available():

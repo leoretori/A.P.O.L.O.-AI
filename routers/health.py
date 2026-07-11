@@ -202,5 +202,11 @@ async def health():
     # Apolo-Nano — a LLM própria (checkpoint/params/ppl; available=False sem treino)
     out["nano"] = rt.nano.info() if rt.nano else {"available": False, "ready": False}
     out["features"]["nano"] = out["nano"]["available"]
+    # Takeover progressivo (M27): % das tarefas estreitas já servidas pelo Nano.
+    if rt.db:
+        try:
+            out["nano"]["coverage"] = await asyncio.to_thread(rt.db.nano_coverage)
+        except Exception:
+            pass
 
     return out

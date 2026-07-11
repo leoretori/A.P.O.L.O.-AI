@@ -280,3 +280,15 @@ class Episode(Base):
     tags       = Column(Text, default="")         # JSON de tags
     created_at = Column(DateTime, default=_now)
 
+
+class NanoServe(Base):
+    """Takeover progressivo (M27): contador de quantas vezes cada tarefa estreita
+    (título, setor, …) foi servida pelo CÉREBRO PRÓPRIO (Nano) vs. pelo professor
+    (Qwen/fallback). É a matéria-prima da métrica-mãe do Ano 3 — a % do dia
+    servida pelos pesos do Leo. Agregado por (task, served_by)."""
+    __tablename__ = "nano_serve"
+    task       = Column(String(40), primary_key=True)   # ex.: title, sector
+    served_by  = Column(String(16), primary_key=True)   # "nano" | "teacher"
+    count      = Column(Integer, default=0)
+    updated_at = Column(DateTime, default=_now)
+

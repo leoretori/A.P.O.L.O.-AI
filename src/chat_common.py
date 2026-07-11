@@ -87,11 +87,15 @@ async def generate_session_title(session_id: str, first_message: str) -> None:
     (Épico 3.3 do APOLO_NANO_ROADMAP — fallback garantido).
     """
     try:
+        from src.nanollm.routing import task_enabled
+
         title = None
-        if rt.nano is not None:
+        used_nano = False
+        if rt.nano is not None and task_enabled("title"):
             from src.nanollm.tasks import nano_session_title
 
             title = await asyncio.to_thread(nano_session_title, rt.nano, first_message)
+            used_nano = bool(title)   # None = portão de qualidade do Nano recusou
         if not title:
             prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
             title = await asyncio.to_thread(
@@ -103,5 +107,7 @@ async def generate_session_title(session_id: str, first_message: str) -> None:
         title = (title or "").strip()[:80]
         if title and rt.db:
             rt.db.save_session_title(session_id, title)
+            # Takeover progressivo (M27): registra quem serviu → % cérebro próprio.
+            rt.db.nano_record_serve("title", "nano" if used_nano else "teacher")
     except Exception as e:
         logger.debug(f"Título de sessão: {e}")
