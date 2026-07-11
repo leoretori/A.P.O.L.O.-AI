@@ -42,6 +42,14 @@ class NanoEngine:
 
             self._model, self._tok = load_model_and_tokenizer(self.ckpt_dir)
 
+    def reload(self) -> None:
+        """Esquece os pesos em memória — a próxima geração recarrega do disco.
+        Usado após o flywheel promover um checkpoint novo (M25.3): o cérebro
+        recém-treinado passa a servir sem reiniciar o app."""
+        with self._lock:
+            self._model = None
+            self._tok = None
+
     def info(self) -> dict:
         out: dict = {"available": self.available(), "ready": self.is_ready(),
                      "ckpt": str(self.ckpt_dir)}

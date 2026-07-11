@@ -134,6 +134,14 @@ _last_briefing_date = None
 BACKUP_HOUR = int(os.getenv("BACKUP_HOUR", 3))
 _last_backup_date = None
 
+# Flywheel noturno do Nano (M25.3): 1x/dia a partir de FLYWHEEL_HOUR, se houver
+# checkpoint do Nano, o Qwen destila as conversas reais → treina um candidato →
+# promove SÓ se medir melhora. Pesado (CPU); só roda ocioso e com o learner
+# parado. -1 desliga (padrão: 3h da manhã). O treino roda em thread p/ não travar.
+FLYWHEEL_HOUR = int(os.getenv("FLYWHEEL_HOUR", 3))
+FLYWHEEL_STEPS = int(os.getenv("FLYWHEEL_STEPS", 400))
+_last_flywheel_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -346,6 +354,45 @@ async def _scheduler_loop():
                         logger.info("[briefing] briefing diário enviado")
                     except Exception as e:
                         logger.debug(f"[briefing] {e}")
+
+            # Flywheel noturno do Nano (M25.3): 1x/dia a partir de FLYWHEEL_HOUR,
+            # o Qwen destila as conversas reais e o Nano treina um candidato —
+            # promovido SÓ se medir melhora (portão de qualidade, reversível). É
+            # pesado (treino NumPy no CPU): só quando ocioso e com o learner
+            # parado, para não disputar recurso com o usuário nem com o estudo.
+            global _last_flywheel_date
+            if FLYWHEEL_HOUR >= 0 and not (learner and learner.running):
+                _tf = datetime.now()
+                _idle_ok = True
+                if IDLE_TRIGGER > 0:
+                    _lr = _last_request_at_fn()
+                    _idle_ok = (_time.perf_counter() - _lr) > IDLE_TRIGGER if _lr > 0 else True
+                if (_tf.hour >= FLYWHEEL_HOUR and _last_flywheel_date != _tf.date()
+                        and _idle_ok):
+                    from src.nanollm.engine import NanoEngine
+                    if NanoEngine().available():
+                        _last_flywheel_date = _tf.date()  # marca antes p/ não repetir
+                        try:
+                            from src.nanollm.flywheel import run_nightly_flywheel
+                            logger.info("[flywheel] iniciando ciclo noturno do Nano…")
+                            res = await asyncio.to_thread(
+                                run_nightly_flywheel, db, steps=FLYWHEEL_STEPS)
+                            st = res.get("status")
+                            if st == "promoted":
+                                if rt.nano:            # serve o cérebro novo já
+                                    rt.nano.reload()
+                                db.add_notification(
+                                    f"🌀 Nano evoluiu de madrugada: perplexidade "
+                                    f"{res['incumbent_val']:.2f} → {res['candidate_val']:.2f} "
+                                    f"(ganho {res.get('gain')}, {res.get('pairs')} pares). "
+                                    f"Já estou servindo o novo cérebro.", kind="info")
+                                logger.info(f"[flywheel] promovido: {res}")
+                            elif st == "rejected":
+                                logger.info(f"[flywheel] candidato rejeitado: {res.get('reason')}")
+                            else:
+                                logger.info(f"[flywheel] pulado: {res.get('reason')}")
+                        except Exception as e:
+                            logger.warning(f"[flywheel] ciclo falhou: {e}")
         except Exception as e:
             logger.debug(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)
