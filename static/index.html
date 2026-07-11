@@ -170,14 +170,14 @@
 
   <div id="sessions-label">
     Conversas
-    <span style="display:flex;gap:8px;align-items:center">
-      <span onclick="exportSessionMd()" title="Exportar conversa atual em Markdown" style="cursor:pointer">📄</span>
-      <span onclick="exportBackup()" title="Baixar backup completo (JSON)" style="cursor:pointer">⬇️</span>
-      <span onclick="document.getElementById('import-file').click()" title="Restaurar backup (JSON)" style="cursor:pointer">⬆️</span>
-      <span onclick="loadSessions()" title="Atualizar" style="cursor:pointer">↻</span>
+    <span style="display:flex;gap:9px;align-items:center">
+      <span class="conv-ico" onclick="exportSessionMd()" title="Exportar conversa atual em Markdown"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 13h5M10 17h5"/></svg></span>
+      <span class="conv-ico" onclick="exportBackup()" title="Baixar backup completo (JSON)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"/></svg></span>
+      <span class="conv-ico" onclick="document.getElementById('import-file').click()" title="Restaurar backup (JSON)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10m0 0l-4 4m4-4l4 4M5 5h14"/></svg></span>
+      <span class="conv-ico" onclick="loadSessions()" title="Atualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.7 4M20 5v6h-6"/></svg></span>
     </span>
   </div>
-  <input id="session-search" type="text" placeholder="🔎 Buscar nas conversas..."
+  <input id="session-search" type="text" placeholder="Buscar nas conversas..."
          oninput="onSearchInput()" autocomplete="off"
          style="margin:0 7px 6px;padding:6px 9px;width:calc(100% - 14px);background:#0e0e12;border:1px solid #1c1c24;border-radius:7px;color:#ccc;font-size:11px;outline:none;box-sizing:border-box">
   <div id="sessions-list"></div>
@@ -421,14 +421,13 @@
 </div>
 
 <!-- ════ MAPA DE CONHECIMENTO ════ -->
-<div id="graph-overlay" onclick="if(event.target===this)closeGraph()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0c0c10;border:1px solid #23232c;border-radius:14px;width:min(900px,95vw);height:min(680px,90vh);display:flex;flex-direction:column;padding:16px 18px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-      <h2 style="margin:0;font-size:16px;color:#eee">🗺️ Mapa de <span style="color:var(--sun)">Conhecimento</span> <span id="graph-sub" style="font-size:11px;color:#666;margin-left:8px"></span></h2>
-      <span style="display:flex;gap:10px;align-items:center">
-        <span onclick="loadGraph()" title="Atualizar" style="cursor:pointer;color:#888">↻</span>
-        <button onclick="closeGraph()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="graph-overlay" class="ov" onclick="if(event.target===this)closeGraph()" style="display:none">
+  <div class="ov-card wide" style="display:flex;flex-direction:column;height:min(680px,90vh)">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.1"/><circle cx="18" cy="8" r="2.1"/><circle cx="12" cy="17" r="2.1"/><path d="M7.7 8.4l3 7M16.4 9.3l-3.5 6.2M8 7.1l8 .9"/></svg> Mapa de <span>Conhecimento</span> <span class="ov-title-sub" id="graph-sub"></span></h2>
+      <span class="ov-actions">
+        <button class="ov-refresh" onclick="loadGraph()" title="Atualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.7 4M20 5v6h-6"/></svg></button>
+        <button class="ov-x" onclick="closeGraph()">Fechar</button>
       </span>
     </div>
     <div id="graph-canvas" style="flex:1;overflow:hidden;position:relative">
@@ -438,14 +437,14 @@
 </div>
 
 <!-- ════ PAINEL DE ESTUDOS AGENDADOS ════ -->
-<div id="schedules-overlay" onclick="if(event.target===this)closeSchedules()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">⏰ Estudos <span style="color:var(--sun)">agendados</span></h2>
-      <button onclick="closeSchedules()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="schedules-overlay" class="ov" onclick="if(event.target===this)closeSchedules()" style="display:none">
+  <div class="ov-card" style="width:min(560px,94vw)">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="7"/><path d="M12 10v3l2 1.5M5 4L2.5 6.5M19 4l2.5 2.5"/></svg> Estudos <span>agendados</span></h2>
+      <button class="ov-x" onclick="closeSchedules()">Fechar</button>
     </div>
-    <p style="color:#777;font-size:11px;margin:0 0 14px">O A.P.O.L.O. estuda o tópico todo dia no horário definido (enquanto o servidor estiver ligado; se ligar depois da hora, ele estuda ao iniciar).</p>
+    <div class="ov-body">
+    <p class="ov-note">O A.P.O.L.O. estuda o tópico todo dia no horário definido (enquanto o servidor estiver ligado; se ligar depois da hora, ele estuda ao iniciar).</p>
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <input id="sch-topic" type="text" maxlength="200" placeholder="Ex: novidades em IA generativa"
              onkeydown="if(event.key==='Enter')addSchedule()"
@@ -455,62 +454,64 @@
       <button onclick="addSchedule()" style="background:#3a2f0a;border:1px solid #5a4a1a;color:var(--sun);border-radius:8px;padding:8px 14px;cursor:pointer;font-size:12px">+ Agendar</button>
     </div>
     <div id="sch-list" style="font-size:12px;color:#bbb">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ PAINEL DE SAÚDE ════ -->
-<div id="health-overlay" onclick="if(event.target===this)closeHealth()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(640px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🩺 Saúde do <span style="color:#5b9cff">Sistema</span></h2>
-      <span style="display:flex;gap:10px;align-items:center">
-        <span onclick="loadHealth()" title="Atualizar" style="cursor:pointer;color:#888">↻</span>
-        <button onclick="closeHealth()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="health-overlay" class="ov" onclick="if(event.target===this)closeHealth()" style="display:none">
+  <div class="ov-card">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 4 13 2.5-7H21"/></svg> Saúde do <span>Sistema</span></h2>
+      <span class="ov-actions">
+        <button class="ov-refresh" onclick="loadHealth()" title="Atualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.7 4M20 5v6h-6"/></svg></button>
+        <button class="ov-x" onclick="closeHealth()">Fechar</button>
       </span>
     </div>
-    <div id="health-body" style="font-size:12px;color:#bbb;line-height:1.6">Carregando…</div>
+    <div class="ov-body"><div id="health-body">Carregando…</div></div>
   </div>
 </div>
 
 <!-- ════ PAINEL AUDITORIA (o que a IA fez nas últimas 24h) ════ -->
-<div id="audit-overlay" onclick="if(event.target===this)closeAudit()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(660px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🕒 O que fiz nas últimas <span style="color:#f59e0b">24h</span></h2>
-      <span style="display:flex;gap:10px;align-items:center">
-        <span onclick="loadAudit()" title="Atualizar" style="cursor:pointer;color:#888">↻</span>
-        <button onclick="closeAudit()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="audit-overlay" class="ov" onclick="if(event.target===this)closeAudit()" style="display:none">
+  <div class="ov-card">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg> O que fiz nas últimas <span>24h</span></h2>
+      <span class="ov-actions">
+        <button class="ov-refresh" onclick="loadAudit()" title="Atualizar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-.7 4M20 5v6h-6"/></svg></button>
+        <button class="ov-x" onclick="closeAudit()">Fechar</button>
       </span>
     </div>
-    <div id="audit-summary" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
-    <div id="audit-body" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+    <div class="ov-body">
+      <div id="audit-summary" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>
+      <div id="audit-body">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ PAINEL PERMISSÕES (consentimento de agência — M6) ════ -->
-<div id="perm-overlay" onclick="if(event.target===this)closePermissions()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(600px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🔐 <span style="color:#5b9cff">Permissões</span> de agência</h2>
-      <button onclick="closePermissions()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="perm-overlay" class="ov" onclick="if(event.target===this)closePermissions()" style="display:none">
+  <div class="ov-card">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg> <span>Permissões</span> de agência</h2>
+      <button class="ov-x" onclick="closePermissions()">Fechar</button>
     </div>
-    <div style="color:#888;font-size:11.5px;margin-bottom:12px">Você decide o que o A.P.O.L.O. pode acessar. Nada toca seus dados sem consentimento — e tudo fica registrado na auditoria.</div>
-    <div id="perm-body" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+    <div class="ov-body">
+      <p class="ov-note">Você decide o que o A.P.O.L.O. pode acessar. Nada toca seus dados sem consentimento — e tudo fica registrado na auditoria.</p>
+      <div id="perm-body">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ PAINEL DE AÇÕES REVERSÍVEIS (M10) ════ -->
-<div id="actions-overlay" onclick="if(event.target===this)closeActions()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(680px,92vw);max-height:88vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🛠️ <span style="color:#fbbf24">Ações</span> reversíveis</h2>
-      <button onclick="closeActions()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="actions-overlay" class="ov" onclick="if(event.target===this)closeActions()" style="display:none">
+  <div class="ov-card">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/></svg> <span>Ações</span> reversíveis</h2>
+      <button class="ov-x" onclick="closeActions()">Fechar</button>
     </div>
-    <div style="color:#888;font-size:11.5px;margin-bottom:14px">Tudo que MODIFICA seus arquivos passa por <b>prévia → confirmação → desfazer</b>. Nada é gravado sem você ver antes o que muda. Requer autorizar <b>files.write</b> em 🔐 Permissões.</div>
+    <div class="ov-body">
+    <p class="ov-note">Tudo que MODIFICA seus arquivos passa por <b>prévia → confirmação → desfazer</b>. Nada é gravado sem você ver antes o que muda. Requer autorizar <b>files.write</b> em 🔐 Permissões.</p>
 
     <!-- Nova escrita: preview → confirmar -->
     <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
@@ -609,18 +610,19 @@
 
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">↩️ Histórico reversível</div>
     <div id="act-ledger" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ PROJETOS AUTODIRIGIDOS (M12 12.1) ════ -->
-<div id="projects-overlay" onclick="if(event.target===this)closeProjects()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(640px,92vw);max-height:88vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🎯 <span style="color:#4ade80">Projetos</span> do A.P.O.L.O.</h2>
-      <button onclick="closeProjects()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="projects-overlay" class="ov" onclick="if(event.target===this)closeProjects()" style="display:none">
+  <div class="ov-card">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg> <span>Projetos</span> do A.P.O.L.O.</h2>
+      <button class="ov-x" onclick="closeProjects()">Fechar</button>
     </div>
-    <div style="color:#888;font-size:11.5px;margin-bottom:14px">O A.P.O.L.O. olha as próprias métricas e propõe metas de melhoria. Você aprova, acompanha os passos e conduz — automelhoria supervisionada.</div>
+    <div class="ov-body">
+    <p class="ov-note">O A.P.O.L.O. olha as próprias métricas e propõe metas de melhoria. Você aprova, acompanha os passos e conduz — automelhoria supervisionada.</p>
 
     <!-- Retrospectiva do ano (M12 12.2) -->
     <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:16px">
@@ -635,31 +637,33 @@
     <div id="proj-suggest" style="font-size:12.5px;color:#bbb;margin-bottom:16px">Carregando…</div>
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">🎯 Projetos adotados</div>
     <div id="proj-list" style="font-size:12.5px;color:#bbb">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ ACESSO REMOTO (M11 11.3) ════ -->
-<div id="remote-overlay" onclick="if(event.target===this)closeRemote()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">📱 <span style="color:#5b9cff">Acesso</span> remoto</h2>
-      <button onclick="closeRemote()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="remote-overlay" class="ov" onclick="if(event.target===this)closeRemote()" style="display:none">
+  <div class="ov-card" style="width:min(560px,94vw)">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg> <span>Acesso</span> remoto</h2>
+      <button class="ov-x" onclick="closeRemote()">Fechar</button>
     </div>
-    <div style="color:#888;font-size:11.5px;margin-bottom:14px">Alcance o A.P.O.L.O. do celular na <b>mesma rede Wi-Fi</b>. Com <b>REMOTE_TOKEN</b> definido, só quem tem o link com o token entra — seus dados ficam protegidos mesmo na LAN.</div>
-    <div id="remote-body" style="font-size:12.5px;color:#bbb;line-height:1.6">Carregando…</div>
+    <div class="ov-body">
+      <p class="ov-note">Alcance o A.P.O.L.O. do celular na <b>mesma rede Wi-Fi</b>. Com <b>REMOTE_TOKEN</b> definido, só quem tem o link com o token entra — seus dados ficam protegidos mesmo na LAN.</p>
+      <div id="remote-body">Carregando…</div>
+    </div>
   </div>
 </div>
 
 <!-- ════ BACKUP CRIPTOGRAFADO (M11 11.2) ════ -->
-<div id="backup-overlay" onclick="if(event.target===this)closeBackup()"
-     style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center">
-  <div style="background:#0e0e12;border:1px solid #23232c;border-radius:14px;width:min(560px,92vw);max-height:86vh;overflow-y:auto;padding:20px 22px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-      <h2 style="margin:0;font-size:17px;color:#eee">🔒 <span style="color:#4ade80">Backup</span> criptografado</h2>
-      <button onclick="closeBackup()" style="background:#1a1a22;border:1px solid #2a2a33;color:#aaa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:12px">✕ Fechar</button>
+<div id="backup-overlay" class="ov" onclick="if(event.target===this)closeBackup()" style="display:none">
+  <div class="ov-card" style="width:min(560px,94vw)">
+    <div class="ov-head">
+      <h2 class="ov-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="10.5" width="15" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5M12 14.5v2"/></svg> <span>Backup</span> criptografado</h2>
+      <button class="ov-x" onclick="closeBackup()">Fechar</button>
     </div>
-    <div style="color:#888;font-size:11.5px;margin-bottom:12px">Seus dados salvos em um arquivo <b>cifrado</b> (nada em texto puro). A <b>senha nunca é gravada</b> — guarde-a: sem ela o backup é irrecuperável.</div>
+    <div class="ov-body">
+    <p class="ov-note">Seus dados salvos em um arquivo <b>cifrado</b> (nada em texto puro). A <b>senha nunca é gravada</b> — guarde-a: sem ela o backup é irrecuperável.</p>
     <div id="backup-status" style="font-size:11.5px;color:#888;margin-bottom:12px"></div>
     <div style="background:#0b0b0f;border:1px solid #1c1c24;border-radius:10px;padding:14px;margin-bottom:14px">
       <input id="backup-pass" type="password" placeholder="senha do backup"
@@ -669,6 +673,7 @@
     </div>
     <div style="font-size:12px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Backups locais</div>
     <div id="backup-list" style="font-size:12.5px;color:#bbb;line-height:1.5">Carregando…</div>
+    </div>
   </div>
 </div>
 
@@ -676,7 +681,7 @@
 <div id="analytics-overlay" onclick="if(event.target===this)closeAnalytics()">
   <div id="analytics-panel">
     <div id="an-header">
-      <h2>📊 <span>Analytics</span> do A.P.O.L.O.</h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V5M16 20v-6M20.5 20h-17"/></svg> <span>Analytics</span> do A.P.O.L.O.</h2>
       <button id="an-close" onclick="closeAnalytics()">✕ Fechar</button>
     </div>
     <div id="an-body">
@@ -688,7 +693,7 @@
 <div id="knowledge-overlay" onclick="closeKnowledgeIfBg(event)">
   <div id="knowledge-panel">
     <div id="kp-header">
-      <h2>📚 Base de <span>Conhecimento</span></h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z"/><path d="M5 19.5A1.5 1.5 0 0 1 6.5 18H19v3H6.5A1.5 1.5 0 0 1 5 19.5z"/></svg> Base de <span>Conhecimento</span></h2>
       <span id="kp-stats"></span>
       <button id="kp-close" onclick="closeKnowledge()">✕ Fechar</button>
     </div>
@@ -716,7 +721,7 @@
 <div id="review-overlay" onclick="closeReviewIfBg(event)">
   <div id="review-panel">
     <div id="rv-header">
-      <h2>🔍 Code <span>Review</span></h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg> Code <span>Review</span></h2>
       <span id="rv-sub">Revisão de elite com o que o A.P.O.L.O. aprendeu</span>
       <button id="rv-close" onclick="closeReview()">✕ Fechar</button>
     </div>
@@ -745,7 +750,7 @@
   <div id="mind-panel">
     <div id="mind-header">
       <div id="mind-header-top">
-        <h2>🧠 Mente do <span>A.P.O.L.O.</span></h2>
+        <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3.5 3.5 0 0 0-3.5 3.5A3 3 0 0 0 7 14a3 3 0 0 0 5 2.5A3 3 0 0 0 17 14a3 3 0 0 0-1.5-5.5A3.5 3.5 0 0 0 12 5z"/><path d="M12 5v11.5"/></svg> Mente do <span>A.P.O.L.O.</span></h2>
         <span id="mind-sub">Tudo o que ele aprendeu sozinho</span>
         <button id="mind-close" onclick="closeMind()">✕ Fechar</button>
       </div>
@@ -769,7 +774,7 @@
 <div id="profile-overlay" onclick="closeProfileIfBg(event)">
   <div id="profile-panel">
     <div id="pf-header">
-      <h2>👤 Sobre <span>mim</span></h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg> Sobre <span>mim</span></h2>
       <span id="pf-sub">O que o A.P.O.L.O. lembra de você — usado para personalizar as respostas</span>
       <button id="pf-close" onclick="closeProfile()">✕ Fechar</button>
     </div>
@@ -787,7 +792,7 @@
 <div id="timeline-overlay" onclick="closeTimelineIfBg(event)">
   <div id="timeline-panel">
     <div id="tl-header">
-      <h2>📜 Linha do <span>tempo</span></h2>
+      <h2><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><circle cx="7" cy="7.5" r="1.7"/><circle cx="7" cy="15" r="1.7"/><path d="M11 7.5h8M11 15h5"/></svg> Linha do <span>tempo</span></h2>
       <span id="tl-sub">A memória relacional: episódios datados ligados a pessoas, projetos e metas</span>
       <button id="tl-close" onclick="closeTimeline()">✕ Fechar</button>
     </div>

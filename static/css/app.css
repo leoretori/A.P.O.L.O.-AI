@@ -637,6 +637,37 @@
     /* Ícones SVG monocromáticos e coesos da navegação (substituem os emojis) */
     .nav-ico { width:16px; height:16px; flex-shrink:0; opacity:.85; }
 
+    /* ════ SISTEMA DE PAINÉIS UNIFICADO (.ov-*) — uma só linguagem para todos
+       os overlays (Saúde, Ações, Projetos, Backup, etc.). Antes cada painel
+       repetia estilos inline divergentes; agora compartilham a mesma casca:
+       mesmo fundo, borda, cabeçalho grudento, título com ícone SVG e botão de
+       fechar. Mantêm `style="display:none"` inline p/ o JS alternar display. */
+    .ov { position:fixed; inset:0; background:rgba(0,0,0,.62); backdrop-filter:blur(3px); z-index:200; align-items:center; justify-content:center; padding:24px 16px; }
+    .ov-card { background:#101014; border:1px solid #22222c; border-radius:14px; width:min(680px,94vw); max-height:88vh; overflow-y:auto; box-shadow:0 24px 64px rgba(0,0,0,.6); }
+    .ov-card.wide { width:min(900px,95vw); }
+    .ov-head { position:sticky; top:0; background:#101014; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:15px 20px; border-bottom:1px solid #1d1d26; z-index:3; }
+    .ov-title { margin:0; font-size:15px; font-weight:700; color:#e8e8f0; display:flex; align-items:center; gap:9px; letter-spacing:.2px; min-width:0; }
+    .ov-title svg { width:17px; height:17px; color:#6b6b78; flex-shrink:0; }
+    .ov-title span { color:var(--sun); }
+    .ov-title .ov-title-sub { font-size:11px; color:#5a5a64; font-weight:500; letter-spacing:0; margin-left:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ov-actions { display:flex; align-items:center; gap:7px; flex-shrink:0; }
+    .ov-refresh { background:none; border:none; color:#6b6b78; cursor:pointer; padding:5px; border-radius:6px; display:flex; align-items:center; justify-content:center; transition:color .15s, background .15s; }
+    .ov-refresh svg { width:15px; height:15px; }
+    .ov-refresh:hover { color:#cfcfd8; background:#18181f; }
+    .ov-x { background:#17171e; border:1px solid #26262f; color:#9a9aa4; border-radius:7px; padding:5px 11px; cursor:pointer; font-size:12px; transition:all .15s; white-space:nowrap; }
+    .ov-x:hover { border-color:#3a3a46; color:#e6e6ee; }
+    .ov-body { padding:16px 20px 20px; font-size:12.5px; color:#b6b6c0; line-height:1.6; }
+    .ov-note { color:#79798a; font-size:11.5px; line-height:1.55; margin:0 0 14px; }
+    /* Ícones da linha "Conversas" — mesma linguagem SVG monocromática do topo. */
+    .conv-ico { cursor:pointer; color:#4a4a55; display:flex; align-items:center; transition:color .15s; }
+    .conv-ico svg { width:14px; height:14px; }
+    .conv-ico:hover { color:#b6b6c0; }
+    /* Alinha o ícone SVG dos títulos dos painéis baseados em classe (mente,
+       sobre mim, linha do tempo, analytics, conhecimento, review) na mesma
+       linguagem monocromática dos painéis .ov-*. */
+    #an-header h2, #kp-header h2, #rv-header h2, #mind-header-top h2, #pf-header h2, #tl-header h2 { display:flex; align-items:center; gap:9px; }
+    #an-header h2 svg, #kp-header h2 svg, #rv-header h2 svg, #mind-header-top h2 svg, #pf-header h2 svg, #tl-header h2 svg { width:17px; height:17px; color:#6b6b78; flex-shrink:0; stroke-width:1.7; }
+
     /* ════ PAINEL ANALYTICS ════ */
     #analytics-overlay { display:none; position:fixed; inset:0; background:#000a; z-index:100; backdrop-filter:blur(3px); }
     #analytics-overlay.open { display:flex; align-items:flex-start; justify-content:center; padding:32px 16px; }
