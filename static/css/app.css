@@ -610,8 +610,10 @@
     #mind-close { background:none; border:1px solid #2a2a35; color:#666; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; flex-shrink:0; }
     #mind-close:hover { border-color:#555; color:#aaa; }
     #mind-toolbar { display:flex; gap:6px; flex-wrap:wrap; padding-bottom:10px; }
-    #mind-curate, #mind-digest, #mind-schedule, #mind-map, #mind-reindex, #mind-obsidian { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:11.5px; white-space:nowrap; }
-    #mind-curate:hover, #mind-digest:hover, #mind-schedule:hover, #mind-map:hover, #mind-reindex:hover, #mind-obsidian:hover { border-color:var(--sun); color:var(--sun); }
+    /* Escopo no toolbar (não por id) — assim TODO botão herda o mesmo visual e
+       nenhum (Reparar/Treinar Nano) cai no estilo cru do browser de novo. */
+    #mind-toolbar button { background:none; border:1px solid #3a2f0a; color:#b9a96a; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:11.5px; white-space:nowrap; transition:border-color .15s, color .15s; }
+    #mind-toolbar button:hover { border-color:var(--sun); color:var(--sun); }
     .dg-sector { margin-bottom:14px; }
     .dg-sector-head { font-size:13px; color:#ddd; margin-bottom:6px; }
     .dg-sector-head .count { color:var(--sun); font-weight:700; margin-left:4px; }
