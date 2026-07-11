@@ -90,6 +90,25 @@ class ConversationsMixin:
                     }
             return list(seen.values())[:limit]
 
+    def first_user_messages(self, limit: int = 300, min_len: int = 8) -> list[str]:
+        """A PRIMEIRA mensagem do usuário de cada sessão — a entrada real na
+        distribuição de inferência (pergunta que abre a conversa). É exatamente
+        o que o M25 destila em título: o descasamento do M14.2 (treinou em prosa,
+        recebe pergunta) some quando o professor rotula ESTAS entradas.
+        Mais recentes primeiro; deduplicadas por sessão; sem as curtas demais."""
+        with Session(self.engine) as s:
+            rows = (s.query(SessionMessage)
+                    .filter(SessionMessage.role == "user")
+                    .order_by(SessionMessage.timestamp.asc()).all())
+            first_by_session: dict[str, SessionMessage] = {}
+            for r in rows:                       # asc → o 1º visto é o mais antigo
+                if r.session_id not in first_by_session:
+                    first_by_session[r.session_id] = r
+            firsts = sorted(first_by_session.values(),
+                            key=lambda r: r.timestamp, reverse=True)
+            out = [(r.content or "").strip() for r in firsts]
+            return [c for c in out if len(c) >= min_len][:limit]
+
     def search_messages(self, query: str, limit: int = 30) -> list[dict]:
         """Busca no histórico de conversas — retorna trechos com a sessão de origem.
         Agrupa por sessão (mostra o primeiro acerto de cada) para a sidebar de busca."""

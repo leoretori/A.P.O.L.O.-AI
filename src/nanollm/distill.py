@@ -95,6 +95,48 @@ def distill_titles(
     )
 
 
+def make_llm_teacher(
+    model: str | None = None,
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 48,
+) -> Callable[[str], str]:
+    """Constrói o PROFESSOR real: o Qwen que já roda no motor próprio (llama.cpp).
+    Devolve `teacher_fn(prompt) -> texto` para alimentar `generate_distill_pairs`.
+
+    Import preguiçoso de `get_provider`/`runtime` — assim o núcleo de destilação e
+    seus testes seguem sem LLM nem rede; só quem chama ISTO paga o custo do motor.
+    O modelo padrão é o de chat resolvido em runtime (o mesmo que responde ao Leo),
+    então o aluno imita o professor que ele de fato substituirá."""
+    from src.providers import get_provider
+
+    prov = get_provider()
+    if model is None:
+        try:
+            from src import runtime
+            model = runtime.get_chat_model()
+        except Exception:
+            model = None
+        if not model:                       # fallback: 1º modelo que o motor expõe
+            models = prov.list_models()
+            model = models[0] if models else "apolo"
+
+    opts = {"temperature": temperature, "num_predict": max_tokens, "max_tokens": max_tokens}
+
+    def teacher_fn(prompt: str) -> str:
+        return prov.complete(model, [{"role": "user", "content": prompt}], options=opts)
+
+    return teacher_fn
+
+
+def source_title_inputs(db, *, limit: int = 300, min_len: int = 8) -> list[str]:
+    """Puxa do banco as entradas reais a destilar: a 1ª mensagem de cada sessão
+    (a pergunta que abre a conversa — a distribuição de inferência). `db` é o
+    DatabaseManager; mantido como parâmetro (não import global) para o pipeline
+    seguir testável com um banco falso."""
+    return db.first_user_messages(limit=limit, min_len=min_len)
+
+
 def write_distill_dataset(
     pairs: list[tuple[str, str]],
     tokenizer_path: str | Path,
@@ -129,3 +171,59 @@ def write_distill_dataset(
     (out / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False),
                                    encoding="utf-8")
     return meta
+
+
+def run_distillation(
+    db,
+    tokenizer_path: str | Path,
+    out_dir: str | Path,
+    *,
+    teacher_fn: Callable[[str], str] | None = None,
+    limit: int = 300,
+    max_pairs: int | None = None,
+    val_fraction: float = 0.1,
+) -> dict:
+    """FLYWHEEL, ponta a ponta (M25.2): banco → professor rotula → dataset.
+
+    (1) puxa as entradas reais (1ª mensagem de cada sessão), (2) o professor
+    (Qwen real por padrão; injetável nos testes) rotula pergunta→título na
+    distribuição de inferência, (3) grava no formato do fine-tune. Devolve o
+    `meta` com um resumo (quantas entradas viraram quantos pares). O TREINO em
+    si é o `train.py` apontado para `out_dir` — de propósito um passo à parte,
+    para rodar de madrugada (M25.3) sem segurar este processo."""
+    inputs = source_title_inputs(db, limit=limit)
+    if not inputs:
+        raise ValueError("sem entradas no banco para destilar — converse com o A.P.O.L.O. primeiro")
+    teacher = teacher_fn or make_llm_teacher()
+    pairs = distill_titles(inputs, teacher, max_pairs=max_pairs)
+    logger.info(f"[distill] {len(inputs)} entradas → {len(pairs)} pares válidos do professor")
+    meta = write_distill_dataset(pairs, tokenizer_path, out_dir, val_fraction=val_fraction)
+    meta["inputs_seen"] = len(inputs)
+    return meta
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI: `python -m src.nanollm.distill --tokenizer … --out …`.
+    Liga o banco real e o professor Qwen real. Sem argumentos extras, usa padrões
+    sensatos. É o comando que o Leo roda para gerar o dataset destilado."""
+    import argparse
+
+    p = argparse.ArgumentParser(description="Destila pergunta→título do Qwen para o Apolo-Nano")
+    p.add_argument("--tokenizer", required=True, help="caminho do tokenizer do checkpoint")
+    p.add_argument("--out", default="data/nano/distill_titles", help="pasta de saída do dataset")
+    p.add_argument("--limit", type=int, default=300, help="máx. de entradas do banco")
+    p.add_argument("--max-pairs", type=int, default=None, help="teto de pares (custo do professor)")
+    args = p.parse_args(argv)
+
+    from src.storage import DatabaseManager
+
+    db = DatabaseManager()
+    meta = run_distillation(db, args.tokenizer, args.out,
+                            limit=args.limit, max_pairs=args.max_pairs)
+    print(f"✓ destilados {meta['pairs']} pares de {meta['inputs_seen']} entradas → {args.out}")
+    print(f"  treine com:  python -m src.nanollm.train --data {args.out} --init-from <checkpoint>")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

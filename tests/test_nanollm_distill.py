@@ -10,6 +10,9 @@ import pytest
 from src.nanollm.distill import (
     distill_titles,
     generate_distill_pairs,
+    make_llm_teacher,
+    run_distillation,
+    source_title_inputs,
     write_distill_dataset,
 )
 from src.nanollm.tokenizer import ByteBPETokenizer
@@ -96,3 +99,60 @@ def test_write_distill_dataset(tokenizer, tmp_path):
 def test_write_sem_pares_falha(tokenizer, tmp_path):
     with pytest.raises(ValueError):
         write_distill_dataset([], tokenizer, tmp_path / "x")
+
+
+# ── M25.2: professor real + sourcing do banco (ainda determinístico) ──
+
+class _FakeDB:
+    """Banco falso: só o que o sourcing usa (first_user_messages)."""
+    def __init__(self, msgs):
+        self._msgs = msgs
+
+    def first_user_messages(self, limit=300, min_len=8):
+        return [m for m in self._msgs if len(m.strip()) >= min_len][:limit]
+
+
+class _FakeProvider:
+    def __init__(self):
+        self.calls = []
+
+    def list_models(self):
+        return ["apolo"]
+
+    def complete(self, model, messages, options=None):
+        self.calls.append((model, messages, options))
+        return "Título: Assunto Técnico"
+
+
+def test_source_title_inputs_puxa_do_banco_e_filtra_curtas():
+    db = _FakeDB(["Como criar uma LLM soberana?", "oi", "Explique asyncio no python"])
+    got = source_title_inputs(db, min_len=8)
+    assert "Como criar uma LLM soberana?" in got
+    assert "oi" not in got                 # curta demais → filtrada pelo banco
+
+
+def test_make_llm_teacher_chama_o_provider(monkeypatch):
+    fake = _FakeProvider()
+    monkeypatch.setattr("src.providers.get_provider", lambda: fake)
+    teacher = make_llm_teacher(model="apolo", max_tokens=32)
+    out = teacher("qual título?")
+    assert out.startswith("Título")
+    assert fake.calls[0][0] == "apolo"      # usou o modelo pedido
+    assert fake.calls[0][1][0]["role"] == "user"
+
+
+def test_run_distillation_ponta_a_ponta(tokenizer, tmp_path):
+    db = _FakeDB(["Como criar uma LLM soberana?",
+                  "Explique asyncio no python",
+                  "O que e um decorator em python"])
+    meta = run_distillation(db, tokenizer, tmp_path / "d",
+                            teacher_fn=lambda prompt: "Assunto do Chat",
+                            val_fraction=0.34)
+    assert meta["inputs_seen"] == 3 and meta["pairs"] >= 1
+    assert (tmp_path / "d" / "pairs.jsonl").exists()
+
+
+def test_run_distillation_sem_entradas_falha(tokenizer, tmp_path):
+    with pytest.raises(ValueError):
+        run_distillation(_FakeDB([]), tokenizer, tmp_path / "x",
+                         teacher_fn=lambda p: "Qualquer")
