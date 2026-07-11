@@ -26,10 +26,16 @@ from src.nanollm.data import get_batch, load_tokens
 from src.nanollm.model import GPT, GPTConfig
 from src.nanollm.optim import Adam, clip_grad_norm, lr_schedule
 
+# Escala incremental (M26): "small" (~3-6M) é o v1; "medium"/"large" sobem o teto
+# no hardware atual (CPU) — treino mais lento, mas viável de madrugada com passos
+# limitados. n_head sempre divide n_embd. batch cai conforme o modelo cresce p/
+# caber na RAM. A meta do M26 é medir cobertura por tarefa à medida que cresce.
 PRESETS: dict[str, dict] = {
     "nano": dict(n_layer=2, n_head=4, n_embd=128, block_size=128, batch_size=16),
     "mini": dict(n_layer=4, n_head=4, n_embd=192, block_size=192, batch_size=12),
     "small": dict(n_layer=6, n_head=8, n_embd=256, block_size=256, batch_size=8),
+    "medium": dict(n_layer=8, n_head=8, n_embd=320, block_size=256, batch_size=6),  # ~10M
+    "large": dict(n_layer=12, n_head=8, n_embd=448, block_size=256, batch_size=4),  # ~30M
 }
 
 

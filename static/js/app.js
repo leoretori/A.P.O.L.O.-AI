@@ -2334,9 +2334,22 @@
         : (sov.ready
             ? '<span style="color:#4ade80">✓ motor próprio pronto — Ollama dispensável</span>'
             : `<span style="color:#fbbf24">motor próprio incompleto — ${escHtml(sov.detail||'')}</span>`);
+      const g = sov.gpu || {};
+      let gpuLabel = '';
+      if (o.backend === 'llamacpp' && g.offload_supported !== undefined) {
+        if (g.offload_supported && g.layers_configured > 0)
+          gpuLabel = `<span style="color:#4ade80">iGPU/Vulkan · ${g.layers_configured} camada(s)</span>`;
+        else if (g.offload_supported)
+          gpuLabel = '<span style="color:#888">GPU disponível — offload desligado (gpu_layers=0)</span>';
+        else if (g.offload_supported === false && g.layers_configured > 0)
+          gpuLabel = `<span style="color:#fbbf24">build sem GPU — recompile com Vulkan</span>`;
+        else if (g.offload_supported === false)
+          gpuLabel = '<span style="color:#888">CPU (build sem GPU)</span>';
+      }
       const ollamaCard = card(`${dot(o.installed&&o.installed.length)} 🧩 Motor de inferência`,
         line('Backend', backendLabel) +
         (sov.detail ? line('Soberania', sovLabel) : '') +
+        (gpuLabel ? line('Aceleração', gpuLabel) : '') +
         line('Chat', escHtml(o.chat_model||'—')) +
         line('Pesado (14b)', escHtml(o.heavy_model||'—')) +
         line('Visão', o.has_vision ? escHtml(o.vision_model) : '<span style="color:#888">não instalado</span>') +

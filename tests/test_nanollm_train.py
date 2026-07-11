@@ -6,6 +6,29 @@ import pytest
 from src.nanollm.data import get_batch
 from src.nanollm.model import GPT, GPTConfig
 from src.nanollm.optim import Adam, clip_grad_norm, lr_schedule
+from src.nanollm.train import PRESETS
+
+
+def test_presets_de_escala_existem_e_crescem():
+    """M26: os presets maiores existem, têm n_head dividindo n_embd e crescem
+    monotonicamente em capacidade (n_layer*n_embd)."""
+    for name in ("nano", "mini", "small", "medium", "large"):
+        assert name in PRESETS
+    for p in PRESETS.values():
+        assert p["n_embd"] % p["n_head"] == 0        # atenção multi-cabeça válida
+    caps = [PRESETS[n]["n_layer"] * PRESETS[n]["n_embd"]
+            for n in ("nano", "mini", "small", "medium", "large")]
+    assert caps == sorted(caps) and len(set(caps)) == len(caps)
+
+
+@pytest.mark.parametrize("preset,lo,hi", [("medium", 8e6, 16e6), ("large", 24e6, 40e6)])
+def test_preset_produz_modelo_na_faixa_de_params(preset, lo, hi):
+    """medium ≈ 10M, large ≈ 30M — o ponto do M26 (escala incremental)."""
+    p = PRESETS[preset]
+    cfg = GPTConfig(vocab_size=4096, block_size=p["block_size"], n_layer=p["n_layer"],
+                    n_head=p["n_head"], n_embd=p["n_embd"], seed=0)
+    model = GPT(cfg)
+    assert lo <= model.num_params <= hi
 
 
 def _tiny_model(seed: int = 1) -> GPT:

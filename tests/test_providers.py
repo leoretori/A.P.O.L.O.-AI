@@ -102,6 +102,40 @@ def test_status_llamacpp_pronto(monkeypatch, tmp_path):
     assert s["ready"] is True and "pronto" in s["detail"]
 
 
+# ── M26: aceleração por iGPU/Vulkan — honesto sobre o que o build suporta ──
+def _fake_llama_cpp(monkeypatch, supports):
+    import importlib.util
+    import sys
+    import types
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+    fake = types.ModuleType("llama_cpp")
+    fake.llama_supports_gpu_offload = lambda: supports
+    monkeypatch.setitem(sys.modules, "llama_cpp", fake)
+
+
+def test_status_gpu_build_sem_vulkan_avisa(monkeypatch, tmp_path):
+    gguf = tmp_path / "m.gguf"
+    gguf.write_bytes(b"x")
+    monkeypatch.setenv("LLM_BACKEND", "llamacpp")
+    monkeypatch.setenv("LLAMACPP_MODELS", f"m={gguf}")
+    monkeypatch.setenv("LLAMACPP_GPU_LAYERS", "8")
+    _fake_llama_cpp(monkeypatch, supports=False)
+    g = backend_status()["gpu"]
+    assert g["layers_configured"] == 8 and g["offload_supported"] is False
+    assert "Vulkan" in g["note"]                 # aponta o caminho de correção
+
+
+def test_status_gpu_offload_ativo(monkeypatch, tmp_path):
+    gguf = tmp_path / "m.gguf"
+    gguf.write_bytes(b"x")
+    monkeypatch.setenv("LLM_BACKEND", "llamacpp")
+    monkeypatch.setenv("LLAMACPP_MODELS", f"m={gguf}")
+    monkeypatch.setenv("LLAMACPP_GPU_LAYERS", "16")
+    _fake_llama_cpp(monkeypatch, supports=True)
+    g = backend_status()["gpu"]
+    assert g["offload_supported"] is True and "offload ativo" in g["note"]
+
+
 # ── OllamaProvider: normalização do formato de resposta ──────────
 class _FakeMsg:
     def __init__(self, content):

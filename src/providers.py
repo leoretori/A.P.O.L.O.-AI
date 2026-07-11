@@ -198,6 +198,25 @@ def backend_status() -> dict:
     elif not paths_ok:
         missing.append("arquivo .gguf apontado não existe")
     ready = lib and paths_ok
-    return {"backend": "llamacpp", "sovereign": True, "ready": ready,
+
+    # Aceleração por iGPU/GPU (M26): honesto sobre o que o BUILD instalado suporta.
+    # `LLAMACPP_GPU_LAYERS>0` só faz efeito se a lib foi compilada com um backend
+    # de GPU (ex.: Vulkan p/ a Vega integrada). Sem isso, offload é silenciosamente
+    # ignorado — então checamos de verdade via a API do próprio llama.cpp.
+    layers = int(os.getenv("LLAMACPP_GPU_LAYERS", "0"))
+    gpu: dict = {"layers_configured": layers, "offload_supported": None}
+    if lib:
+        try:
+            from llama_cpp import llama_supports_gpu_offload
+            gpu["offload_supported"] = bool(llama_supports_gpu_offload())
+        except Exception:
+            gpu["offload_supported"] = None  # desconhecido nesta versão da lib
+    if layers > 0 and gpu["offload_supported"] is False:
+        gpu["note"] = ("gpu_layers>0 mas o build não tem GPU — recompile com Vulkan "
+                       "(ver docs/VULKAN_BUILD.md) ou volte gpu_layers=0")
+    elif gpu["offload_supported"] and layers > 0:
+        gpu["note"] = f"offload ativo: {layers} camada(s) na GPU"
+
+    return {"backend": "llamacpp", "sovereign": True, "ready": ready, "gpu": gpu,
             "detail": "motor próprio pronto (Ollama dispensável)" if ready
                       else "falta: " + "; ".join(missing)}
