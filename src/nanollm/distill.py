@@ -137,6 +137,44 @@ def source_title_inputs(db, *, limit: int = 300, min_len: int = 8) -> list[str]:
     return db.first_user_messages(limit=limit, min_len=min_len)
 
 
+# ── M28: destilação de RESPOSTA CURTA (o passo rumo ao chat próprio) ──
+# Tarefa muito mais dura que título — de propósito. Num Nano de 3,4M no CPU o
+# resultado NÃO será um chat bom; o valor é o arcabouço + a medição às cegas
+# (blind_eval), que dirá a verdade quando a ESCALA vier. O professor responde
+# curto e factual; o aluno tenta imitar na mesma distribuição de pergunta real.
+ANSWER_TEACHER_PROMPT = (
+    "Responda de forma curta, direta e factual (1 a 3 frases, em português) à "
+    "pergunta abaixo. Sem rodeios, sem listas.\n\nPergunta: {input}\n\nResposta:"
+)
+ANSWER_TEMPLATE = "Pergunta: {context}\n\nResposta: {title}"
+
+
+def _valid_answer(ans: str) -> bool:
+    """Resposta de treino: curta, sem código/markdown pesado, com conteúdo real."""
+    ans = (ans or "").strip()
+    if not (4 <= len(ans) <= 280):
+        return False
+    if "```" in ans or ans.count("\n") > 3:
+        return False
+    return any(c.isalpha() for c in ans)
+
+
+def distill_answers(
+    inputs: list[str],
+    teacher_fn: Callable[[str], str],
+    *,
+    max_pairs: int | None = None,
+) -> list[tuple[str, str]]:
+    """Destila pares `pergunta → resposta curta` na distribuição de inferência.
+    O passo do M28 rumo ao diálogo próprio (medido às cegas em `blind_eval`)."""
+    return generate_distill_pairs(
+        inputs, teacher_fn,
+        prompt_template=ANSWER_TEACHER_PROMPT,
+        validate=_valid_answer,
+        max_pairs=max_pairs,
+    )
+
+
 def write_distill_dataset(
     pairs: list[tuple[str, str]],
     tokenizer_path: str | Path,

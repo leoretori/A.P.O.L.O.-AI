@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from src.nanollm.distill import (
+    distill_answers,
     distill_titles,
     generate_distill_pairs,
     make_llm_teacher,
@@ -156,3 +157,15 @@ def test_run_distillation_sem_entradas_falha(tokenizer, tmp_path):
     with pytest.raises(ValueError):
         run_distillation(_FakeDB([]), tokenizer, tmp_path / "x",
                          teacher_fn=lambda p: "Qualquer")
+
+
+# ── M28: destilação de resposta curta ──
+def test_distill_answers_aceita_curta_e_rejeita_lixo():
+    # professor bom: resposta curta e factual → aceita
+    good = distill_answers(["O que é uma LLM?"],
+                           lambda p: "É um modelo de linguagem treinado em texto.")
+    assert good and good[0][0] == "O que é uma LLM?"
+    # professor ruim: despeja código/markdown longo → barrado por _valid_answer
+    bad = distill_answers(["Como faço um loop?"],
+                          lambda p: "```python\n" + ("x = 1\n" * 10) + "```")
+    assert bad == []
