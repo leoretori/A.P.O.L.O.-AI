@@ -47,8 +47,10 @@
     #sidebar-top h1 span { color: var(--sun); }
     #new-chat-btn { background: none; border: 1px solid #2a2a35; color: #777; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     #new-chat-btn:hover { border-color: var(--sun); color: #fbbf24; }
-    #bell-btn { position: relative; background: none; border: none; font-size: 15px; cursor: pointer; padding: 2px 4px; flex-shrink: 0; opacity: .8; }
-    #bell-btn:hover { opacity: 1; }
+    #briefing-btn, #wake-btn, #bell-btn { position: relative; background: none; border: none; color: #6a6a76; cursor: pointer; padding: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 7px; transition: color .15s, background .15s; }
+    #briefing-btn svg, #wake-btn svg, #bell-btn svg { width: 17px; height: 17px; }
+    #briefing-btn:hover, #wake-btn:hover, #bell-btn:hover { color: #cfcfd8; background: #17171e; }
+    #briefing-btn.active, #wake-btn.active { color: var(--sun); background: #1a1405; }
     #bell-badge { position: absolute; top: -3px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; background: #f43f5e; color: #fff; font-size: 9px; line-height: 14px; border-radius: 8px; text-align: center; display: none; font-weight: 700; }
     #bell-badge.show { display: block; }
     #notif-dropdown { display: none; position: absolute; top: 46px; right: 10px; width: 290px; max-height: 360px; background: #121218; border: 1px solid #26262f; border-radius: 10px; z-index: 150; box-shadow: 0 8px 24px rgba(0,0,0,.5); overflow: hidden; flex-direction: column; }
@@ -265,7 +267,8 @@
     .agent-bubble.direct .agent-bubble-head { background: #1a1a22; color: #e2e8f0; }
     /* Ícones utilitários — discretos, agrupados à esquerda */
     .input-tools { display: flex; gap: 2px; align-items: center; flex-shrink: 0; }
-    .tool-icon { background: none; border: none; color: #4a4a55; font-size: 15px; padding: 4px 5px; border-radius: 7px; cursor: pointer; transition: all .15s; line-height: 1; display: flex; align-items: center; }
+    .tool-icon { background: none; border: none; color: #4a4a55; padding: 4px 5px; border-radius: 7px; cursor: pointer; transition: all .15s; line-height: 1; display: flex; align-items: center; }
+    .tool-icon svg { width: 17px; height: 17px; }
     .tool-icon:hover { background: #18181f; color: #999; }
     #image-btn.has-img { color: var(--sun); background: #1a1405; }
     #img-preview { display: none; margin: 0 0 8px 4px; }

@@ -1,5 +1,5 @@
 // A.P.O.L.O. Service Worker — PWA offline + cache
-const CACHE = 'apolo-v5';
+const CACHE = 'apolo-v6';
 const STATIC = [
   '/',
   '/apolo-icon.svg',
@@ -49,8 +49,12 @@ self.addEventListener('fetch', e => {
   const isAppCode = sameOrigin && (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'));
   if (e.request.mode === 'navigate' || url.pathname === '/' ||
       url.pathname.endsWith('.html') || isAppCode) {
+    // `cache:'no-cache'` obriga o browser a REVALIDAR com o servidor (requisição
+    // condicional) antes de usar sua própria cópia em disco — sem isso, o HTTP
+    // cache do browser servia HTML/JS/CSS velhos ao SW e a UI ficava presa numa
+    // versão antiga mesmo com network-first. Servidor local: revalidar custa ~0.
     e.respondWith(
-      fetch(e.request).then(res => {
+      fetch(e.request, { cache: 'no-cache' }).then(res => {
         if (res.ok) {
           const clone = res.clone();
           caches.open(CACHE).then(c => c.put(e.request, clone));
