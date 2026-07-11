@@ -167,6 +167,35 @@ def _log(work_root: str | Path, summary: dict) -> dict:
     return summary
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI: `python -m src.nanollm.flywheel [--steps N] [--min-pairs K]`.
+    Dispara UMA rodada AGORA (sem esperar as 3h): destila as conversas reais,
+    treina um candidato e promove só se melhorar. Imprime o resultado."""
+    import argparse
+
+    p = argparse.ArgumentParser(description="Roda uma volta do flywheel do Nano (M25.3)")
+    p.add_argument("--steps", type=int, default=400, help="passos de treino do candidato")
+    p.add_argument("--min-pairs", type=int, default=12, help="mínimo de pares p/ treinar")
+    p.add_argument("--limit", type=int, default=300, help="máx. de conversas a destilar")
+    p.add_argument("--seed", type=int, default=1337)
+    args = p.parse_args(argv)
+
+    from src.storage import DatabaseManager
+
+    res = run_nightly_flywheel(DatabaseManager(), steps=args.steps,
+                               min_pairs=args.min_pairs, limit=args.limit)
+    st = res.get("status")
+    if st == "promoted":
+        print(f"✓ PROMOVIDO — perplexidade {res['incumbent_val']:.3f} → "
+              f"{res['candidate_val']:.3f} (ganho {res.get('gain')}); "
+              f"{res.get('pairs')} pares. Reinicie/recarregue p/ servir o novo cérebro.")
+    elif st == "rejected":
+        print(f"• candidato não superou o titular ({res.get('reason')}). Nada mudou.")
+    else:
+        print(f"• pulei: {res.get('reason')}")
+    return 0
+
+
 def read_flywheel_log(work_root: str | Path = DEFAULT_WORK_ROOT, limit: int = 20) -> list[dict]:
     """Últimas noites do flywheel (mais recentes primeiro) — para o painel/UI."""
     path = Path(work_root) / "flywheel_log.jsonl"
@@ -180,3 +209,7 @@ def read_flywheel_log(work_root: str | Path = DEFAULT_WORK_ROOT, limit: int = 20
         except Exception:
             continue
     return list(reversed(out))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

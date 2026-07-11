@@ -7,6 +7,7 @@ A geração roda em thread (não bloqueia o loop) e marca atividade de usuário
 no GpuGate — o aprendizado de fundo espera, nunca o contrário.
 """
 import asyncio
+import logging
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -14,6 +15,10 @@ from pydantic import BaseModel, Field
 from src import runtime as rt
 
 router = APIRouter()
+logger = logging.getLogger("apolo.routers.nano")
+
+# Uma rodada do flywheel por vez (treino no CPU é pesado; não empilhar).
+_flywheel_running = False
 
 
 class NanoCompleteRequest(BaseModel):
@@ -41,6 +46,67 @@ async def nano_coverage():
     from src.nanollm.routing import NANO_TASKS, task_enabled
     cov["candidates"] = {t: task_enabled(t) for t in NANO_TASKS}
     return cov
+
+
+@router.get("/api/nano/flywheel/log")
+async def nano_flywheel_log():
+    """Histórico das rodadas do flywheel (promovido/rejeitado/pulado)."""
+    from src.nanollm.flywheel import read_flywheel_log
+    return {"running": _flywheel_running,
+            "rounds": await asyncio.to_thread(read_flywheel_log)}
+
+
+async def _run_flywheel_bg(steps: int, min_pairs: int):
+    """Roda uma volta do flywheel em background e avisa o resultado (M25.3)."""
+    global _flywheel_running
+    _flywheel_running = True
+    try:
+        from src.nanollm.flywheel import run_nightly_flywheel
+        res = await asyncio.to_thread(run_nightly_flywheel, rt.db,
+                                      steps=steps, min_pairs=min_pairs)
+        st = res.get("status")
+        if st == "promoted":
+            if rt.nano:
+                rt.nano.reload()
+            rt.db.add_notification(
+                f"🌀 Nano evoluiu: perplexidade {res['incumbent_val']:.2f} → "
+                f"{res['candidate_val']:.2f} (ganho {res.get('gain')}, "
+                f"{res.get('pairs')} pares). Já servindo o novo cérebro.", kind="info")
+        elif st == "rejected":
+            rt.db.add_notification(
+                f"🌀 Rodada do Nano: candidato não superou o titular — nada mudou "
+                f"({res.get('pairs')} pares).", kind="info")
+        else:
+            rt.db.add_notification(f"🌀 Rodada do Nano pulada: {res.get('reason')}",
+                                   kind="info")
+        logger.info(f"[flywheel/manual] {res}")
+    except Exception as e:
+        logger.warning(f"[flywheel/manual] falhou: {e}")
+        if rt.db:
+            rt.db.add_notification(f"⚠️ Rodada do Nano falhou: {str(e)[:120]}", kind="info")
+    finally:
+        _flywheel_running = False
+
+
+class FlywheelRunRequest(BaseModel):
+    steps: int = Field(default=400, ge=20, le=5000)
+    min_pairs: int = Field(default=12, ge=1, le=1000)
+
+
+@router.post("/api/nano/flywheel/run")
+async def nano_flywheel_run(req: FlywheelRunRequest | None = None):
+    """Dispara AGORA uma rodada do flywheel (sem esperar as 3h). Roda em segundo
+    plano — o resultado chega como notificação. Uma rodada por vez."""
+    if not rt.db:
+        raise HTTPException(503, "banco indisponível")
+    if _flywheel_running:
+        return {"status": "já rodando", "running": True}
+    if not rt.nano or not rt.nano.available():
+        raise HTTPException(503, "Apolo-Nano sem checkpoint treinado — nada a evoluir ainda")
+    req = req or FlywheelRunRequest()
+    asyncio.create_task(_run_flywheel_bg(req.steps, req.min_pairs))
+    return {"status": "iniciado", "running": True,
+            "aviso": "treino no CPU — pode levar alguns minutos; aviso quando terminar"}
 
 
 @router.post("/api/nano/complete")

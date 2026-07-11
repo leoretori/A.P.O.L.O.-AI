@@ -4061,6 +4061,48 @@
   }
 
   // ── Reparo de sínteses cruas (timeouts antigos) ───────────────
+  function renderFlywheelLog(rounds) {
+    if (!rounds || !rounds.length) return '';
+    const num = v => (typeof v === 'number' ? v.toFixed(2) : '—');
+    const row = r => {
+      const st = r.status === 'promoted'
+        ? '<span style="color:#4ade80">promovido</span>'
+        : (r.status === 'rejected' ? '<span style="color:#fbbf24">rejeitado</span>'
+                                   : '<span style="color:#888">pulado</span>');
+      const det = r.status === 'promoted'
+        ? `ppl ${num(r.incumbent_val)} → ${num(r.candidate_val)}`
+        : (r.reason || '');
+      return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:4px 0;border-top:1px solid #1a1a22">
+        <span style="color:#888">${escHtml(r.quando || '')}</span>${st}
+        <span style="color:#666;flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(det)}</span></div>`;
+    };
+    return `<div style="margin-top:16px"><div style="color:#999;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Rodadas anteriores</div>${rounds.map(row).join('')}</div>`;
+  }
+
+  async function trainNanoNow() {
+    if (!confirm('Rodar uma rodada de treino do Apolo-Nano agora?\n\nUsa suas conversas reais (o Qwen ensina o Nano), leva alguns minutos de CPU e só promove o resultado se medir melhora.')) return;
+    const body = document.getElementById('mind-body');
+    body.innerHTML = '<div id="mind-loading">🌀 Iniciando rodada do Nano…</div>';
+    try {
+      const r = await fetch('/api/nano/flywheel/run', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        body.innerHTML = `<div class="mind-empty">Não deu pra iniciar: ${escHtml(j.detail || 'erro')}</div>`;
+        return;
+      }
+      const log = await fetch('/api/nano/flywheel/log').then(x => x.json()).catch(() => ({rounds: []}));
+      body.innerHTML = `<div style="padding:6px 2px">
+        <div style="color:#4ade80;font-size:14px;margin-bottom:6px">🌀 ${j.status === 'já rodando' ? 'Uma rodada já está em andamento' : 'Rodada iniciada'}</div>
+        <div style="color:#888;font-size:11.5px;line-height:1.6">${escHtml(j.aviso || 'O treino roda em segundo plano.')}. O resultado chega como notificação (🔔) — o app continua liberado enquanto isso.</div>
+        ${renderFlywheelLog(log.rounds || [])}
+      </div>`;
+    } catch (e) {
+      body.innerHTML = `<div class="mind-empty">Erro ao iniciar: ${escHtml(e.message)}</div>`;
+    }
+  }
+
   async function repairSummaries() {
     const body = document.getElementById('mind-body');
     body.innerHTML = '<div id="mind-loading">🩹 Procurando sínteses cruas…</div>';
