@@ -580,6 +580,21 @@ python -m uvicorn app:app --reload --port 8000
 
 Acesse: **http://127.0.0.1:8000**
 
+### 🖥️ Como app de desktop (sem navegador)
+
+Para abrir numa **janela nativa** (sem barra de endereço, parece um programa comum —
+usa o WebView2 do Windows, já embutido no Win10/11):
+
+```bash
+pip install pywebview      # uma vez
+pythonw desktop.py         # 'pythonw' = sem janela de console
+```
+
+`desktop.py` sobe o servidor (se ainda não estiver no ar) e abre a janela nativa.
+Sem `pywebview`, ele cai no navegador padrão e explica como instalar. Dica: crie um
+atalho para `pythonw.exe desktop.py` na Área de Trabalho para virar um app "de verdade".
+Alternativa sem instalar nada: o botão **☀️ Instalar app** (PWA) no próprio A.P.O.L.O.
+
 > Variáveis opcionais: `PORT` (padrão 8000), `HOST` (padrão 127.0.0.1),
 > `APOLO_RELOAD=0` para desligar o auto-reload. No Windows o console é forçado
 > para UTF-8 automaticamente (emojis ☀️ nos logs não quebram mais).
