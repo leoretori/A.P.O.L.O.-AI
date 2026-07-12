@@ -664,6 +664,9 @@
     .conv-ico { cursor:pointer; color:#4a4a55; display:flex; align-items:center; transition:color .15s; }
     .conv-ico svg { width:14px; height:14px; }
     .conv-ico:hover { color:#b6b6c0; }
+    /* Botões de ação do cockpit do Cérebro Próprio */
+    .brain-act { background:#1a1405; border:1px solid #3a2f0a; color:#fbbf24; padding:6px 12px; border-radius:8px; cursor:pointer; font-size:12px; white-space:nowrap; transition:border-color .15s, background .15s; }
+    .brain-act:hover { border-color:var(--sun); background:#221a06; }
     /* Alinha o ícone SVG dos títulos dos painéis baseados em classe (mente,
        sobre mim, linha do tempo, analytics, conhecimento, review) na mesma
        linguagem monocromática dos painéis .ov-*. */

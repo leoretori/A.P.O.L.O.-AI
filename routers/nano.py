@@ -109,6 +109,81 @@ async def nano_flywheel_run(req: FlywheelRunRequest | None = None):
             "aviso": "treino no CPU — pode levar alguns minutos; aviso quando terminar"}
 
 
+# ── Avaliação às cegas: Nano vs Qwen (M28) ──────────────────────
+_blindeval_running = False
+_BLINDEVAL_LAST = "data/nano/blind_eval_last.json"
+
+
+def _read_blindeval_last() -> dict | None:
+    import json
+    import os
+    if not os.path.exists(_BLINDEVAL_LAST):
+        return None
+    try:
+        with open(_BLINDEVAL_LAST, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+async def _run_blindeval_bg(limit: int):
+    """Roda a avaliação às cegas em background, persiste e avisa o win-rate."""
+    global _blindeval_running
+    _blindeval_running = True
+    try:
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        from src.nanollm.blind_eval import run_blind_eval
+        res = await asyncio.to_thread(run_blind_eval, rt.db, rt.nano, limit=limit)
+        if res.get("status") == "ok":
+            res["quando"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+            os.makedirs(os.path.dirname(_BLINDEVAL_LAST), exist_ok=True)
+            with open(_BLINDEVAL_LAST, "w", encoding="utf-8") as f:
+                json.dump(res, f, ensure_ascii=False)
+            rt.db.add_notification(
+                f"⚖️ Medição às cegas: o cérebro próprio venceu {res['nano_win_rate']}% "
+                f"das {res['n']} perguntas contra o Qwen.", kind="info")
+        else:
+            rt.db.add_notification(f"⚖️ Medição às cegas pulada: {res.get('reason')}",
+                                   kind="info")
+        logger.info(f"[blind_eval/manual] {res}")
+    except Exception as e:
+        logger.warning(f"[blind_eval/manual] falhou: {e}")
+        if rt.db:
+            rt.db.add_notification(f"⚠️ Medição às cegas falhou: {str(e)[:120]}", kind="info")
+    finally:
+        _blindeval_running = False
+
+
+@router.get("/api/nano/blind-eval/last")
+async def nano_blindeval_last():
+    """Último resultado da avaliação às cegas (win-rate do Nano vs Qwen)."""
+    return {"running": _blindeval_running,
+            "last": await asyncio.to_thread(_read_blindeval_last)}
+
+
+class BlindEvalRunRequest(BaseModel):
+    limit: int = Field(default=12, ge=2, le=100)
+
+
+@router.post("/api/nano/blind-eval/run")
+async def nano_blindeval_run(req: BlindEvalRunRequest | None = None):
+    """Mede AGORA o cérebro próprio contra o Qwen, às cegas (M28). Background —
+    o resultado (win-rate) chega como notificação. Pesado: Nano + Qwen + juiz."""
+    if not rt.db:
+        raise HTTPException(503, "banco indisponível")
+    if _blindeval_running:
+        return {"status": "já rodando", "running": True}
+    if not rt.nano or not rt.nano.available():
+        raise HTTPException(503, "Apolo-Nano sem checkpoint treinado — nada a medir ainda")
+    req = req or BlindEvalRunRequest()
+    asyncio.create_task(_run_blindeval_bg(req.limit))
+    return {"status": "iniciado", "running": True,
+            "aviso": "Nano + Qwen + juiz no CPU — leva alguns minutos; aviso quando terminar"}
+
+
 @router.post("/api/nano/complete")
 async def nano_complete(req: NanoCompleteRequest):
     if not rt.nano or not rt.nano.available():

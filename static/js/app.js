@@ -4106,6 +4106,108 @@
     }
   }
 
+  // ── Cockpit do Cérebro Próprio (Nano — M25/M27/M28) ──
+  function openBrain() { document.getElementById('brain-overlay').style.display = 'flex'; loadBrain(); }
+  function closeBrain() { document.getElementById('brain-overlay').style.display = 'none'; }
+
+  async function loadBrain() {
+    const body = document.getElementById('brain-body');
+    body.innerHTML = '<div class="pf-empty" style="color:#79798a;padding:20px 0;text-align:center">Carregando…</div>';
+    try {
+      const [cov, log, blind, status] = await Promise.all([
+        fetch('/api/nano/coverage').then(r => r.json()).catch(() => ({})),
+        fetch('/api/nano/flywheel/log').then(r => r.json()).catch(() => ({rounds: []})),
+        fetch('/api/nano/blind-eval/last').then(r => r.json()).catch(() => ({})),
+        fetch('/api/nano/status').then(r => r.json()).catch(() => ({})),
+      ]);
+      body.innerHTML = renderBrain(cov, log, blind, status);
+      requestAnimationFrame(() => body.querySelectorAll('.brain-bar-fill').forEach(el => { el.style.width = el.dataset.w + '%'; }));
+    } catch (e) {
+      body.innerHTML = `<div class="mind-empty">Erro: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderBrain(cov, log, blind, status) {
+    const ov = (cov && cov.overall) || {nano: 0, teacher: 0, total: 0, pct: 0};
+    const tasks = (cov && cov.tasks) || {};
+    const cand = (cov && cov.candidates) || {};
+    const pctColor = ov.pct >= 50 ? '#4ade80' : (ov.pct > 0 ? '#fbbf24' : '#6a6a76');
+    const TASK_PT = {title: 'Títulos de conversa', sector: 'Setor', tags: 'Tags'};
+
+    let taskRows = Object.keys(cand).map(t => {
+      const d = tasks[t] || {nano: 0, teacher: 0, total: 0, pct: 0};
+      const on = cand[t];
+      return `<div style="margin:8px 0">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
+          <span style="color:#c9c9d4">${escHtml(TASK_PT[t] || t)}${on ? '' : ' <span style="color:#6a6a76">(desligado)</span>'}</span>
+          <span style="color:#8a8a96">${d.pct}% · ${d.nano}/${d.total}</span>
+        </div>
+        <div style="height:6px;background:#17171e;border-radius:4px;overflow:hidden">
+          <div class="brain-bar-fill" data-w="${d.pct}" style="height:100%;width:0;background:linear-gradient(90deg,#f59e0b,#fbbf24);transition:width .6s ease"></div>
+        </div></div>`;
+    }).join('');
+
+    const nn = status || {};
+    const nanoLine = nn.available
+      ? `${nn.params_m ? nn.params_m + 'M params' : ''}${nn.val_ppl ? ' · ppl ' + nn.val_ppl : ''}`
+      : 'sem checkpoint treinado';
+
+    const b = (blind && blind.last) || null;
+    const blindBox = b
+      ? `<div style="font-size:22px;font-weight:700;color:${b.nano_win_rate >= 50 ? '#4ade80' : '#fbbf24'}">${b.nano_win_rate}%</div>
+         <div style="font-size:11px;color:#79798a">venceu ${b.wins.nano}/${b.n} vs Qwen · ${escHtml(b.quando || '')}</div>`
+      : '<div style="font-size:11.5px;color:#6a6a76">ainda não medido — clique em “Medir vs Qwen”</div>';
+
+    return `
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+        <div style="flex:1;min-width:180px">
+          <div style="font-size:40px;font-weight:800;line-height:1;color:${pctColor}">${ov.pct}%</div>
+          <div style="font-size:11.5px;color:#79798a;margin-top:4px">do dia servido pelo cérebro próprio<br>(${ov.nano} de ${ov.total} tarefas estreitas)</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="brain-act" onclick="trainFromBrain()" title="Destila suas conversas e treina o Nano (promove só se melhorar)">🌀 Treinar agora</button>
+          <button class="brain-act" onclick="measureBlind()" title="Compara o Nano contra o Qwen às cegas">⚖️ Medir vs Qwen</button>
+        </div>
+      </div>
+      <div id="brain-action-msg"></div>
+      <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin:6px 0 4px">Cobertura por tarefa</div>
+      ${taskRows || '<div style="color:#6a6a76;font-size:11.5px">nenhuma tarefa registrada ainda</div>'}
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:16px">
+        <div style="flex:1;min-width:150px;background:#0d0d12;border:1px solid #1c1c24;border-radius:10px;padding:12px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Modelo</div>
+          <div style="font-size:12px;color:#c9c9d4">${escHtml(nanoLine)}</div>
+        </div>
+        <div style="flex:1;min-width:150px;background:#0d0d12;border:1px solid #1c1c24;border-radius:10px;padding:12px">
+          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Nano vs Qwen (às cegas)</div>
+          ${blindBox}
+        </div>
+      </div>
+      ${renderFlywheelLog((log && log.rounds) || [])}`;
+  }
+
+  function _brainMsg(html) {
+    const m = document.getElementById('brain-action-msg');
+    if (m) m.innerHTML = `<div style="margin:4px 0 12px;padding:8px 12px;background:#12120c;border:1px solid #2a2410;border-radius:8px;font-size:11.5px;color:#c9b98a">${html}</div>`;
+  }
+
+  async function trainFromBrain() {
+    if (!confirm('Rodar uma rodada de treino do Nano agora?\n\nUsa suas conversas (o Qwen ensina), leva alguns minutos de CPU e só promove se medir melhora.')) return;
+    _brainMsg('🌀 Iniciando…');
+    try {
+      const j = await fetch('/api/nano/flywheel/run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(r => r.json());
+      _brainMsg(j.status === 'iniciado' ? `🌀 ${escHtml(j.aviso || 'Rodada iniciada')}. O resultado chega no sino 🔔.` : `🌀 ${escHtml(j.status)}`);
+    } catch (e) { _brainMsg(`Erro: ${escHtml(e.message)}`); }
+  }
+
+  async function measureBlind() {
+    if (!confirm('Medir o Nano contra o Qwen às cegas agora?\n\nGera respostas dos dois e um juiz escolhe sem saber quem é quem. Leva alguns minutos de CPU.')) return;
+    _brainMsg('⚖️ Medindo…');
+    try {
+      const j = await fetch('/api/nano/blind-eval/run', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(r => r.json());
+      _brainMsg(j.status === 'iniciado' ? `⚖️ ${escHtml(j.aviso || 'Medição iniciada')}. O win-rate chega no sino 🔔.` : `⚖️ ${escHtml(j.status)}`);
+    } catch (e) { _brainMsg(`Erro: ${escHtml(e.message)}`); }
+  }
+
   async function repairSummaries() {
     const body = document.getElementById('mind-body');
     body.innerHTML = '<div id="mind-loading">🩹 Procurando sínteses cruas…</div>';
