@@ -41,14 +41,14 @@
     ════════════════════════════════════════════════════════ */
     #sidebar { width: 270px; min-width: 270px; background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 
-    #sidebar-top { padding: 13px 13px 11px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px; flex-shrink: 0; }
+    #sidebar-top { padding: 12px 10px 11px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .sun-logo { width: 30px; height: 30px; flex-shrink: 0; background: radial-gradient(circle at 40% 40%, #fde68a, #f59e0b); border-radius: 50%; box-shadow: 0 0 10px #f59e0b55; display: flex; align-items: center; justify-content: center; font-size: 15px; }
-    #sidebar-top h1 { font-size: 15px; font-weight: 700; color: #fff; flex: 1; }
+    #sidebar-top h1 { font-size: 15px; font-weight: 700; color: #fff; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #sidebar-top h1 span { color: var(--sun); }
     #new-chat-btn { background: none; border: 1px solid #2a2a35; color: #777; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; transition: all .15s; white-space: nowrap; flex-shrink: 0; }
     #new-chat-btn:hover { border-color: var(--sun); color: #fbbf24; }
-    #briefing-btn, #wake-btn, #bell-btn { position: relative; background: none; border: none; color: #6a6a76; cursor: pointer; padding: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 7px; transition: color .15s, background .15s; }
-    #briefing-btn svg, #wake-btn svg, #bell-btn svg { width: 17px; height: 17px; }
+    #briefing-btn, #wake-btn, #bell-btn { position: relative; background: none; border: none; color: #6a6a76; cursor: pointer; padding: 3px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 7px; transition: color .15s, background .15s; }
+    #briefing-btn svg, #wake-btn svg, #bell-btn svg { width: 15px; height: 15px; }
     #briefing-btn:hover, #wake-btn:hover, #bell-btn:hover { color: #cfcfd8; background: #17171e; }
     #briefing-btn.active, #wake-btn.active { color: var(--sun); background: #1a1405; }
     #bell-badge { position: absolute; top: -3px; right: -4px; min-width: 14px; height: 14px; padding: 0 3px; background: #f43f5e; color: #fff; font-size: 9px; line-height: 14px; border-radius: 8px; text-align: center; display: none; font-weight: 700; }
@@ -171,7 +171,11 @@
     #sessions-label { padding: 10px 13px 5px; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: #2a2a2a; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
     #sessions-label span { color: #333; font-size: 9px; cursor: pointer; text-transform: none; letter-spacing: 0; }
     #sessions-label span:hover { color: #666; }
-    #sessions-list { flex: 1; overflow-y: auto; padding: 0 7px 10px; min-height: 0; }
+    /* Área rolável única: conversas + navegação rolam juntas abaixo do topo fixo.
+       Antes, #sessions-list era flex:1 e a navegação longa o espremia a ~10px —
+       impossível ver/selecionar conversas antigas. Agora tudo rola num container. */
+    #sidebar-scroll { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+    #sessions-list { flex: 0 0 auto; padding: 0 7px 6px; }
     .session-item { padding: 6px 9px; border-radius: 7px; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: all .1s; display: flex; align-items: center; gap: 6px; }
     .session-item:hover { background: var(--bg3); color: #999; }
     .session-item.active { background: #1a1520; color: var(--sun-dark); }

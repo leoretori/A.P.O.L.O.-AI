@@ -60,7 +60,7 @@
 <div id="sidebar">
   <div id="sidebar-top">
     <div class="sun-logo">☀️</div>
-    <h1>A.P.O.L.O. <span>☀️</span></h1>
+    <h1>A.P.O.L.O.</h1>
     <button id="briefing-btn" onclick="playBriefing()" title="Briefing do dia (o que aprendi, agenda, pendências)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12"/></svg></button>
     <button id="wake-btn" onclick="toggleWakeWord()" title="Palavra de ativação: diga 'Apolo, ...' para falar sem tocar no PC"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8.5a6 6 0 0 1 12 0c0 2.2-1.4 3.3-2.4 4.3-.8.8-1 1.4-1.2 2.3-.3 1.3-1.2 2.4-2.9 2.4a3 3 0 0 1-3-3"/><path d="M9 9a3 3 0 0 1 5.2 2c0 1.3-1 1.9-1.7 2.5"/></svg></button>
     <button id="bell-btn" onclick="toggleNotifications(event)" title="Notificações"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg><span id="bell-badge"></span></button>
@@ -168,6 +168,7 @@
     </div>
   </div>
 
+  <div id="sidebar-scroll">
   <div id="sessions-label">
     Conversas
     <span style="display:flex;gap:9px;align-items:center">
@@ -258,6 +259,7 @@
     <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
     <span>Acesso remoto</span>
   </button>
+  </div><!-- /#sidebar-scroll -->
 
   <input id="import-file" type="file" accept="application/json" style="display:none" onchange="importBackup(event)">
 

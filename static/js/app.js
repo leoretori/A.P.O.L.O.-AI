@@ -4131,57 +4131,42 @@
     const ov = (cov && cov.overall) || {nano: 0, teacher: 0, total: 0, pct: 0};
     const tasks = (cov && cov.tasks) || {};
     const cand = (cov && cov.candidates) || {};
-    const pctColor = ov.pct >= 50 ? '#4ade80' : (ov.pct > 0 ? '#fbbf24' : '#6a6a76');
+    const pctColor = ov.pct >= 50 ? '#4ade80' : (ov.pct > 0 ? '#fbbf24' : '#8a8a96');
     const TASK_PT = {title: 'Títulos de conversa', sector: 'Setor', tags: 'Tags'};
 
-    let taskRows = Object.keys(cand).map(t => {
+    // Mesmos componentes visuais dos outros painéis (ex.: Saúde): card + linha.
+    const card = (title, rows) => `<div style="background:#0d0d12;border:1px solid #1c1c24;border-radius:12px;padding:13px 15px;margin-bottom:12px"><div style="color:#ddd;font-weight:600;margin-bottom:8px;font-size:12.5px">${title}</div>${rows}</div>`;
+    const line = (k, v) => `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">${k}</span><span style="color:#cdd">${v}</span></div>`;
+
+    const covRows = Object.keys(cand).map(t => {
       const d = tasks[t] || {nano: 0, teacher: 0, total: 0, pct: 0};
-      const on = cand[t];
-      return `<div style="margin:8px 0">
-        <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px">
-          <span style="color:#c9c9d4">${escHtml(TASK_PT[t] || t)}${on ? '' : ' <span style="color:#6a6a76">(desligado)</span>'}</span>
-          <span style="color:#8a8a96">${d.pct}% · ${d.nano}/${d.total}</span>
-        </div>
-        <div style="height:6px;background:#17171e;border-radius:4px;overflow:hidden">
-          <div class="brain-bar-fill" data-w="${d.pct}" style="height:100%;width:0;background:linear-gradient(90deg,#f59e0b,#fbbf24);transition:width .6s ease"></div>
-        </div></div>`;
-    }).join('');
+      const off = cand[t] ? '' : ' <span style="color:#6a6a76">(desligado)</span>';
+      return line(escHtml(TASK_PT[t] || t) + off, `${d.pct}% · ${d.nano}/${d.total}`);
+    }).join('') || '<div style="color:#6a6a76;font-size:12px">nenhuma tarefa registrada ainda</div>';
 
     const nn = status || {};
-    const nanoLine = nn.available
-      ? `${nn.params_m ? nn.params_m + 'M params' : ''}${nn.val_ppl ? ' · ppl ' + nn.val_ppl : ''}`
-      : 'sem checkpoint treinado';
+    const nanoVal = nn.available
+      ? `${nn.params_m ? nn.params_m + 'M' : '—'}${nn.val_ppl ? ' · ppl ' + nn.val_ppl : ''}`
+      : 'sem checkpoint';
 
     const b = (blind && blind.last) || null;
-    const blindBox = b
-      ? `<div style="font-size:22px;font-weight:700;color:${b.nano_win_rate >= 50 ? '#4ade80' : '#fbbf24'}">${b.nano_win_rate}%</div>
-         <div style="font-size:11px;color:#79798a">venceu ${b.wins.nano}/${b.n} vs Qwen · ${escHtml(b.quando || '')}</div>`
-      : '<div style="font-size:11.5px;color:#6a6a76">ainda não medido — clique em “Medir vs Qwen”</div>';
+    const blindVal = b
+      ? `<span style="color:${b.nano_win_rate >= 50 ? '#4ade80' : '#fbbf24'}">${b.nano_win_rate}%</span> · ${b.wins.nano}/${b.n}`
+      : '<span style="color:#6a6a76">ainda não medido</span>';
 
     return `
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
-        <div style="flex:1;min-width:180px">
-          <div style="font-size:40px;font-weight:800;line-height:1;color:${pctColor}">${ov.pct}%</div>
-          <div style="font-size:11.5px;color:#79798a;margin-top:4px">do dia servido pelo cérebro próprio<br>(${ov.nano} de ${ov.total} tarefas estreitas)</div>
-        </div>
-        <div style="display:flex;gap:8px">
-          <button class="brain-act" onclick="trainFromBrain()" title="Destila suas conversas e treina o Nano (promove só se melhorar)">🌀 Treinar agora</button>
-          <button class="brain-act" onclick="measureBlind()" title="Compara o Nano contra o Qwen às cegas">⚖️ Medir vs Qwen</button>
-        </div>
+      ${card(`<span style="color:${pctColor}">☀️ Soberania do raciocínio</span>`,
+        line('Servido pelo cérebro próprio', `<b style="color:${pctColor}">${ov.pct}%</b>`) +
+        line('Tarefas (Nano / total)', `${ov.nano} / ${ov.total}`))}
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button class="brain-act" onclick="trainFromBrain()" title="Destila suas conversas e treina o Nano (promove só se melhorar)">🌀 Treinar agora</button>
+        <button class="brain-act" onclick="measureBlind()" title="Compara o Nano contra o Qwen às cegas">⚖️ Medir vs Qwen</button>
       </div>
       <div id="brain-action-msg"></div>
-      <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin:6px 0 4px">Cobertura por tarefa</div>
-      ${taskRows || '<div style="color:#6a6a76;font-size:11.5px">nenhuma tarefa registrada ainda</div>'}
-      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:16px">
-        <div style="flex:1;min-width:150px;background:#0d0d12;border:1px solid #1c1c24;border-radius:10px;padding:12px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Modelo</div>
-          <div style="font-size:12px;color:#c9c9d4">${escHtml(nanoLine)}</div>
-        </div>
-        <div style="flex:1;min-width:150px;background:#0d0d12;border:1px solid #1c1c24;border-radius:10px;padding:12px">
-          <div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Nano vs Qwen (às cegas)</div>
-          ${blindBox}
-        </div>
-      </div>
+      ${card('Cobertura por tarefa', covRows)}
+      ${card('Modelo próprio', line('Apolo-Nano', escHtml(nanoVal)))}
+      ${card('Nano vs Qwen (às cegas)', line('Vitórias do cérebro próprio', blindVal) +
+        (b && b.quando ? line('Medido em', escHtml(b.quando)) : ''))}
       ${renderFlywheelLog((log && log.rounds) || [])}`;
   }
 
