@@ -8,11 +8,14 @@ import numpy as np
 import pytest
 
 from src.nanollm.distill import (
+    _parse_qa,
     distill_answers,
     distill_titles,
     generate_distill_pairs,
     make_llm_teacher,
     run_distillation,
+    run_knowledge_distillation,
+    source_knowledge_grounded_pairs,
     source_title_inputs,
     write_distill_dataset,
 )
@@ -105,12 +108,16 @@ def test_write_sem_pares_falha(tokenizer, tmp_path):
 # ── M25.2: professor real + sourcing do banco (ainda determinístico) ──
 
 class _FakeDB:
-    """Banco falso: só o que o sourcing usa (first_user_messages)."""
-    def __init__(self, msgs):
+    """Banco falso: o que o sourcing usa (first_user_messages + histórico)."""
+    def __init__(self, msgs, summaries=None):
         self._msgs = msgs
+        self._summaries = summaries or []
 
     def first_user_messages(self, limit=300, min_len=8):
         return [m for m in self._msgs if len(m.strip()) >= min_len][:limit]
+
+    def get_learning_history(self, limit=30):
+        return [{"topic": f"t{i}", "summary": s} for i, s in enumerate(self._summaries)][:limit]
 
 
 class _FakeProvider:
@@ -169,3 +176,49 @@ def test_distill_answers_aceita_curta_e_rejeita_lixo():
     bad = distill_answers(["Como faço um loop?"],
                           lambda p: "```python\n" + ("x = 1\n" * 10) + "```")
     assert bad == []
+
+
+# ── M28: Q&A ancorado no banco de conhecimento dos 7 agentes ──
+def test_parse_qa_extrai_pergunta_e_resposta():
+    q, a = _parse_qa("P: O que é RAG?\nR: Recuperação aumentada por geração.")
+    assert q == "O que é RAG?" and a == "Recuperação aumentada por geração."
+    q2, a2 = _parse_qa("Pergunta: X?\nResposta: Y.")   # forma por extenso
+    assert q2 == "X?" and a2 == "Y."
+    assert _parse_qa("sem formato") == (None, None)
+
+
+def test_source_knowledge_grounded_pairs():
+    db = _FakeDB([], summaries=[
+        "Kubernetes orquestra contêineres, escalando e reiniciando serviços automaticamente em um cluster.",
+        "curto",   # < 40 chars → ignorado (não ancora)
+    ])
+    # professor ancorado devolve P:/R: a partir da síntese
+    def teacher(prompt):
+        return "P: O que o Kubernetes faz?\nR: Orquestra contêineres num cluster."
+    pairs = source_knowledge_grounded_pairs(db, teacher)
+    assert len(pairs) == 1
+    assert pairs[0][0].startswith("O que o Kubernetes")
+
+
+def test_run_knowledge_distillation(tokenizer, tmp_path):
+    db = _FakeDB([], summaries=[
+        "FastAPI é um framework web assíncrono em Python, rápido e com tipagem.",
+        "Postgres é um banco relacional robusto com suporte a JSON e transações ACID.",
+        "Redis é um armazenamento em memória usado como cache e fila de mensagens.",
+    ])
+    n = [0]
+
+    def teacher(prompt):
+        n[0] += 1                                  # perguntas distintas por síntese
+        return f"P: Para que serve a tecnologia {n[0]}?\nR: Serve para construir sistemas."
+    meta = run_knowledge_distillation(db, tokenizer, tmp_path / "kd",
+                                      teacher_fn=teacher, val_fraction=0.34)
+    assert meta["task"] == "answer_distill_grounded" and meta["pairs"] == 3
+    assert "knowledge grounded" in meta["source"]
+    assert (tmp_path / "kd" / "pairs.jsonl").exists()
+
+
+def test_run_knowledge_distillation_sem_sinteses_falha(tokenizer, tmp_path):
+    with pytest.raises(ValueError):
+        run_knowledge_distillation(_FakeDB([], summaries=[]), tokenizer, tmp_path / "x",
+                                   teacher_fn=lambda p: "P: a?\nR: b.")

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Callable
 
@@ -175,6 +176,92 @@ def distill_answers(
     )
 
 
+# ── M28: Q&A ANCORADO no banco de conhecimento dos 7 agentes ──
+# Fonte SEPARADA do flywheel de título (que vive na distribuição de conversa).
+# Aqui o conhecimento que os agentes sintetizaram vira combustível do Nano-de-
+# diálogo — o Qwen transforma cada síntese num par pergunta→resposta ancorado.
+# NÃO se mistura com título: título ficaria com distribuição errada (lição do
+# M14.2). São dois datasets/tarefas distintos, de propósito.
+GROUND_QA_PROMPT = (
+    "Com base APENAS no resumo abaixo, escreva UMA pergunta curta e natural que "
+    "ele responda, e a resposta (1 a 2 frases, factual, em português). Use "
+    "EXATAMENTE este formato:\nP: <pergunta>\nR: <resposta>\n\nResumo:\n{input}"
+)
+
+_QA_Q = re.compile(r"^\s*(?:P|Pergunta)\s*[:\-]\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+_QA_A = re.compile(r"^\s*(?:R|Resposta)\s*[:\-]\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+
+
+def _parse_qa(text: str) -> tuple[str | None, str | None]:
+    """Extrai (pergunta, resposta) do formato P:/R: devolvido pelo professor."""
+    q = _QA_Q.search(text or "")
+    a = _QA_A.search(text or "")
+    return (q.group(1).strip() if q else None,
+            a.group(1).strip() if a else None)
+
+
+def source_knowledge_grounded_pairs(
+    db,
+    teacher_fn: Callable[[str], str],
+    *,
+    limit: int = 200,
+    max_pairs: int | None = None,
+) -> list[tuple[str, str]]:
+    """Puxa as sínteses dos 7 agentes e o professor as vira pares pergunta→
+    resposta ANCORADOS. Isolado do título — combustível do chat próprio (M28)."""
+    history = db.get_learning_history(limit=limit)
+    pairs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for item in history:
+        summ = (item.get("summary") or "").strip()
+        if len(summ) < 40:                       # síntese curta demais não ancora
+            continue
+        try:
+            raw = teacher_fn(GROUND_QA_PROMPT.format(input=summ[:1200]))
+        except Exception as e:
+            logger.debug(f"[distill] professor falhou numa síntese: {e}")
+            continue
+        q, a = _parse_qa(raw or "")
+        if not q or not a:
+            continue
+        q = q.strip(' \t"\'`')
+        a = a.strip(' \t"\'`')
+        key = q[:80].lower()
+        if key in seen or len(q) < 6 or not _valid_answer(a):
+            continue
+        seen.add(key)
+        pairs.append((q, a))
+        if max_pairs and len(pairs) >= max_pairs:
+            break
+    return pairs
+
+
+def run_knowledge_distillation(
+    db,
+    tokenizer_path: str | Path,
+    out_dir: str | Path,
+    *,
+    teacher_fn: Callable[[str], str] | None = None,
+    limit: int = 200,
+    max_pairs: int | None = None,
+    val_fraction: float = 0.1,
+) -> dict:
+    """Destila o banco de conhecimento em Q&A ancorado (M28), ponta a ponta.
+    Dataset SEPARADO (task `answer_distill_grounded`), no formato do fine-tune."""
+    teacher = teacher_fn or make_llm_teacher()
+    pairs = source_knowledge_grounded_pairs(db, teacher, limit=limit, max_pairs=max_pairs)
+    if not pairs:
+        raise ValueError("sem sínteses aproveitáveis no banco de conhecimento — "
+                         "deixe os 7 agentes estudarem primeiro")
+    meta = write_distill_dataset(pairs, tokenizer_path, out_dir,
+                                 template=ANSWER_TEMPLATE, task="answer_distill_grounded",
+                                 val_fraction=val_fraction)
+    meta["source"] = "knowledge grounded (7 agentes → Qwen Q&A)"
+    (Path(out_dir) / "meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    return meta
+
+
 def write_distill_dataset(
     pairs: list[tuple[str, str]],
     tokenizer_path: str | Path,
@@ -246,20 +333,30 @@ def main(argv: list[str] | None = None) -> int:
     sensatos. É o comando que o Leo roda para gerar o dataset destilado."""
     import argparse
 
-    p = argparse.ArgumentParser(description="Destila pergunta→título do Qwen para o Apolo-Nano")
+    p = argparse.ArgumentParser(description="Destila conhecimento do Qwen para o Apolo-Nano")
     p.add_argument("--tokenizer", required=True, help="caminho do tokenizer do checkpoint")
-    p.add_argument("--out", default="data/nano/distill_titles", help="pasta de saída do dataset")
-    p.add_argument("--limit", type=int, default=300, help="máx. de entradas do banco")
+    p.add_argument("--out", default="", help="pasta de saída (padrão por fonte)")
+    p.add_argument("--source", choices=("conversations", "knowledge"), default="conversations",
+                   help="conversations → pergunta→título (distribuição de conversa); "
+                        "knowledge → Q&A ancorado nas sínteses dos 7 agentes (M28, isolado)")
+    p.add_argument("--limit", type=int, default=300, help="máx. de itens do banco")
     p.add_argument("--max-pairs", type=int, default=None, help="teto de pares (custo do professor)")
     args = p.parse_args(argv)
 
     from src.storage import DatabaseManager
 
     db = DatabaseManager()
-    meta = run_distillation(db, args.tokenizer, args.out,
-                            limit=args.limit, max_pairs=args.max_pairs)
-    print(f"✓ destilados {meta['pairs']} pares de {meta['inputs_seen']} entradas → {args.out}")
-    print(f"  treine com:  python -m src.nanollm.train --data {args.out} --init-from <checkpoint>")
+    if args.source == "knowledge":
+        out = args.out or "data/nano/distill_answers"
+        meta = run_knowledge_distillation(db, args.tokenizer, out,
+                                          limit=args.limit, max_pairs=args.max_pairs)
+        print(f"✓ destilados {meta['pairs']} pares Q&A ancorados → {out}")
+    else:
+        out = args.out or "data/nano/distill_titles"
+        meta = run_distillation(db, args.tokenizer, out,
+                                limit=args.limit, max_pairs=args.max_pairs)
+        print(f"✓ destilados {meta['pairs']} pares de {meta['inputs_seen']} entradas → {out}")
+    print(f"  treine com:  python -m src.nanollm.train --data {out} --init-from <checkpoint>")
     return 0
 
 
