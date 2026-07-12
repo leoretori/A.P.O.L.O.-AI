@@ -3230,11 +3230,14 @@
     } catch(e) {
       wrap.querySelector('.content').innerHTML =
         `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+    } finally {
+      // SEMPRE libera o envio — se este reset não rodasse (ex.: erro ao pintar a
+      // falha), `busy` ficava travado em true e NENHUMA mensagem seguinte era
+      // enviada (Enter cai no guard, clique vira "parar"). Agora é à prova.
+      busy = false;
+      document.getElementById('send-btn').disabled = false;
+      input.focus();
     }
-
-    busy = false;
-    document.getElementById('send-btn').disabled = false;
-    input.focus();
   }
 
   // ── Modo Agente (ReAct-lite: escreve código → executa → responde) ──
