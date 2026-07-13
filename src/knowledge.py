@@ -107,6 +107,14 @@ class SupabaseKnowledge:
         category: str = "web",
         tags: list[str] | None = None,
     ) -> None:
+        # Higiene de ingestão: não deixa lixo/spam/injeção virar conhecimento (que
+        # depois voltaria como fonte e entraria no prompt do chat). Ver content_hygiene.
+        from src.content_hygiene import is_ingestible
+        ok, motivo = is_ingestible(title, content)
+        if not ok:
+            self.rejected = getattr(self, "rejected", 0) + 1
+            logger.info(f"Knowledge REJEITADO ({motivo}): {title[:60]}")
+            return
         payload = {
             "title": title[:200],
             "url": url,

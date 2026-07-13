@@ -135,7 +135,8 @@ def test_save_retenta_e_persiste_apos_falha_transitoria():
             return type("R", (), {"data": [{}]})()
 
     kb.client = type("C", (), {"table": lambda self, n: _Q()})()
-    kb.save("Título", "https://x/y", "conteúdo")
+    # Conteúdo ingerível de verdade (o gate de higiene barra placeholder trivial).
+    kb.save("Título", "https://x/y", "conteúdo substancial de artigo " * 5)
     assert kb.saved_ok == 1          # persistiu apesar da 1ª falha
     assert state["calls"] == 2       # retentou
     assert kb._insights.get() is None  # invalidou o cache da Mente
@@ -152,5 +153,5 @@ def test_save_falha_total_nao_quebra_e_conta_erro():
             raise ConnectionError("fora do ar")
 
     kb.client = type("C", (), {"table": lambda self, n: _Q()})()
-    kb.save("T", "https://x/z", "c")  # não deve levantar
+    kb.save("T", "https://x/z", "conteúdo substancial de artigo " * 5)  # não deve levantar
     assert kb.save_errors == 1

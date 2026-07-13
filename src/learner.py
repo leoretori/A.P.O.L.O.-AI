@@ -936,6 +936,14 @@ class LearningEngine:
     # ── Persistência ──────────────────────────────────────────
 
     async def _persist(self, item: LearnedItem) -> None:
+        # Higiene de ingestão: não persiste lixo/injeção em NENHUM dos três destinos
+        # (relacional, base FTS, memória semântica). Um item ruim aqui volta como
+        # "📚 memória" na recall e entra no prompt do chat. Ver src/content_hygiene.
+        from src.content_hygiene import is_ingestible
+        _ok, _motivo = is_ingestible(item.topic, item.summary or "")
+        if not _ok:
+            logger.info(f"[learner] ingestão rejeitada ({_motivo}): {item.topic[:60]}")
+            return
         tasks = []
         if self.db:
             tasks.append(asyncio.to_thread(
