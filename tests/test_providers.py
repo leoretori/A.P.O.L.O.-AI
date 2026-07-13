@@ -63,6 +63,37 @@ def test_resolve_path_sem_mapa_devolve_o_nome(monkeypatch):
     assert p._resolve_path("models/avulso.gguf") == "models/avulso.gguf"
 
 
+def test_llamacpp_serializa_geracoes_no_mesmo_modelo(monkeypatch):
+    # Duas gerações simultâneas no MESMO modelo llama.cpp corrompem o buffer e
+    # estouram GGML_ASSERT (repack.cpp) → crash. O lock por instância serializa.
+    import threading
+    import time
+    monkeypatch.setenv("LLAMACPP_MODELS", "m=x.gguf")
+    p = LlamaCppProvider()
+    overlaps, active, guard = [], {"n": 0}, threading.Lock()
+
+    class _FakeLlama:
+        def create_chat_completion(self, messages, stream=False, **kw):
+            with guard:
+                active["n"] += 1
+                if active["n"] > 1:
+                    overlaps.append(True)          # duas gerações ao mesmo tempo!
+            time.sleep(0.03)
+            with guard:
+                active["n"] -= 1
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    p._loaded["x.gguf"] = _FakeLlama()             # injeta já "carregado"
+    p._locks["x.gguf"] = threading.Lock()
+    ts = [threading.Thread(target=lambda: p.complete("m", [{"role": "user", "content": "oi"}]))
+          for _ in range(5)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert overlaps == []                          # nenhuma sobreposição = serializado
+
+
 def test_opts_traduz_num_predict_para_max_tokens():
     opts = LlamaCppProvider._opts({"num_predict": 32, "temperature": 0.2, "top_p": 0.9})
     assert opts == {"max_tokens": 32, "temperature": 0.2, "top_p": 0.9}

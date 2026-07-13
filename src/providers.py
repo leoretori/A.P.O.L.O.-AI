@@ -23,6 +23,7 @@ Interface do provedor:
 
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,12 @@ class LlamaCppProvider:
         self._threads = int(os.getenv("LLAMACPP_THREADS", "0")) or None
         self._gpu_layers = int(os.getenv("LLAMACPP_GPU_LAYERS", "0"))
         self._loaded: dict[str, object] = {}
+        # Um lock POR instância: o llama.cpp NÃO é thread-safe num mesmo contexto —
+        # duas gerações simultâneas no mesmo modelo (ex.: o chat e o summarizer do
+        # learner, ambos no 1.5B) corrompem o buffer de trabalho e estouram um
+        # GGML_ASSERT (repack.cpp) que derruba o processo. O lock serializa por modelo.
+        self._locks: dict[str, threading.Lock] = {}
+        self._load_lock = threading.Lock()
         if not self._models:
             logger.warning("LLAMACPP_MODELS vazio — configure 'nome=caminho.gguf;…'")
 
@@ -113,19 +120,24 @@ class LlamaCppProvider:
         return model  # sem mapa: deixa o llama.cpp validar (erro claro se não existir)
 
     def _get(self, model: str):
+        """Devolve (llm, lock) do modelo. Carga protegida por _load_lock (evita
+        carregar o mesmo GGUF duas vezes numa corrida de warmup+1ª requisição)."""
         path = self._resolve_path(model)
         if path not in self._loaded:
-            from llama_cpp import Llama  # import preguiçoso: só exige a lib se este backend for usado
-            if not os.path.exists(path):
-                raise FileNotFoundError(
-                    f"GGUF não encontrado: {path}. Baixe um modelo (Hugging Face) e "
-                    f"aponte LLAMACPP_MODELS para ele.")
-            logger.info(f"[llamacpp] carregando {path} (ctx={self._ctx}, gpu_layers={self._gpu_layers})…")
-            self._loaded[path] = Llama(
-                model_path=path, n_ctx=self._ctx, n_threads=self._threads,
-                n_gpu_layers=self._gpu_layers, verbose=False,
-            )
-        return self._loaded[path]
+            with self._load_lock:
+                if path not in self._loaded:            # dupla checagem sob o lock
+                    from llama_cpp import Llama  # import preguiçoso
+                    if not os.path.exists(path):
+                        raise FileNotFoundError(
+                            f"GGUF não encontrado: {path}. Baixe um modelo (Hugging Face) e "
+                            f"aponte LLAMACPP_MODELS para ele.")
+                    logger.info(f"[llamacpp] carregando {path} (ctx={self._ctx}, gpu_layers={self._gpu_layers})…")
+                    self._locks[path] = threading.Lock()
+                    self._loaded[path] = Llama(
+                        model_path=path, n_ctx=self._ctx, n_threads=self._threads,
+                        n_gpu_layers=self._gpu_layers, verbose=False,
+                    )
+        return self._loaded[path], self._locks[path]
 
     @staticmethod
     def _opts(options):
@@ -140,17 +152,21 @@ class LlamaCppProvider:
         return out
 
     def complete(self, model, messages, options=None, keep_alive=None) -> str:
-        llm = self._get(model)
-        resp = llm.create_chat_completion(messages=messages, stream=False, **self._opts(options))
+        llm, lock = self._get(model)
+        with lock:   # serializa: uma geração por vez neste modelo (thread-safety)
+            resp = llm.create_chat_completion(messages=messages, stream=False, **self._opts(options))
         return resp["choices"][0]["message"]["content"]
 
     def stream(self, model, messages, options=None, keep_alive=None):
-        llm = self._get(model)
-        for chunk in llm.create_chat_completion(messages=messages, stream=True, **self._opts(options)):
-            delta = chunk["choices"][0].get("delta", {})
-            piece = delta.get("content")
-            if piece:
-                yield piece
+        llm, lock = self._get(model)
+        # Segura o lock durante TODA a geração em streaming — só um gerador ativo
+        # por modelo (evita o crash de acesso concorrente ao mesmo contexto).
+        with lock:
+            for chunk in llm.create_chat_completion(messages=messages, stream=True, **self._opts(options)):
+                delta = chunk["choices"][0].get("delta", {})
+                piece = delta.get("content")
+                if piece:
+                    yield piece
 
     def list_models(self) -> list[str]:
         return sorted(self._models.keys())
