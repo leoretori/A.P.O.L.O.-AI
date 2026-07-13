@@ -400,7 +400,25 @@ async def _scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, project_mem, lesson_mem, CHAT_MODEL, VISION_MODEL
+    global db, rag, executor, learner, researcher, reviewer, ingestor, curator, profile, gpu_gate, coder_ws, project_mem, lesson_mem, CHAT_MODEL, VISION_MODEL, MODEL
+
+    # Motor próprio (llama.cpp): divide os GGUFs de LLAMACPP_MODELS em papéis —
+    # chat do dia a dia no MENOR (rápido na CPU), 'Inteligente'/pesado no MAIOR.
+    # Resolvido ANTES do rt.init (que fixa rt.model). Sem isto o chat caía no
+    # modelo grande e cada resposta demorava. Overrides: LLAMACPP_CHAT_MODEL /
+    # LLAMACPP_HEAVY_MODEL. Com 1 só modelo, nada muda.
+    _llc_roles = False
+    if os.getenv("LLM_BACKEND", "ollama").strip().lower() == "llamacpp":
+        from src.model_select import pick_llamacpp_roles
+        from src.providers import LlamaCppProvider
+        _mm = LlamaCppProvider._parse_model_map(os.getenv("LLAMACPP_MODELS", ""))
+        _chat, _heavy = pick_llamacpp_roles(
+            _mm, os.getenv("LLAMACPP_CHAT_MODEL", "").strip(),
+            os.getenv("LLAMACPP_HEAVY_MODEL", "").strip())
+        if _chat and _heavy and _chat != _heavy:
+            MODEL, CHAT_MODEL, _llc_roles = _heavy, _chat, True
+            logger.info(f"[llamacpp] chat leve: {_chat} · pesado (Inteligente): {_heavy}")
+
     db = DatabaseManager(os.getenv("DATABASE_URL", "sqlite:///data/apolo.db"))
     rag = RAGManager(
         chroma_path=os.getenv("CHROMA_PATH", "./data/chroma_db"),
@@ -455,8 +473,10 @@ async def lifespan(app: FastAPI):
             logger.info(f"Sessões fantasmas removidas: {orphans}")
     except Exception as e:
         logger.debug(f"cleanup_orphan_meta: {e}")
-    # Resolve o modelo leve do chat (rápido na CPU); 14b fica para tarefas pesadas.
-    CHAT_MODEL = _pick_chat_model()
+    # Resolve o modelo leve do chat (rápido na CPU); o maior fica p/ tarefas pesadas.
+    # No motor próprio os papéis já vieram de LLAMACPP_MODELS (acima) — não sobrescreve.
+    if not _llc_roles:
+        CHAT_MODEL = _pick_chat_model()
     VISION_MODEL = _pick_vision_model()
     # Sumarização do aprendizado no modelo LEVE por padrão: com o 14b na CPU cada
     # síntese estourava o timeout de 120s (TODO item era salvo como conteúdo cru,

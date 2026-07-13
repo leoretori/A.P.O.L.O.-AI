@@ -98,12 +98,19 @@ class LlamaCppProvider:
         return out
 
     def _resolve_path(self, model: str) -> str:
-        # 1) mapa explícito; 2) o único modelo configurado; 3) o próprio nome como caminho.
+        # 1) mapa explícito; 2) fallback TOLERANTE: nome desconhecido cai no PRIMEIRO
+        #    modelo configurado (avisa quando há mais de um). Assim um nome legado —
+        #    ex.: 'qwen2.5-coder:14b' herdado do Ollama — NÃO quebra o estudo/summarizer
+        #    (era isto que derrubava o pipeline: GGUF não encontrado → circuito abria).
         if model in self._models:
             return self._models[model]
-        if len(self._models) == 1:
+        if self._models:
+            if len(self._models) > 1:
+                logger.warning(
+                    f"[llamacpp] modelo '{model}' fora de LLAMACPP_MODELS — usando o "
+                    f"primeiro configurado. Ajuste LLAMACPP_CHAT_MODEL/HEAVY_MODEL se não for o desejado.")
             return next(iter(self._models.values()))
-        return model  # deixa o llama.cpp validar; erro claro se não existir
+        return model  # sem mapa: deixa o llama.cpp validar (erro claro se não existir)
 
     def _get(self, model: str):
         path = self._resolve_path(model)

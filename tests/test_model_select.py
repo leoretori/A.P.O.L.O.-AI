@@ -1,10 +1,44 @@
 """Testes da seleção de modelos (lógica pura extraída de app.py)."""
 
-from src.model_select import pick_chat_model, pick_vision_model
+from src.model_select import (
+    _model_size,
+    pick_chat_model,
+    pick_llamacpp_roles,
+    pick_vision_model,
+)
 
 
 LIGHT_PREF = ["qwen2.5-coder:3b", "llama3.2:3b", "phi3:mini"]
 MAIN = "qwen2.5-coder:14b"
+
+
+# ── pick_llamacpp_roles (velocidade do chat: leve p/ chat, pesado p/ Inteligente) ──
+def test_model_size_extrai_bilhoes():
+    assert _model_size("Qwen2.5-1.5B-Instruct-Q4_K_M.gguf") == 1.5
+    assert _model_size("qwen-7b") == 7.0
+    assert _model_size("sem-tamanho") == 0.0
+
+
+def test_roles_menor_vira_chat_maior_vira_pesado():
+    m = {"qwen-7b": "models/Qwen2.5-7B.gguf", "qwen-1.5b": "models/Qwen2.5-1.5B.gguf"}
+    chat, heavy = pick_llamacpp_roles(m)
+    assert chat == "qwen-1.5b" and heavy == "qwen-7b"
+
+
+def test_roles_um_modelo_so_nao_divide():
+    m = {"apolo": "models/Qwen2.5-7B.gguf"}
+    assert pick_llamacpp_roles(m) == ("apolo", "apolo")
+
+
+def test_roles_override_por_env():
+    m = {"a": "x-3b.gguf", "b": "y-7b.gguf", "c": "z-1.5b.gguf"}
+    assert pick_llamacpp_roles(m, env_chat="b", env_heavy="a") == ("b", "a")
+    # env inexistente cai no automático (menor/maior)
+    assert pick_llamacpp_roles(m, env_chat="zzz") == ("c", "b")
+
+
+def test_roles_vazio():
+    assert pick_llamacpp_roles({}) == ("", "")
 
 
 # ── pick_chat_model ──────────────────────────────────────────────

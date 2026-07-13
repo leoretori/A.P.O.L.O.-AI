@@ -49,8 +49,16 @@ def test_resolve_path_unico_modelo_ignora_nome(monkeypatch):
     assert p._resolve_path("qualquer-coisa") == "models/unico.gguf"
 
 
-def test_resolve_path_fallback_para_o_proprio_nome(monkeypatch):
+def test_resolve_path_nome_desconhecido_cai_no_primeiro(monkeypatch):
+    # Vários modelos + nome fora do mapa (ex.: 'qwen2.5-coder:14b' legado do Ollama)
+    # → cai no PRIMEIRO configurado em vez de quebrar. Era o bug que pausava o estudo.
     monkeypatch.setenv("LLAMACPP_MODELS", "a=x.gguf;b=y.gguf")
+    p = LlamaCppProvider()
+    assert p._resolve_path("qwen2.5-coder:14b") == "x.gguf"
+
+
+def test_resolve_path_sem_mapa_devolve_o_nome(monkeypatch):
+    monkeypatch.setenv("LLAMACPP_MODELS", "")
     p = LlamaCppProvider()
     assert p._resolve_path("models/avulso.gguf") == "models/avulso.gguf"
 
