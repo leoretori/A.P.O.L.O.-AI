@@ -52,8 +52,17 @@ MEMORY_TOP = int(os.getenv("MEMORY_TOP", 3))
 MEMORY_MIN_RELEVANCE = float(os.getenv("MEMORY_MIN_RELEVANCE", 0.18))
 MEMORY_SNIPPET = int(os.getenv("MEMORY_SNIPPET", 400))
 AUTO_WEB_ON_GAP = os.getenv("AUTO_WEB_ON_GAP", "1") not in ("0", "false", "False")
-# Contexto rico: nº de memórias relevantes que já justifica subir para o 14b.
+# Contexto rico: nº de memórias relevantes que já justifica subir para o pesado.
 MEMORY_RICH_14B = int(os.getenv("MEMORY_RICH_14B", 2))
+# ...MAS por padrão, contexto rico NÃO escala sozinho para o modelo pesado — em
+# CPU isso jogava quase toda pergunta com memória no modelo lento. Só complexidade
+# real (is_complex) ou o modo Inteligente sobem. RICH_CONTEXT_SMART=1 reativa.
+RICH_CONTEXT_SMART = os.getenv("RICH_CONTEXT_SMART", "0") not in ("0", "false", "False", "")
+# Caminho LEVE (chat do dia a dia): contexto enxuto = prefill menor = 1ª palavra
+# mais rápida na CPU. O modo Inteligente/pesado mantém o contexto cheio.
+MAX_HISTORY_LEAN = int(os.getenv("MAX_HISTORY_LEAN", 6))
+MEMORY_SNIPPET_LEAN = int(os.getenv("MEMORY_SNIPPET_LEAN", 240))
+KNOWLEDGE_LEAN = int(os.getenv("KNOWLEDGE_LEAN", 800))
 # Self-eval no chat (só no 14b, respostas longas de texto). CHAT_SELF_EVAL=0 desativa.
 CHAT_SELF_EVAL = os.getenv("CHAT_SELF_EVAL", "1") not in ("0", "false", "False")
 # Mensagens curtas (sim/ok/continue): fast path sem recall/FTS.
@@ -318,6 +327,24 @@ async def chat(req: cc.ChatRequest):
                 except Exception as _we:
                     logger.debug(f"auto-web on gap: {_we}")
 
+        # ── Decide o modelo ANTES de montar o prompt ────────────────
+        # Assim dá para ENXUGAR o contexto no caminho leve (menos histórico e
+        # trechos = prefill menor = 1ª palavra mais rápida na CPU). Contexto rico
+        # NÃO escala sozinho (RICH_CONTEXT_SMART): só complexidade real / Inteligente.
+        has_image = bool(req.image)
+        heavy_model = rt.model
+        chat_model = rt.get_chat_model()
+        rich_context = RICH_CONTEXT_SMART and len(memories) >= MEMORY_RICH_14B
+        auto_smart = AUTO_SMART and not req.smart and not has_image and (
+            is_complex(request) or rich_context
+        )
+        smart = (req.smart or auto_smart) and heavy_model != chat_model
+        lean = not smart and not has_image          # caminho leve → contexto enxuto
+        snippet_cap = MEMORY_SNIPPET_LEAN if lean else MEMORY_SNIPPET
+        history_cap = MAX_HISTORY_LEAN if lean else MAX_HISTORY
+        if lean and knowledge_context:
+            knowledge_context = knowledge_context[:KNOWLEDGE_LEAN]
+
         # Monta a seção de memória numerada (para o modelo citar [n]) + fontes p/ o front.
         memory_block = ""
         memory_sources: list[dict] = []
@@ -325,7 +352,7 @@ async def chat(req: cc.ChatRequest):
             blocks = []
             for i, m in enumerate(memories, 1):
                 title = m.get("title") or "memória"
-                snippet = (m.get("snippet") or "")[:MEMORY_SNIPPET]
+                snippet = (m.get("snippet") or "")[:snippet_cap]
                 src = m.get("source") or ""
                 blocks.append(f"[{i}] {title}\n{snippet}" + (f"\n(fonte: {src})" if src else ""))
                 memory_sources.append({"n": i, "title": title, "url": src, "type": "knowledge"})
@@ -367,12 +394,11 @@ async def chat(req: cc.ChatRequest):
             system_content += CONVERSATION_SUMMARY_SECTION.format(summary=summ["text"])
 
         messages = [{"role": "system", "content": system_content}]
-        messages.extend(history[-MAX_HISTORY:])
+        messages.extend(history[-history_cap:])
         user_msg = {"role": "user", "content": user_content}
 
         # ── Visão: se há imagem, anexa-a e usa um modelo de visão local ──
         vision_model = rt.get_vision_model()
-        has_image = bool(req.image)
         if has_image and not vision_model:
             yield f"data: {json.dumps({'type': 'error', 'message': 'Para eu analisar imagens, baixe um modelo de visão: ollama pull llava'})}\n\n"
             return
@@ -380,14 +406,8 @@ async def chat(req: cc.ChatRequest):
             user_msg["images"] = [req.image]
         messages.append(user_msg)
 
-        # Seleção de modelo: visão > inteligente (14b) > leve (chat do dia a dia).
-        heavy_model = rt.model
-        chat_model = rt.get_chat_model()
-        rich_context = len(memories) >= MEMORY_RICH_14B
-        auto_smart = AUTO_SMART and not req.smart and not has_image and (
-            is_complex(request) or rich_context
-        )
-        smart = (req.smart or auto_smart) and heavy_model != chat_model
+        # Seleção de modelo: visão > inteligente (pesado) > leve (chat do dia a dia).
+        # A decisão (smart/rich_context) já foi tomada acima, antes de montar o prompt.
         if has_image:
             active_model, keep = vision_model, KEEP_ALIVE_HEAVY
             yield f"data: {json.dumps({'type': 'status', 'message': f'👁️ Analisando a imagem com {vision_model}...'})}\n\n"
