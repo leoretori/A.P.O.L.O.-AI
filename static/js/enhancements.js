@@ -537,10 +537,44 @@ window.addEventListener('appinstalled', () => {
   _deferredInstall = null;
 });
 
-// ── PWA: Detecção de offline ──────────────────────────────────────────────────
-function _updateOnline() {
-  document.getElementById('offline-bar').classList.toggle('show', !navigator.onLine);
+// ── PWA: Detecção de offline (rede do browser E servidor local) ───────────────
+// navigator.onLine só sabe da INTERNET. Mas o problema comum aqui é o SERVIDOR
+// local cair (ex.: o processo do app foi fechado) — a internet segue de pé e a
+// barra nunca aparecia; o chat só dava um "network error" críptico. Agora, quando
+// uma chamada à nossa API falha, marcamos "servidor offline", mostramos a barra e
+// ficamos pingando /api/health até voltar — aí escondemos e recarregamos.
+let _serverDown = false;
+let _serverPoll = null;
+
+function _refreshOfflineBar() {
+  const bar = document.getElementById('offline-bar');
+  if (!bar) return;
+  const down = !navigator.onLine || _serverDown;
+  bar.textContent = !navigator.onLine
+    ? '⚡ Sem conexão de rede — respostas indisponíveis até reconectar'
+    : '⚡ Servidor offline — reinicie o app (ou aguarde) para reconectar';
+  bar.classList.toggle('show', down);
 }
+
+function markServerDown() {
+  if (_serverDown) return;
+  _serverDown = true;
+  _refreshOfflineBar();
+  if (_serverPoll) return;
+  _serverPoll = setInterval(async () => {
+    try {
+      const r = await fetch('/api/health', {cache: 'no-store'});
+      if (r.ok) {                    // servidor voltou
+        clearInterval(_serverPoll); _serverPoll = null;
+        _serverDown = false; _refreshOfflineBar();
+        setTimeout(() => location.reload(), 600);
+      }
+    } catch { /* ainda fora — segue pingando */ }
+  }, 3000);
+}
+window.markServerDown = markServerDown;
+
+function _updateOnline() { _refreshOfflineBar(); }
 window.addEventListener('online', _updateOnline);
 window.addEventListener('offline', _updateOnline);
 _updateOnline();

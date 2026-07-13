@@ -57,24 +57,33 @@ def main() -> int:
             print("O servidor não subiu a tempo. Veja o log e tente de novo.")
             return 1
 
-    # 2) Abre a JANELA NATIVA (sem navegador). Fallback: navegador padrão.
+    # 2) Abre a JANELA NATIVA (sem navegador). Fallback robusto: navegador padrão
+    #    + servidor mantido vivo. Qualquer falha do webview (lib ausente OU
+    #    WebView2 quebrado) NÃO derruba o servidor — cai no navegador.
     try:
         import webview
+        webview.create_window("A.P.O.L.O.", URL, width=1280, height=860,
+                              min_size=(900, 600))
+        print("Janela do A.P.O.L.O. aberta. Fechá-la encerra o app.")
+        webview.start()                 # bloqueia até fechar a janela
+        return 0
     except ImportError:
-        import webbrowser
         print("Janela nativa indisponível — 'pywebview' não está instalado.")
         print("Para abrir SEM navegador:  pip install pywebview")
-        print(f"Abrindo no navegador padrão: {URL}")
-        webbrowser.open(URL)
-        try:
-            while True:                 # mantém o servidor vivo enquanto usa
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            return 0
+    except Exception as e:
+        print(f"Não consegui abrir a janela nativa ({e}). Usando o navegador.")
 
-    webview.create_window("A.P.O.L.O.", URL, width=1280, height=860,
-                          min_size=(900, 600))
-    webview.start()                     # bloqueia até fechar a janela
+    # Fallback: abre no navegador padrão e MANTÉM o servidor no ar até você fechar
+    # este terminal (Ctrl+C). Fechar o terminal encerra o A.P.O.L.O.
+    import webbrowser
+    print(f"Abrindo no navegador: {URL}")
+    print("⚠️  Deixe este terminal ABERTO — fechá-lo encerra o servidor do A.P.O.L.O.")
+    webbrowser.open(URL)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
     return 0
 
 

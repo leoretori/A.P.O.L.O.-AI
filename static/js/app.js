@@ -3025,14 +3025,26 @@
         }
       }
     } catch(e) {
-      if (e.name === 'AbortError') finalizePartial(aiWrap, acc);
-      else aiWrap.querySelector('.content').innerHTML =
-        `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+      if (e.name === 'AbortError') { finalizePartial(aiWrap, acc); }
+      else if (_isNetFail(e)) {
+        if (window.markServerDown) window.markServerDown();
+        aiWrap.querySelector('.content').innerHTML =
+          `<div style="color:#f8a170;font-size:13px;padding:6px 0">⚡ Perdi a conexão com o servidor. Se você fechou o app, reabra-o — reconecto sozinho e a mensagem pode ser reenviada.</div>`;
+      } else {
+        aiWrap.querySelector('.content').innerHTML =
+          `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+      }
     } finally {
       busy = false; currentAbort = null;
       setSending(false);
       document.getElementById('input').focus();
     }
+  }
+
+  // Falha de REDE/servidor (conexão caiu) vs. erro lógico — muda a mensagem e
+  // dispara a barra de reconexão. TypeError = fetch não completou (servidor fora).
+  function _isNetFail(e) {
+    return (e instanceof TypeError) || /failed to fetch|network|load failed|conexão/i.test(e && e.message || '');
   }
 
   // ── Ingestão de arquivos (ensina um documento ao A.P.O.L.O.) ──
@@ -3228,8 +3240,10 @@
         }
       }
     } catch(e) {
-      wrap.querySelector('.content').innerHTML =
-        `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+      if (_isNetFail(e) && window.markServerDown) window.markServerDown();
+      wrap.querySelector('.content').innerHTML = _isNetFail(e)
+        ? `<div style="color:#f8a170;font-size:13px;padding:6px 0">⚡ Perdi a conexão com o servidor. Reabra o app — reconecto sozinho.</div>`
+        : `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
     } finally {
       // SEMPRE libera o envio — se este reset não rodasse (ex.: erro ao pintar a
       // falha), `busy` ficava travado em true e NENHUMA mensagem seguinte era
@@ -3309,8 +3323,12 @@
         }
       }
     } catch(e) {
-      if (e.name !== 'AbortError') wrap.querySelector('.content').innerHTML =
-        `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+      if (e.name !== 'AbortError') {
+        if (_isNetFail(e) && window.markServerDown) window.markServerDown();
+        wrap.querySelector('.content').innerHTML = _isNetFail(e)
+          ? `<div style="color:#f8a170;font-size:13px;padding:6px 0">⚡ Perdi a conexão com o servidor. Reabra o app — reconecto sozinho.</div>`
+          : `<div style="color:#f87171;font-size:13px">Falha: ${escHtml(e.message)}</div>`;
+      }
     } finally {
       busy = false; currentAbort = null; setSending(false); input.focus();
     }
