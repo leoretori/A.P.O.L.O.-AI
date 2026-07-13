@@ -30,6 +30,11 @@ from src.web_search import web_research, fetch_page_text
 
 logger = logging.getLogger(__name__)
 
+# Teto de tokens da geração do learner — evita que o modelo leve "desande" e
+# escreva até encher o contexto (o que estourava o timeout e travava o pipeline).
+SUMMARY_MAX_TOKENS = int(os.getenv("SUMMARY_MAX_TOKENS", 600))
+SYNTHESIS_MAX_TOKENS = int(os.getenv("SYNTHESIS_MAX_TOKENS", 1000))
+
 from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
     FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
     PERSIST_TIMEOUT,
@@ -784,6 +789,7 @@ class LearningEngine:
                         chat_resilient, self.summarize_model,
                         [{"role": "user", "content": prompt}],
                         keep_alive=KEEP_ALIVE,
+                        options={"num_predict": SYNTHESIS_MAX_TOKENS},   # bounded (ver _summarize)
                     ),
                     timeout=180.0,
                 )
@@ -902,6 +908,11 @@ class LearningEngine:
                         chat_resilient, self.summarize_model,
                         [{"role": "user", "content": prompt}],
                         keep_alive=KEEP_ALIVE,
+                        # LIMITA a geração: sem teto, o 1.5B às vezes DESANDA e escreve
+                        # até encher o contexto (milhares de tokens) → estoura os 120s
+                        # → a thread zumbi segura o lock do motor → pipeline TRAVA. Um
+                        # resumo cabe folgado em ~600 tokens.
+                        options={"num_predict": SUMMARY_MAX_TOKENS},
                     ),
                     timeout=120.0,
                 )
