@@ -774,9 +774,14 @@ class LearningEngine:
             if self.gpu_gate:
                 await self.gpu_gate.wait_for_idle()
             async with self._llm_lock:          # não concorre com o summarizer (3b)
+                # Usa o modelo LEVE (mesmo do summarizer), NÃO o pesado: em CPU de
+                # 16GB, carregar o 7B aqui deixava o 1.5B + 7B residentes ao mesmo
+                # tempo → swap → o summarizer estourava o timeout e o estudo TRAVAVA.
+                # Mantendo tudo do learner no 1.5B, o pesado nunca entra em cena no
+                # fundo (só no Inteligente/Profundo que o usuário dispara).
                 synthesis = await asyncio.wait_for(
                     asyncio.to_thread(
-                        chat_resilient, self.model,
+                        chat_resilient, self.summarize_model,
                         [{"role": "user", "content": prompt}],
                         keep_alive=KEEP_ALIVE,
                     ),
