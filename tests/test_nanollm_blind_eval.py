@@ -57,3 +57,29 @@ def test_make_llm_judge_usa_provider(monkeypatch):
     monkeypatch.setattr("src.providers.get_provider", lambda: _Prov())
     judge = make_llm_judge(model="apolo")
     assert judge("pergunta", "resp A", "resp B") == "A"
+
+
+def test_make_llm_judge_cede_gpu_ao_usuario_antes_do_veredito(monkeypatch):
+    """A avaliação às cegas roda em thread de fundo — o juiz tem que ceder o
+    GpuGate antes de cada veredito, senão segura o lock do motor e faz o chat do
+    usuário esperar atrás da avaliação (mesma disciplina do teacher_fn)."""
+    class _Prov:
+        def list_models(self):
+            return ["apolo"]
+
+        def complete(self, model, messages, options=None):
+            return "A"
+    monkeypatch.setattr("src.providers.get_provider", lambda: _Prov())
+
+    calls = {"n": 0}
+
+    class _FakeGate:
+        def wait_for_idle_sync(self, *a, **k):
+            calls["n"] += 1
+
+    import src.runtime as rt
+    monkeypatch.setattr(rt, "gpu_gate", _FakeGate())
+    judge = make_llm_judge(model="apolo")
+    judge("pergunta", "resp A", "resp B")
+    judge("outra", "x", "y")
+    assert calls["n"] == 2

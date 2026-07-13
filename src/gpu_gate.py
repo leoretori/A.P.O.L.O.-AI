@@ -7,10 +7,18 @@ quando o usuário pergunta algo, a resposta do usuário fica na fila atrás do l
 O learner chama `await gate.wait_for_idle()` antes de cada geração; enquanto houver
 requisição de usuário ativa, ele espera. Um timeout garante que o aprendizado não
 trave para sempre caso algo fique preso.
+
+O flywheel do Nano e a avaliação às cegas (M25/M28) rodam em THREAD comum (via
+`asyncio.to_thread`), não no event loop — por isso usam `wait_for_idle_sync`, a
+versão síncrona (poll simples, sem asyncio). Sem isso, o professor/juiz (Qwen)
+chamava `provider.complete()` sem NUNCA ceder a vez: o treino noturno do Nano
+podia segurar o lock do motor e fazer o chat do usuário esperar atrás dele — a
+mesma classe de bug já corrigida no learner, só que num caminho diferente.
 """
 
 import asyncio
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -45,3 +53,18 @@ class GpuGate:
             return True
         except asyncio.TimeoutError:
             return False
+
+    def wait_for_idle_sync(self, timeout: float = 45.0, poll: float = 0.2) -> bool:
+        """Igual a `wait_for_idle`, mas para quem roda numa THREAD comum (não no
+        event loop) — o flywheel do Nano e a avaliação às cegas, que treinam/avaliam
+        via `asyncio.to_thread`. Poll simples (o estado é um int; seguro sob o GIL).
+        Retorna True se ficou ocioso, False se estourou o timeout (segue mesmo assim)."""
+        if not self.user_active:
+            return True
+        logger.debug("[gpu-gate] treino/avaliação cedendo a GPU ao usuário...")
+        deadline = time.monotonic() + timeout
+        while self.user_active:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(poll)
+        return True

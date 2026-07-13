@@ -125,6 +125,15 @@ def make_llm_teacher(
     opts = {"temperature": temperature, "num_predict": max_tokens, "max_tokens": max_tokens}
 
     def teacher_fn(prompt: str) -> str:
+        # Cede a GPU ao usuário antes de CADA rótulo: o flywheel roda em thread de
+        # fundo e pode gerar dezenas de rótulos — sem isso, seguraria o lock do
+        # motor e faria o chat do usuário esperar atrás do treino noturno.
+        try:
+            from src import runtime as rt
+            if rt.gpu_gate:
+                rt.gpu_gate.wait_for_idle_sync()
+        except Exception:
+            pass
         return prov.complete(model, [{"role": "user", "content": prompt}], options=opts)
 
     return teacher_fn

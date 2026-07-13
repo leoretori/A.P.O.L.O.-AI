@@ -149,6 +149,37 @@ def test_make_llm_teacher_chama_o_provider(monkeypatch):
     assert fake.calls[0][1][0]["role"] == "user"
 
 
+def test_make_llm_teacher_cede_gpu_ao_usuario_antes_de_cada_rotulo(monkeypatch):
+    """O flywheel roda em thread de fundo e rotula várias entradas — sem ceder o
+    GpuGate, ele seguraria o lock do motor e faria o chat do usuário esperar atrás
+    do treino noturno (mesma classe de bug já corrigida no learner)."""
+    fake = _FakeProvider()
+    monkeypatch.setattr("src.providers.get_provider", lambda: fake)
+
+    calls = {"n": 0}
+
+    class _FakeGate:
+        def wait_for_idle_sync(self, *a, **k):
+            calls["n"] += 1
+
+    import src.runtime as rt
+    monkeypatch.setattr(rt, "gpu_gate", _FakeGate())
+    teacher = make_llm_teacher(model="apolo", max_tokens=32)
+    teacher("qual título?")
+    teacher("outro prompt")
+    assert calls["n"] == 2                  # cedeu ANTES de cada chamada ao professor
+
+
+def test_make_llm_teacher_segue_funcionando_sem_gate(monkeypatch):
+    """Sem gpu_gate configurado (ex.: testes/CLI), o teacher não pode quebrar."""
+    fake = _FakeProvider()
+    monkeypatch.setattr("src.providers.get_provider", lambda: fake)
+    import src.runtime as rt
+    monkeypatch.setattr(rt, "gpu_gate", None)
+    teacher = make_llm_teacher(model="apolo", max_tokens=32)
+    assert teacher("qual título?").startswith("Título")
+
+
 def test_run_distillation_ponta_a_ponta(tokenizer, tmp_path):
     db = _FakeDB(["Como criar uma LLM soberana?",
                   "Explique asyncio no python",

@@ -83,6 +83,14 @@ def make_llm_judge(model: str | None = None, *, temperature: float = 0.0):
             model = models[0] if models else "apolo"
 
     def judge_fn(q: str, a: str, b: str) -> str:
+        # Mesma disciplina do teacher_fn (distill.py): cede a GPU ao usuário antes
+        # de cada veredito — a avaliação às cegas também roda em thread de fundo.
+        try:
+            from src import runtime as rt
+            if rt.gpu_gate:
+                rt.gpu_gate.wait_for_idle_sync()
+        except Exception:
+            pass
         prompt = JUDGE_PROMPT.format(q=q, a=a[:600], b=b[:600])
         return prov.complete(model, [{"role": "user", "content": prompt}],
                              options={"temperature": temperature, "num_predict": 4})
