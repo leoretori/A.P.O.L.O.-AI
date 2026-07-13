@@ -485,10 +485,14 @@ async def lifespan(app: FastAPI):
     if not os.getenv("SUMMARIZE_MODEL", "").strip() and learner and CHAT_MODEL != MODEL:
         learner.summarize_model = CHAT_MODEL
         logger.info(f"[learner] sumarização no modelo leve: {CHAT_MODEL}")
-    # Pré-carrega ambos os modelos — 1ª resposta sem cold start, mesmo quando AUTO_SMART
-    # escala para 14b. O warmup do 14b roda 10s depois para não competir com o startup.
+    # Pré-carrega o modelo LEVE (chat + sumarização do learner) — é o caminho comum.
     asyncio.create_task(warmup(CHAT_MODEL))
-    if MODEL != CHAT_MODEL:
+    # O modelo PESADO NÃO é pré-carregado por padrão: em CPU com pouca RAM (ex.: 16GB),
+    # manter o 7B + o 1.5B residentes ao mesmo tempo pressiona a memória → swap → a
+    # síntese do learner no 1.5B fica lenta e ESTOURA o timeout de 120s (o estudo
+    # parava de salvar). O pesado carrega sob demanda no 1º uso do Inteligente/Profundo.
+    # WARMUP_HEAVY=1 restaura o pré-carregamento (para máquinas com RAM de sobra).
+    if MODEL != CHAT_MODEL and os.getenv("WARMUP_HEAVY", "0") not in ("0", "false", "False", ""):
         async def _delayed_warmup():
             await asyncio.sleep(10)
             await warmup(MODEL)
