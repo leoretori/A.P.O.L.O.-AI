@@ -9,6 +9,7 @@ Dois formatos, escolhidos por env `LOG_FORMAT`:
 Uso: `configure_logging()` no boot, substituindo o `logging.basicConfig` antigo.
 """
 
+import io
 import json
 import logging
 import os
@@ -16,6 +17,26 @@ import sys
 
 # Bibliotecas que geram 1 log por requisição de rede — silenciadas em produção.
 NOISY = ("httpx", "httpcore", "watchfiles", "chromadb.telemetry")
+
+
+def _utf8_safe(stream):
+    """Devolve um stream que NUNCA quebra ao escrever '→'/emoji.
+
+    O console do Windows é cp1252: escrever '→' (U+2192) levantava
+    UnicodeEncodeError DENTRO do handler de log → cascata → 500 na requisição
+    (foi o que derrubou o /api/ingest do PDF e o flywheel). `errors="replace"`
+    troca o caractere por '?' em vez de estourar. Tenta reconfigurar in-place;
+    se não der (stream não reconfigurável sob uvicorn/reload), embrulha o buffer."""
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+        return stream
+    except Exception:
+        pass
+    try:
+        return io.TextIOWrapper(stream.buffer, encoding="utf-8",
+                                errors="replace", line_buffering=True)
+    except Exception:
+        return stream
 
 # Atributos padrão de um LogRecord — tudo FORA disso é campo "extra" do usuário.
 _RESERVED = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime", "taskName"}
@@ -51,7 +72,12 @@ def configure_logging(level_name: str | None = None, fmt: str | None = None) -> 
     level = getattr(logging, level_name, logging.INFO)
     fmt = (fmt or os.getenv("LOG_FORMAT", "text")).lower()
 
-    handler = logging.StreamHandler(sys.stderr)
+    # Rede de segurança GLOBAL: um erro DENTRO de um handler de log (ex.: console
+    # cp1252 sem encodar '→') nunca mais deve derrubar a requisição/app — a linha
+    # se perde no pior caso, mas o pipeline segue. Cobre também o access-log do uvicorn.
+    logging.raiseExceptions = False
+
+    handler = logging.StreamHandler(_utf8_safe(sys.stderr))
     if fmt == "json":
         handler.setFormatter(JsonFormatter())
     else:

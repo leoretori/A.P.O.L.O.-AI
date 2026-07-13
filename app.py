@@ -81,7 +81,7 @@ import src.tools  # noqa: F401 — registra as ferramentas de agência no import
 # Força UTF-8 nos streams para o A.P.O.L.O. rodar em qualquer terminal.
 for _stream in (sys.stdout, sys.stderr):
     try:
-        _stream.reconfigure(encoding="utf-8")
+        _stream.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
