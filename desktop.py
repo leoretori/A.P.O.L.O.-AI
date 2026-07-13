@@ -49,22 +49,31 @@ def _wait_until_up(timeout: float = 60) -> bool:
 
 
 def main() -> int:
-    # 1) Sobe o servidor só se ninguém já estiver na porta (evita conflito).
-    if not _port_open():
+    # 1) Sobe o servidor só se ninguém já estiver na porta (evita conflito). Se já
+    #    estava no ar (ex.: você rodou app.py à mão), este script não é DONO do
+    #    servidor — só abre uma janela/aba por cima. Isso importa para os avisos
+    #    abaixo: "fechar isso encerra o A.P.O.L.O." só é verdade quando FOMOS nós
+    #    que subimos o servidor (senão é outro processo, alheio a esta janela).
+    started_here = not _port_open()
+    if started_here:
         threading.Thread(target=_serve, daemon=True).start()
         print("Iniciando o A.P.O.L.O.…")
         if not _wait_until_up():
             print("O servidor não subiu a tempo. Veja o log e tente de novo.")
             return 1
 
-    # 2) Abre a JANELA NATIVA (sem navegador). Fallback robusto: navegador padrão
-    #    + servidor mantido vivo. Qualquer falha do webview (lib ausente OU
-    #    WebView2 quebrado) NÃO derruba o servidor — cai no navegador.
+    # 2) Abre a JANELA NATIVA (sem navegador). Fallback robusto: navegador padrão.
+    #    Qualquer falha do webview (lib ausente OU WebView2 quebrado) NÃO derruba
+    #    o servidor — cai no navegador.
     try:
         import webview
         webview.create_window("A.P.O.L.O.", URL, width=1280, height=860,
                               min_size=(900, 600))
-        print("Janela do A.P.O.L.O. aberta. Fechá-la encerra o app.")
+        if started_here:
+            print("Janela do A.P.O.L.O. aberta. Fechá-la encerra o app.")
+        else:
+            print("Janela do A.P.O.L.O. aberta (servidor já estava rodando em "
+                  "outro processo — fechar esta janela não o encerra).")
         webview.start()                 # bloqueia até fechar a janela
         return 0
     except ImportError:
@@ -73,12 +82,15 @@ def main() -> int:
     except Exception as e:
         print(f"Não consegui abrir a janela nativa ({e}). Usando o navegador.")
 
-    # Fallback: abre no navegador padrão e MANTÉM o servidor no ar até você fechar
-    # este terminal (Ctrl+C). Fechar o terminal encerra o A.P.O.L.O.
+    # Fallback: abre no navegador padrão. Só precisamos manter este terminal vivo
+    # (e o servidor com ele) quando FOMOS nós que o subimos — se já estava rodando
+    # em outro processo, abrir a aba basta; não há nada aqui para manter de pé.
     import webbrowser
     print(f"Abrindo no navegador: {URL}")
-    print("⚠️  Deixe este terminal ABERTO — fechá-lo encerra o servidor do A.P.O.L.O.")
     webbrowser.open(URL)
+    if not started_here:
+        return 0
+    print("⚠️  Deixe este terminal ABERTO — fechá-lo encerra o servidor do A.P.O.L.O.")
     try:
         while True:
             time.sleep(3600)
