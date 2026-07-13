@@ -84,6 +84,11 @@ class LlamaCppProvider:
         self._ctx = int(os.getenv("LLAMACPP_CTX", "8192"))
         self._threads = int(os.getenv("LLAMACPP_THREADS", "0")) or None
         self._gpu_layers = int(os.getenv("LLAMACPP_GPU_LAYERS", "0"))
+        # Teto de segurança da geração (ver _opts). Sem isto o llama.cpp gera até
+        # encher o contexto (max_tokens=None) — o 1.5B entrava em loop e segurava o
+        # lock indefinidamente, travando o chat E o estudo ao mesmo tempo.
+        self._max_tokens = int(os.getenv("LLAMACPP_MAX_TOKENS", "2048"))
+        self._repeat_penalty = float(os.getenv("LLAMACPP_REPEAT_PENALTY", "1.3"))
         self._loaded: dict[str, object] = {}
         # Um lock POR instância: o llama.cpp NÃO é thread-safe num mesmo contexto —
         # duas gerações simultâneas no mesmo modelo (ex.: o chat e o summarizer do
@@ -139,14 +144,19 @@ class LlamaCppProvider:
                     )
         return self._loaded[path], self._locks[path]
 
-    @staticmethod
-    def _opts(options):
+    def _opts(self, options):
         options = options or {}
         out = {}
         if "temperature" in options:
             out["temperature"] = options["temperature"]
-        if "num_predict" in options:
-            out["max_tokens"] = options["num_predict"]  # nome equivalente no llama.cpp
+        # Teto de tokens SEMPRE presente: o chamador manda num_predict; senão cai no
+        # teto padrão. NENHUMA geração roda sem limite — com max_tokens=None o
+        # llama.cpp gera até encher o contexto e um modelo pequeno degenera em loop,
+        # segurando o lock por minutos e derrubando chat + estudo juntos.
+        out["max_tokens"] = int(options.get("num_predict") or self._max_tokens)
+        # Penalidade de repetição: o default do llama.cpp (1.1) é fraco para modelos
+        # pequenos, que repetem o mesmo trecho (ex.: "gcloud components install" ×132).
+        out["repeat_penalty"] = float(options.get("repeat_penalty") or self._repeat_penalty)
         if "top_p" in options:
             out["top_p"] = options["top_p"]
         return out

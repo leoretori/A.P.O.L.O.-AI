@@ -94,9 +94,35 @@ def test_llamacpp_serializa_geracoes_no_mesmo_modelo(monkeypatch):
     assert overlaps == []                          # nenhuma sobreposição = serializado
 
 
-def test_opts_traduz_num_predict_para_max_tokens():
-    opts = LlamaCppProvider._opts({"num_predict": 32, "temperature": 0.2, "top_p": 0.9})
-    assert opts == {"max_tokens": 32, "temperature": 0.2, "top_p": 0.9}
+def test_opts_traduz_num_predict_para_max_tokens(monkeypatch):
+    monkeypatch.delenv("LLAMACPP_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
+    p = LlamaCppProvider()
+    opts = p._opts({"num_predict": 32, "temperature": 0.2, "top_p": 0.9})
+    # num_predict do chamador vence; repeat_penalty entra por padrão.
+    assert opts == {"max_tokens": 32, "temperature": 0.2, "top_p": 0.9, "repeat_penalty": 1.3}
+
+
+def test_opts_teto_padrao_sempre_presente(monkeypatch):
+    """Sem num_predict, o motor NUNCA gera ilimitado — cai no teto padrão. Foi a
+    ausência disso que deixou o 1.5B entrar em loop e travar o lock (chat+estudo)."""
+    monkeypatch.delenv("LLAMACPP_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
+    p = LlamaCppProvider()
+    opts = p._opts(None)
+    assert opts["max_tokens"] == 2048          # teto de segurança
+    assert opts["repeat_penalty"] == 1.3       # anti-loop
+    opts2 = p._opts({})
+    assert opts2["max_tokens"] == 2048
+
+
+def test_opts_teto_configuravel_por_env(monkeypatch):
+    monkeypatch.setenv("LLAMACPP_MAX_TOKENS", "512")
+    monkeypatch.setenv("LLAMACPP_REPEAT_PENALTY", "1.2")
+    p = LlamaCppProvider()
+    opts = p._opts(None)
+    assert opts["max_tokens"] == 512
+    assert opts["repeat_penalty"] == 1.2
 
 
 def test_get_levanta_erro_claro_sem_gguf(monkeypatch):
