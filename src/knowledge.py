@@ -107,14 +107,6 @@ class SupabaseKnowledge:
         category: str = "web",
         tags: list[str] | None = None,
     ) -> None:
-        # Higiene de ingestão: não deixa lixo/spam/injeção virar conhecimento (que
-        # depois voltaria como fonte e entraria no prompt do chat). Ver content_hygiene.
-        from src.content_hygiene import is_ingestible
-        ok, motivo = is_ingestible(title, content)
-        if not ok:
-            self.rejected = getattr(self, "rejected", 0) + 1
-            logger.info(f"Knowledge REJEITADO ({motivo}): {title[:60]}")
-            return
         payload = {
             "title": title[:200],
             "url": url,
@@ -235,6 +227,14 @@ class SupabaseKnowledge:
         except Exception as e:
             logger.warning(f"delete_ids error: {e}")
             return 0
+
+    def scan_junk(self, limit: int = 1000) -> list[dict]:
+        """Relatório (só leitura) de itens da base que NÃO passariam na higiene de
+        ingestão — lixo/spam/injeção que entrou ANTES do porteiro existir (ex.: a
+        página "responda apenas: ok"). O usuário decide o que remover (purga por id
+        via delete_ids). Ver src/content_hygiene."""
+        from src.content_hygiene import scan_rows
+        return scan_rows(self.all_rows(limit))
 
     def insights(self, sample_limit: int = 1000) -> dict:
         """Visão agregada da base — alimenta o painel 'Mente do A.P.O.L.O.'.

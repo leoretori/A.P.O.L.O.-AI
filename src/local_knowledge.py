@@ -264,6 +264,12 @@ class LocalKnowledge:
             logger.warning(f"[local_kb] delete_ids: {e}")
             return 0
 
+    def scan_junk(self, limit: int = 1000) -> list[dict]:
+        """Faxina: itens da base que NÃO passariam na higiene de ingestão (lixo/spam/
+        injeção que entrou antes do porteiro). Só leitura; o usuário purga por id."""
+        from src.content_hygiene import scan_rows
+        return scan_rows(self.all_rows(limit))
+
     def insights(self, sample_limit: int = 1000) -> dict:
         """Agrega categorias/setores/domínios — alimenta o painel Mente."""
         cached = self._insights.get()

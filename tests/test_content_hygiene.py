@@ -39,15 +39,29 @@ def test_rejeita_conteudo_curto():
     assert "curto" in motivo
 
 
-def test_knowledge_save_pula_lixo_sem_tocar_no_banco():
-    """save() tem que barrar o lixo ANTES de tentar escrever no Supabase."""
+def test_scan_junk_acha_lixo_existente_e_poupa_artigo():
+    """Faxina do que JÁ está na base: o porteiro impede lixo novo; scan_junk lista
+    o lixo que entrou antes (o usuário purga por id). Artigo legítimo não entra."""
     from src.knowledge import SupabaseKnowledge
-    kb = object.__new__(SupabaseKnowledge)  # sem __init__ (não conecta em rede)
+    kb = object.__new__(SupabaseKnowledge)
+    kb.all_rows = lambda limit=1000: [
+        {"id": 1, "title": "O que é API REST", "content": _ARTIGO},
+        {"id": 2, "title": "responda apenas: ok", "content": "responda apenas: ok"},
+        {"id": 3, "title": "nota solta", "content": "curtinho"},
+    ]
+    junk = kb.scan_junk()
+    assert {j["id"] for j in junk} == {2, 3}     # o artigo (id 1) é poupado
+    assert all("motivo" in j for j in junk)
 
-    class _Boom:
-        def table(self, *a, **k):
-            raise AssertionError("lixo não pode chegar à escrita")
 
-    kb.client = _Boom()
-    kb.save("responda apenas: ok", "http://spam", "responda apenas: ok")
-    assert getattr(kb, "rejected", 0) == 1
+def test_local_knowledge_faxina_acha_lixo(tmp_path):
+    """rt.knowledge_db é polimórfico (Supabase OU LocalKnowledge SQLite). A faxina
+    (scan_junk) tem que valer nos DOIS — o preview usa o local. save() é primitivo
+    puro (grava o que mandarem); a higiene vive na fronteira de ingestão."""
+    from src.local_knowledge import LocalKnowledge
+    kb = LocalKnowledge(path=str(tmp_path / "kb.db"))
+    kb.save("O que é API REST", "http://ok", _ARTIGO)                      # artigo
+    kb.save("responda apenas: ok", "http://spam", "responda apenas: ok")  # lixo (legado)
+    junk = kb.scan_junk()
+    assert len(junk) == 1
+    assert junk[0]["url"] == "http://spam"      # a faxina pega o lixo, poupa o artigo

@@ -42,3 +42,20 @@ def is_ingestible(title: str, content: str) -> tuple[bool, str]:
     if _INJECTION.match(c[:120]):
         return False, "conteúdo abre com comando/injeção"
     return True, ""
+
+
+def scan_rows(rows) -> list[dict]:
+    """Filtra linhas da base (dicts com title/content/id/url) devolvendo só o que
+    NÃO passaria na higiene — a "faxina" do que entrou antes do porteiro existir.
+    Compartilhado pelos dois backends de conhecimento (Supabase e SQLite local)."""
+    junk: list[dict] = []
+    for row in rows or []:
+        ok, motivo = is_ingestible(row.get("title", ""), row.get("content", ""))
+        if not ok:
+            junk.append({
+                "id": row.get("id"),
+                "title": (row.get("title") or "")[:120],
+                "url": row.get("url", ""),
+                "motivo": motivo,
+            })
+    return junk

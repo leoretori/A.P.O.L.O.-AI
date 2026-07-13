@@ -44,6 +44,32 @@ async def curate_apply(req: CurateApply):
     return await asyncio.to_thread(rt.curator.apply, req.ids)
 
 
+# ── Faxina de lixo/injeção já existente na base ───────────────────
+@router.get("/api/knowledge/junk/scan")
+async def knowledge_junk_scan():
+    """Relatório (só leitura) de conhecimento que é lixo/spam/injeção — entrou
+    antes do porteiro de ingestão existir. Não remove nada; o usuário decide."""
+    if not rt.knowledge_db:
+        return {"enabled": False, "count": 0, "junk": []}
+    junk = await asyncio.to_thread(rt.knowledge_db.scan_junk)
+    return {"enabled": True, "count": len(junk), "junk": junk}
+
+
+class JunkPurge(BaseModel):
+    ids: list[int]
+
+
+@router.post("/api/knowledge/junk/purge")
+async def knowledge_junk_purge(req: JunkPurge):
+    """Remove os itens-lixo indicados (ação explícita do usuário)."""
+    if not rt.knowledge_db:
+        return {"ok": False, "error": "base indisponível"}
+    if not req.ids:
+        return {"ok": True, "removed": 0}
+    removed = await asyncio.to_thread(rt.knowledge_db.delete_ids, req.ids)
+    return {"ok": True, "removed": removed}
+
+
 # ── Esquecer / stats / grafo / insights ───────────────────────────
 class ForgetRequest(BaseModel):
     id: int

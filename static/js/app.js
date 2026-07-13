@@ -4298,6 +4298,53 @@
     }
   }
 
+  // ── Faxina: lixo/spam/injeção já existente na base ───────────
+  async function scanJunk() {
+    const body = document.getElementById('mind-body');
+    body.innerHTML = '<div id="mind-loading">🧽 Procurando lixo/spam/injeção na base...</div>';
+    try {
+      const d = await fetch('/api/knowledge/junk/scan').then(r => r.json());
+      body.innerHTML = renderJunk(d);
+    } catch(e) {
+      body.innerHTML = `<div class="mind-empty">Erro ao escanear: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderJunk(d) {
+    if (!d.enabled) {
+      return `<div class="cur-head">Base de conhecimento indisponível.</div>
+              <button class="cur-back" onclick="loadMind()">← Voltar</button>`;
+    }
+    if (!d.count) {
+      return `<div class="cur-head">✨ <b>Base limpa!</b> Nenhum lixo/spam/injeção encontrado.</div>
+              <button class="cur-back" onclick="loadMind()">← Voltar</button>`;
+    }
+    const ids = d.junk.map(j => j.id);
+    const rows = d.junk.map(j => `<div class="cur-dup" title="${escHtml(j.url||'')}">✕ ${escHtml(j.title||'—')} <span class="cur-chroma">— ${escHtml(j.motivo||'')}</span></div>`).join('');
+    return `
+      <div class="cur-head">🧽 <b>${d.count} item(ns)-lixo</b> na base (spam/injeção ou conteúdo vazio) — entraram antes do porteiro de ingestão.</div>
+      <div class="cur-actions">
+        <button class="cur-remove" onclick='purgeJunk(${JSON.stringify(ids)})'>🗑️ Remover ${d.count} item(ns)</button>
+        <button class="cur-back" onclick="loadMind()">← Voltar</button>
+      </div>
+      ${rows}`;
+  }
+
+  async function purgeJunk(ids) {
+    ids = ids || [];
+    if (!ids.length) return;
+    if (!confirm(`Remover ${ids.length} item(ns)-lixo da base? Esta ação não pode ser desfeita.`)) return;
+    try {
+      const r = await fetch('/api/knowledge/junk/purge', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+      }).then(x => x.json());
+      showIngestToast(`✅ Faxina: ${r.removed || 0} item(ns)-lixo removido(s) da base.`);
+      await loadMind();
+    } catch(e) {
+      showIngestToast(`⚠ Falha ao remover: ${escHtml(e.message)}`);
+    }
+  }
+
   const SECTOR_LABELS = {
     backend_apis:'⚙️ Backend & APIs', frontend_web:'🎨 Frontend & Web', mobile:'📱 Mobile',
     data_ml:'🤖 Data & ML', systems_languages:'🦀 Sistemas & Linguagens', devops_cloud:'☁️ DevOps & Cloud',

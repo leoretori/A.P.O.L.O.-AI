@@ -23,6 +23,7 @@ from src.coder_state import gpu_priority
 from src.llm import stream_chat, chat_resilient, KEEP_ALIVE, KEEP_ALIVE_HEAVY
 from src.routing import is_complex
 from src.topics import is_smalltalk
+from src.content_hygiene import is_ingestible
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.web_search import web_research
 from src.episodic import index_session as _index_episodic
@@ -194,10 +195,11 @@ async def chat(req: cc.ChatRequest):
                 )
                 if web_sources:
                     yield f"data: {json.dumps({'type': 'status', 'message': f'{len(web_sources)} fontes encontradas'})}\n\n"
-                    if rt.knowledge_db and web_context:
+                    _title = f"Pesquisa: {request[:100]}"
+                    if rt.knowledge_db and web_context and is_ingestible(_title, web_context)[0]:
                         asyncio.create_task(asyncio.to_thread(
                             rt.knowledge_db.save,
-                            f"Pesquisa: {request[:100]}",
+                            _title,
                             web_sources[0]["url"],
                             web_context,
                             "web_search",
@@ -313,11 +315,12 @@ async def chat(req: cc.ChatRequest):
                         web_sources = _gap_srcs
                         is_gap = False  # agora tem contexto
                         yield f"data: {json.dumps({'type': 'status', 'message': f'{len(_gap_srcs)} fonte(s) encontrada(s) — integrando...'})}\n\n"
-                        # Persiste o aprendizado em background
-                        if rt.knowledge_db and web_context:
+                        # Persiste o aprendizado em background (se passar na higiene)
+                        _gtitle = f"Auto-pesquisa: {request[:100]}"
+                        if rt.knowledge_db and web_context and is_ingestible(_gtitle, web_context)[0]:
                             asyncio.create_task(asyncio.to_thread(
                                 rt.knowledge_db.save,
-                                f"Auto-pesquisa: {request[:100]}",
+                                _gtitle,
                                 _gap_srcs[0]["url"],
                                 web_context,
                                 "web_search",
