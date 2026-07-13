@@ -22,6 +22,7 @@ from src import chat_common as cc
 from src.coder_state import gpu_priority
 from src.llm import stream_chat, chat_resilient, KEEP_ALIVE, KEEP_ALIVE_HEAVY
 from src.routing import is_complex
+from src.topics import is_smalltalk
 from src.utils import extract_code, extract_explanation, sanitize_request
 from src.web_search import web_research
 from src.episodic import index_session as _index_episodic
@@ -278,8 +279,10 @@ async def chat(req: cc.ChatRequest):
             relational_block = (f"Pergunta sobre: {relational['entity']}\n"
                                 + "\n".join(rows))
 
-        # Lacuna de conhecimento: nenhuma memória semântica relevante.
-        is_gap = not memories
+        # Lacuna de conhecimento: nenhuma memória semântica relevante. Saudação/
+        # chit-chat NÃO conta como lacuna — responder direto é mais rápido (nada
+        # de busca web de ~10s por um "oi") e não polui a base com "Auto-pesquisa: oi".
+        is_gap = not memories and not is_smalltalk(request)
         if is_gap and rt.learner:
             rt.learner.note_gap(request)
             try:

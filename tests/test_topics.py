@@ -2,8 +2,28 @@
 
 from src.topics import (
     ALL_SECTORS, ALL_TOPICS, SECTOR_LABELS, TOPIC_SECTOR,
-    classify_sector, interleave,
+    classify_sector, interleave, is_smalltalk,
 )
+
+
+# ── is_smalltalk (evita busca web em saudação) ──────────────────
+def test_smalltalk_reconhece_saudacoes():
+    for t in ["oi", "Oi!", "olá", "bom dia", "Boa noite!",
+              "tudo bem?", "e aí", "valeu", "obrigado", "obrigada", "blz",
+              "ok", "tchau", "hey", "hello"]:
+        assert is_smalltalk(t), t
+
+
+def test_smalltalk_ignora_perguntas_reais():
+    for t in ["o que é python?", "oi, o que a empresa Avanade faz",
+              "me explique async await", "como criar uma LLM do zero",
+              "bom dia, preciso de ajuda com FastAPI"]:
+        assert not is_smalltalk(t), t
+
+
+def test_smalltalk_vazio_e_longo():
+    assert not is_smalltalk("")
+    assert not is_smalltalk("oi " * 20)   # longo demais → não é smalltalk
 
 
 def test_todos_topicos_tem_setor_no_mapa_exato():

@@ -10,8 +10,31 @@ setores ou itens — o rodízio se ajusta sozinho.
 Idioma: as queries ficam em inglês (mais conteúdo na web); o resumo sai em PT-BR.
 """
 
+import re
 from functools import lru_cache
 from itertools import zip_longest
+
+# Saudação / agradecimento / despedida curtos — o A.P.O.L.O. responde direto,
+# SEM disparar busca na web nem marcar lacuna de conhecimento. Antes um "oi"
+# fazia uma pesquisa web inteira (~10s até a 1ª palavra) e ainda salvava um
+# "Auto-pesquisa: oi" na base. Âncora ^…$ = a mensagem TODA é a saudação; uma
+# pergunta de verdade ("oi, o que é X?") não casa e segue o fluxo normal.
+_SMALLTALK_RE = re.compile(
+    r"^(oi+|ol[áa]+|al[óo]|opa|e+\s*a[íi]|ea[êe]|hey+|hi+|hello|hol[áa]|"
+    r"bom dia|boa tarde|boa noite|tudo (bem|bom|certo|jóia|joia)|de boa|"
+    r"como (vai|voc[êe]|est[áa]|voc[êe]s)|beleza|blz|valeu|vlw|"
+    r"obrigad[oa]|obg|brigad[oa]|agradeço|thanks|thank you|thx|"
+    r"ok+|okay|tá|ta|tchau|falou|flw|at[ée] (mais|logo)|bye)"
+    r"[\s,!.?]*$",
+    re.IGNORECASE,
+)
+
+
+def is_smalltalk(text: str) -> bool:
+    """True p/ saudação/agradecimento/despedida curtos — dispensa RAG-gap + web
+    (responder direto é mais rápido e não polui a base de conhecimento)."""
+    t = (text or "").strip()
+    return len(t) <= 40 and bool(_SMALLTALK_RE.match(t))
 
 # ════════════════ ENGENHARIA DE SOFTWARE ════════════════
 TECH_SECTORS: dict[str, list[str]] = {
