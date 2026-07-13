@@ -150,3 +150,23 @@ def test_chat_sem_nano_segue_como_antes(monkeypatch):
     monkeypatch.setattr(cc, "chat_resilient", lambda *a, **k: "Clássico")
     asyncio.run(cc.generate_session_title("s3", "oi"))
     assert db.saved["s3"] == "Clássico"
+
+
+def test_fallback_do_titulo_cede_gpu_ao_usuario(monkeypatch):
+    """O título roda em background (create_task, não awaited pelo stream) — se o
+    usuário mandar a 2ª mensagem rápido, essa geração não pode disputar o lock do
+    motor sem ceder (mesma classe de bug do flywheel/blind_eval/consolidação)."""
+    db = FakeDB()
+    monkeypatch.setattr(rt, "db", db)
+    monkeypatch.setattr(rt, "nano", None)          # força o caminho de fallback
+    monkeypatch.setattr(cc, "chat_resilient", lambda *a, **k: "Título")
+    calls = {"n": 0}
+
+    class _FakeGate:
+        def wait_for_idle_sync(self, *a, **k):
+            calls["n"] += 1
+
+    monkeypatch.setattr(rt, "gpu_gate", _FakeGate())
+    asyncio.run(cc.generate_session_title("s4", "pergunta"))
+    assert calls["n"] == 1
+    assert db.saved["s4"] == "Título"

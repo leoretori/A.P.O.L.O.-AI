@@ -165,6 +165,12 @@ def _to_local_naive(value) -> datetime | None:
 def _default_summarize(prompt: str) -> str:
     from src.llm import chat_resilient, KEEP_ALIVE
     from src import runtime as rt
+    # A consolidação ("sono") roda em thread de fundo (asyncio.to_thread, tick de
+    # 30min) e pode resumir até 10 sessões numa rodada — sem ceder o GpuGate,
+    # seguraria o lock do motor e faria o chat do usuário esperar atrás dela
+    # (mesma classe de bug corrigida no flywheel/blind_eval do Nano).
+    if rt.gpu_gate:
+        rt.gpu_gate.wait_for_idle_sync()
     model = rt.get_chat_model() or rt.model
     return chat_resilient(model, [{"role": "user", "content": prompt}],
                           keep_alive=KEEP_ALIVE)

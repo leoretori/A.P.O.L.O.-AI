@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as SASession
 from src.storage import DatabaseManager
 from src.storage_models import SessionMessage
 from src.memory import EpisodicMemory
-from src.memory.episodic import parse_when, _parse_episode, _to_local_naive
+from src.memory.episodic import parse_when, _parse_episode, _to_local_naive, _default_summarize
 
 
 NOW = datetime(2026, 7, 6, 12, 0)   # segunda-feira
@@ -168,6 +168,35 @@ def test_consolidate_e_idempotente(db):
 
 def test_consolidate_sem_db_e_seguro():
     assert EpisodicMemory(db=None).consolidate() == {"consolidated": 0, "titles": []}
+
+
+def test_default_summarize_cede_gpu_ao_usuario(monkeypatch):
+    """A consolidação ('sono') roda em thread de fundo e pode resumir até 10
+    sessões numa rodada — sem ceder o GpuGate, seguraria o lock do motor e faria
+    o chat do usuário esperar atrás dela (mesma classe de bug do flywheel/blind_eval)."""
+    import src.runtime as rt
+    calls = {"n": 0}
+
+    class _FakeGate:
+        def wait_for_idle_sync(self, *a, **k):
+            calls["n"] += 1
+
+    monkeypatch.setattr(rt, "gpu_gate", _FakeGate())
+    monkeypatch.setattr(rt, "get_chat_model", lambda: "qwen-1.5b")
+    monkeypatch.setattr("src.llm.chat_resilient",
+                        lambda model, messages, keep_alive=None: "TÍTULO: x\nRESUMO: y")
+    out = _default_summarize("qualquer prompt")
+    assert calls["n"] == 1
+    assert "TÍTULO" in out
+
+
+def test_default_summarize_sem_gate_nao_quebra(monkeypatch):
+    import src.runtime as rt
+    monkeypatch.setattr(rt, "gpu_gate", None)
+    monkeypatch.setattr(rt, "get_chat_model", lambda: "qwen-1.5b")
+    monkeypatch.setattr("src.llm.chat_resilient",
+                        lambda model, messages, keep_alive=None: "ok")
+    assert _default_summarize("prompt") == "ok"
 
 
 def test_to_local_naive_converte_utc_para_local_naive():

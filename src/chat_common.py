@@ -97,13 +97,19 @@ async def generate_session_title(session_id: str, first_message: str) -> None:
             title = await asyncio.to_thread(nano_session_title, rt.nano, first_message)
             used_nano = bool(title)   # None = portão de qualidade do Nano recusou
         if not title:
-            prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
-            title = await asyncio.to_thread(
-                chat_resilient,
-                rt.get_chat_model(),
-                [{"role": "user", "content": prompt}],
-                keep_alive=KEEP_ALIVE,
-            )
+            # Este título roda em background (create_task, não awaited pelo stream) —
+            # se o usuário mandar a 2ª mensagem rápido, o gpu_priority dela já
+            # liberou o "user_exit" desta 1ª requisição. Sem ceder aqui, a geração
+            # do título disputaria o lock do motor com essa 2ª mensagem.
+            def _gen_title():
+                if rt.gpu_gate:
+                    rt.gpu_gate.wait_for_idle_sync(timeout=10.0)
+                prompt = SESSION_TITLE_PROMPT.format(message=first_message[:200])
+                return chat_resilient(
+                    rt.get_chat_model(), [{"role": "user", "content": prompt}],
+                    keep_alive=KEEP_ALIVE,
+                )
+            title = await asyncio.to_thread(_gen_title)
         title = (title or "").strip()[:80]
         if title and rt.db:
             rt.db.save_session_title(session_id, title)
