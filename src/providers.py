@@ -56,12 +56,14 @@ class OllamaProvider:
         )
         return resp.message.content
 
-    def stream(self, model, messages, options=None, keep_alive=None):
+    def stream(self, model, messages, options=None, keep_alive=None, cancel=None):
         for chunk in self._client.chat(
             model=model, messages=messages, stream=True,
             keep_alive=self._keep_alive if keep_alive is None else keep_alive,
             options=self._opts(options),
         ):
+            if cancel is not None and cancel.is_set():
+                break  # cliente cancelou (clicou "parar") — encerra a geração
             yield chunk.message.content
 
     def list_models(self) -> list[str]:
@@ -167,12 +169,18 @@ class LlamaCppProvider:
             resp = llm.create_chat_completion(messages=messages, stream=False, **self._opts(options))
         return resp["choices"][0]["message"]["content"]
 
-    def stream(self, model, messages, options=None, keep_alive=None):
+    def stream(self, model, messages, options=None, keep_alive=None, cancel=None):
         llm, lock = self._get(model)
         # Segura o lock durante TODA a geração em streaming — só um gerador ativo
         # por modelo (evita o crash de acesso concorrente ao mesmo contexto).
         with lock:
             for chunk in llm.create_chat_completion(messages=messages, stream=True, **self._opts(options)):
+                # Aborto cooperativo: quando o cliente clica "parar" (fetch abortado →
+                # conexão fecha), o consumidor sinaliza `cancel` e nós paramos AQUI —
+                # senão a thread seguiria gerando até o teto, segurando o lock e
+                # travando o estudo (mesmo 1.5B). Sair do laço libera o `with lock`.
+                if cancel is not None and cancel.is_set():
+                    break
                 delta = chunk["choices"][0].get("delta", {})
                 piece = delta.get("content")
                 if piece:

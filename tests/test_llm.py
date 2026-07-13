@@ -40,8 +40,10 @@ class _FakeProvider:
             raise ConnectionError("falha transitória")
         return self._complete_text
 
-    def stream(self, model, messages, options=None, keep_alive=None):
+    def stream(self, model, messages, options=None, keep_alive=None, cancel=None):
         for t in self._tokens:
+            if cancel is not None and cancel.is_set():
+                break
             yield t
 
     def list_models(self):
@@ -63,6 +65,33 @@ def test_stream_chat_produz_tokens():
         return out
 
     assert "".join(asyncio.run(run())) == "Oi, mundo"
+
+
+def test_stream_chat_sinaliza_cancel_ao_fechar_gerador():
+    """Fechar o gerador (cliente clicou 'parar'/desconectou) tem que sinalizar o
+    `cancel` ao worker — é assim que a geração encerra e libera o lock do motor em
+    vez de seguir até o teto travando o estudo (bug do 'gerou até 132 mesmo parando')."""
+    captured = {}
+
+    class _Cap:
+        name = "cap"
+        def stream(self, model, messages, options=None, keep_alive=None, cancel=None):
+            captured["cancel"] = cancel
+            for i in range(1000):
+                yield f"t{i}"
+        def complete(self, *a, **k):
+            return ""
+    _inject(_Cap())
+
+    async def run():
+        gen = llm.stream_chat("m", [{"role": "user", "content": "x"}])
+        async for _tok in gen:          # recebe o 1º token → worker já começou
+            await gen.aclose()          # "parar"
+            break
+
+    asyncio.run(run())
+    assert captured["cancel"] is not None
+    assert captured["cancel"].is_set()  # o finally do stream_chat cancelou a geração
 
 
 def test_stream_chat_propaga_erro_do_worker():

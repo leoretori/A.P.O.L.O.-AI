@@ -74,10 +74,18 @@ async def stream_chat(
     provider = get_provider()
     q: asyncio.Queue = asyncio.Queue()
     loop = asyncio.get_running_loop()
+    # Aborto cooperativo: se o cliente fechar a conexão (clicou "parar"), o
+    # consumidor fecha este gerador → o `finally` dispara `cancel`, a thread para de
+    # gerar e LIBERA o lock do motor na hora (senão seguiria até o teto travando o
+    # estudo, que usa o mesmo 1.5B).
+    cancel = threading.Event()
 
     def worker():
         try:
-            for piece in provider.stream(model, messages, options=options, keep_alive=keep_alive):
+            for piece in provider.stream(model, messages, options=options,
+                                         keep_alive=keep_alive, cancel=cancel):
+                if cancel.is_set():
+                    break
                 loop.call_soon_threadsafe(q.put_nowait, ("token", piece))
         except Exception as e:  # noqa: BLE001 — propagado ao consumidor
             loop.call_soon_threadsafe(q.put_nowait, ("error", e))
@@ -85,13 +93,16 @@ async def stream_chat(
             loop.call_soon_threadsafe(q.put_nowait, ("end", None))
 
     threading.Thread(target=worker, daemon=True).start()
-    while True:
-        kind, val = await q.get()
-        if kind == "end":
-            break
-        if kind == "error":
-            raise val
-        yield val
+    try:
+        while True:
+            kind, val = await q.get()
+            if kind == "end":
+                break
+            if kind == "error":
+                raise val
+            yield val
+    finally:
+        cancel.set()  # consumidor saiu (parar/desconexão/erro) → encerra a geração
 
 
 async def warmup(model: str) -> None:

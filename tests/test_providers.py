@@ -94,6 +94,45 @@ def test_llamacpp_serializa_geracoes_no_mesmo_modelo(monkeypatch):
     assert overlaps == []                          # nenhuma sobreposição = serializado
 
 
+def test_llamacpp_stream_aborta_com_cancel_e_libera_lock(monkeypatch):
+    # "Parar" no front aborta o fetch → o consumidor sinaliza `cancel`. A geração
+    # tem que ENCERRAR (não seguir até o teto) e LIBERAR o lock, senão o estudo (mesmo
+    # 1.5B) fica travado esperando o lock. Era o bug do "gerou até 132 mesmo parando".
+    import threading
+    monkeypatch.setenv("LLAMACPP_MODELS", "m=x.gguf")
+    p = LlamaCppProvider()
+    cancel = threading.Event()
+
+    class _FakeLlama:
+        def create_chat_completion(self, messages, stream=False, **kw):
+            assert stream is True
+            def gen():
+                for i in range(1000):                # "runaway" — mil tokens
+                    yield {"choices": [{"delta": {"content": f"t{i} "}}]}
+            return gen()
+
+    p._loaded["x.gguf"] = _FakeLlama()
+    p._locks["x.gguf"] = threading.Lock()
+
+    out = []
+    for i, piece in enumerate(p.stream("m", [{"role": "user", "content": "oi"}], cancel=cancel)):
+        out.append(piece)
+        if i == 4:
+            cancel.set()                              # usuário clicou "parar"
+    assert len(out) <= 6                              # parou logo após o cancel
+    # O `with lock` saiu ao quebrar o laço → o lock está livre (estudo pode seguir).
+    assert p._locks["x.gguf"].acquire(blocking=False)
+    p._locks["x.gguf"].release()
+
+
+def test_ollama_stream_aborta_com_cancel():
+    p = _ollama_provider_with_fake()
+    import threading
+    cancel = threading.Event()
+    cancel.set()                                      # já cancelado antes do 1º chunk
+    assert list(p.stream("qwen:3b", [{"role": "user", "content": "oi"}], cancel=cancel)) == []
+
+
 def test_opts_traduz_num_predict_para_max_tokens(monkeypatch):
     monkeypatch.delenv("LLAMACPP_MAX_TOKENS", raising=False)
     monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
