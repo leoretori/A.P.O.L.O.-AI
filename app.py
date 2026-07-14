@@ -277,7 +277,10 @@ async def _scheduler_loop():
                             kind="info")
                         logger.warning(f"[rotina] {r['name']} falhou: {res.get('error')}")
             except Exception as e:
-                logger.debug(f"[rotina] loop: {e}")
+                # warning (não debug): um bug de código aqui (NameError/AttributeError)
+                # já ficou invisível uma vez — "buscados:0" por meses, sem sinal visível,
+                # porque o debug não aparece nos logs padrão (INFO). Ver lição na memória.
+                logger.warning(f"[rotina] loop: {e}")
 
             # Backup cifrado automático (M11 11.2): 1x/dia a partir de BACKUP_HOUR,
             # se houver senha no .env. Nada em texto puro; poda os antigos.
@@ -336,7 +339,7 @@ async def _scheduler_loop():
                     db.mark_reminder_notified(rem["id"])
                     logger.info(f"[reminder] vencido → avisado: {rem['text'][:60]}")
             except Exception as e:
-                logger.debug(f"[reminder] resurface: {e}")
+                logger.warning(f"[reminder] resurface: {e}")
 
             # Briefing diário (M4 4.1): a partir de BRIEFING_HOUR, uma vez por dia,
             # o A.P.O.L.O. te aborda primeiro com o resumo do dia (vira notificação;
@@ -353,7 +356,7 @@ async def _scheduler_loop():
                         db.add_notification(f"☀️ {b['text'][:400]}", kind="briefing")
                         logger.info("[briefing] briefing diário enviado")
                     except Exception as e:
-                        logger.debug(f"[briefing] {e}")
+                        logger.warning(f"[briefing] {e}")
 
             # Flywheel noturno do Nano (M25.3): 1x/dia a partir de FLYWHEEL_HOUR,
             # o Qwen destila as conversas reais e o Nano treina um candidato —
@@ -394,7 +397,12 @@ async def _scheduler_loop():
                         except Exception as e:
                             logger.warning(f"[flywheel] ciclo falhou: {e}")
         except Exception as e:
-            logger.debug(f"[scheduler] loop: {e}")
+            # warning (não debug): esta é a rede de segurança de TODA a tick do
+            # scheduler (agenda/rotinas/backup/idle/sono/lembretes/briefing/flywheel).
+            # Um bug de código em qualquer parte cairia aqui e, em debug, ficaria
+            # invisível para sempre (o log do usuário roda em INFO) - foi exatamente
+            # o "buscados:0" que passou meses sem sinal. Ver lição na memória.
+            logger.warning(f"[scheduler] loop: {e}")
         await asyncio.sleep(60)
 
 
