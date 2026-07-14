@@ -4345,6 +4345,43 @@
     }
   }
 
+  // ── Calibração do limiar de memória (MEMORY_MIN_RELEVANCE) ────
+  async function recallCalibration() {
+    const body = document.getElementById('mind-body');
+    body.innerHTML = '<div id="mind-loading">📊 Medindo a distribuição real de scores...</div>';
+    try {
+      const d = await fetch('/api/knowledge/recall/calibration').then(r => r.json());
+      body.innerHTML = renderCalibration(d);
+    } catch(e) {
+      body.innerHTML = `<div class="mind-empty">Erro ao medir: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderCalibration(d) {
+    if (!d.enabled) {
+      return `<div class="cur-head">${escHtml(d.reason || 'Indisponível.')}</div>
+              <button class="cur-back" onclick="loadMind()">← Voltar</button>`;
+    }
+    if (!d.scores_coletados) {
+      return `<div class="cur-head">${d.queries_amostradas} pergunta(s) reais, mas nenhuma trouxe memória semântica ainda — sem dado suficiente pra calibrar.</div>
+              <button class="cur-back" onclick="loadMind()">← Voltar</button>`;
+    }
+    const rows = Object.entries(d.por_limiar_candidato || {}).map(([t, v]) => {
+      const isCurrent = Math.abs(parseFloat(t) - d.limiar_atual) < 0.005;
+      return `<div class="cur-dup" ${isCurrent ? 'style="border-color:var(--sun)"' : ''}>
+        limiar ${t}${isCurrent ? ' (atual)' : ''} → passariam <b>${v.passariam}</b>, cortados <b>${v.seriam_cortados}</b>
+      </div>`;
+    }).join('');
+    return `
+      <div class="cur-head">📊 <b>${d.scores_coletados} score(s)</b> de ${d.queries_amostradas} pergunta(s) reais
+        (${d.queries_sem_nenhum_resultado} sem nenhum resultado).
+        Distribuição: min ${d.min} · p25 ${d.p25} · mediana ${d.mediana} · p75 ${d.p75} · max ${d.max}.
+        No limiar atual (${d.limiar_atual}), <b>${d.passariam_no_limiar_atual}</b> passariam.</div>
+      <div class="cur-actions"><button class="cur-back" onclick="loadMind()">← Voltar</button></div>
+      ${rows}
+      <div class="cur-head" style="margin-top:14px;font-size:12px;color:#888">Isto é só um relatório — não muda nada. Trocar o limiar é uma linha em .env (MEMORY_MIN_RELEVANCE) e exige reiniciar o app.</div>`;
+  }
+
   const SECTOR_LABELS = {
     backend_apis:'⚙️ Backend & APIs', frontend_web:'🎨 Frontend & Web', mobile:'📱 Mobile',
     data_ml:'🤖 Data & ML', systems_languages:'🦀 Sistemas & Linguagens', devops_cloud:'☁️ DevOps & Cloud',

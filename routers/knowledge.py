@@ -97,6 +97,22 @@ async def knowledge_stats():
     return {"enabled": True, **stats}
 
 
+@router.get("/api/knowledge/recall/calibration")
+async def knowledge_recall_calibration(limit: int = 40):
+    """Instrumento (só leitura) para calibrar MEMORY_MIN_RELEVANCE com dado real:
+    roda o recall semântico contra perguntas REAIS já feitas (não sintéticas) e
+    mostra a distribuição de scores + quantos passariam em cada limiar candidato.
+    Não muda nada — a decisão de trocar o limiar é uma linha em .env, do Leo."""
+    if not rt.memory or not rt.db:
+        return {"enabled": False, "reason": "memória ou banco indisponível"}
+    from src.recall_calibration import calibrate
+    queries = await asyncio.to_thread(rt.db.first_user_messages, limit)
+    if not queries:
+        return {"enabled": False, "reason": "sem perguntas reais no banco ainda"}
+    result = await asyncio.to_thread(calibrate, rt.memory, queries)
+    return {"enabled": True, **result}
+
+
 @router.get("/api/knowledge/graph")
 async def knowledge_graph():
     """Mapa de conhecimento: centro (A.P.O.L.O.) → setores → tópicos de exemplo.
