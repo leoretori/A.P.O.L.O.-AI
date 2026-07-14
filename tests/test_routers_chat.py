@@ -61,6 +61,43 @@ def test_chat_fast_path_streama_e_persiste(monkeypatch):
     assert ("assistant", "Olá!") in saved
 
 
+def test_chat_comum_nao_executa_codigo_da_resposta(monkeypatch):
+    """Código no chat COMUM é ilustrativo — quem executa de verdade é o Modo
+    Agente (/api/agent), caminho separado. Rodar aqui sem essa intenção explícita
+    gerava falsos 'erros' quando o modelo escrevia um exemplo (import imaginado)
+    que nunca deveria ser executado (achado ao vivo: pergunta conceitual sobre
+    auto-melhoria → o modelo ilustrou código → o app tentou rodar e falhou)."""
+    async def fake_stream_chat(model, messages, keep_alive=None):
+        yield "Aqui vai um exemplo:\n```python\nimport modulo_inventado\n```\n"
+    monkeypatch.setattr(chat_mod, "stream_chat", fake_stream_chat)
+
+    class _BoomExecutor:
+        def run(self, code):
+            raise AssertionError("chat comum não deve executar código — isso é o Modo Agente")
+
+    class FakeDB:
+        def load_session(self, sid): return None
+        def save_message(self, sid, role, content): pass
+        def save_execution(self, d): pass
+
+    rt.configure(rag=None, knowledge_db=None, learner=None, profile=None,
+                 project_mem=None, db=FakeDB(), executor=_BoomExecutor(), gpu_gate=None,
+                 sessions=defaultdict(list), session_summaries={},
+                 model="qwen2.5-coder:14b", get_chat_model=lambda: "qwen2.5-coder:3b",
+                 get_vision_model=lambda: "")
+
+    r = _client().post("/api/chat", json={
+        "message": "como você poderia melhorar seu próprio código?", "session_id": "s-code"})
+    assert r.status_code == 200
+    eventos = [json.loads(ln[6:]) for ln in r.text.splitlines() if ln.startswith("data: ")]
+    done = eventos[-1]
+    assert done["type"] == "done"
+    assert done["has_code"] is True          # o código aparece pra leitura...
+    assert "import modulo_inventado" in done["code"]
+    assert done["success"] is None           # ...mas NUNCA foi executado
+    assert done["output"] == "" and done["error"] == ""
+
+
 def test_chat_recall_passa_pelo_memory_fabric(monkeypatch):
     """Mensagem longa (não fast-path) → o recall semântico do chat vai pelo
     MemoryFabric. A memória recuperada vira memory_sources no evento 'done'."""

@@ -485,14 +485,13 @@ async def chat(req: cc.ChatRequest):
             explanation = extract_explanation(full_response)
             has_code = "```" in full_response
 
+            # NÃO executa automaticamente: código no chat comum é ilustrativo (o
+            # usuário pode ter feito uma pergunta conceitual, não pedido pra rodar
+            # nada). Execução de verdade é o "Modo Agente" (/api/agent), que já
+            # existe pra isso — rodar aqui sem essa intenção explícita gerava
+            # falsos "erros" quando o modelo escrevia um exemplo (ex.: import
+            # imaginado) que nunca deveria ser executado.
             exec_result = None
-            if has_code and code:
-                exec_result = rt.executor.run(code)
-                if exec_result.success and rt.rag:
-                    rt.rag.add_example(
-                        content=f"# Pedido: {request}\n\n{code}",
-                        doc_id=f"gerado_{hash(request) & 0xFFFFFF}",
-                    )
 
             rt.db.save_execution({
                 "timestamp": datetime.now().isoformat(),
