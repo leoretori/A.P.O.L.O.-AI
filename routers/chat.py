@@ -113,7 +113,7 @@ async def _maybe_extract_fact(message: str) -> None:
             if rt.profile.propose(fact, "fact", source="auto"):
                 logger.info(f"[profile] candidato proposto (LLM): {fact[:60]}")
     except Exception as e:
-        logger.debug(f"fact extract: {e}")
+        logger.warning(f"fact extract: {e}")
 
 
 async def _maybe_extract_reminder(message: str, session_id: str = "") -> None:
@@ -132,7 +132,7 @@ async def _maybe_extract_reminder(message: str, session_id: str = "") -> None:
                     rt.db.add_notification,
                     f"⏰ Anotei: {r['text'][:80]}", "reminder", "")
     except Exception as e:
-        logger.debug(f"reminder extract: {e}")
+        logger.warning(f"reminder extract: {e}")
 
 
 async def _update_session_summary(session_id: str) -> None:
@@ -161,7 +161,7 @@ async def _update_session_summary(session_id: str) -> None:
                 all_msgs = rt.sessions.get(session_id, [])
                 await asyncio.to_thread(_index_episodic, session_id, title, all_msgs, rt.rag, text)
     except Exception as e:
-        logger.debug(f"summary: {e}")
+        logger.warning(f"summary: {e}")
 
 
 @router.post("/api/chat")
