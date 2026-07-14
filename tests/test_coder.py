@@ -9,6 +9,27 @@ def ws(tmp_path):
     return CoderWorkspace(root=str(tmp_path / "workspace"))
 
 
+# ── is_empty: barreira contra rodar o loop num workspace vazio ────
+def test_is_empty_workspace_novo(ws):
+    assert ws.is_empty() is True
+
+
+def test_is_empty_falso_com_arquivo(ws):
+    ws.write_file("app.py", "print('oi')\n")
+    assert ws.is_empty() is False
+
+
+def test_is_empty_ignora_git_e_pycache(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+    (root / ".git").mkdir()
+    (root / ".git" / "HEAD").write_text("ref: refs/heads/main")
+    (root / "__pycache__").mkdir()
+    (root / "__pycache__" / "x.pyc").write_bytes(b"\x00")
+    ws = CoderWorkspace(root=str(root))
+    assert ws.is_empty() is True   # só lixo de VCS/cache — nenhum arquivo "real"
+
+
 # ── Segurança: confinamento ───────────────────────────────────
 def test_escrever_e_ler(ws):
     msg = ws.write_file("app.py", "print('oi')\n")

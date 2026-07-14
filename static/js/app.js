@@ -1051,7 +1051,7 @@
         signal: _coderAbort.signal
       });
       const reader = resp.body.getReader();
-      const dec = new TextDecoder(); let buf = '', answer = '';
+      const dec = new TextDecoder(); let buf = '', answer = '', hadError = false;
       while (true) {
         const {done, value} = await reader.read();
         if (done) break;
@@ -1067,13 +1067,17 @@
           else if (d.type === 'cmd_line') addCmdLine(d.content);
           else if (d.type === 'token') answer += d.content;
           else if (d.type === 'done') answer = d.answer || answer;
-          else if (d.type === 'error') addStep('❌', d.message);
+          else if (d.type === 'error') { addStep('❌', d.message); hadError = true; }
         }
       }
-      const fin = document.createElement('div');
-      fin.style.cssText = 'margin-top:10px;padding:10px;background:#0e2b27;border:1px solid #1e5b52;border-radius:8px;color:#d7fff7;white-space:pre-wrap;line-height:1.5';
-      fin.innerHTML = '<b>✅ Concluído</b>\n' + escHtml(answer.trim() || 'Tarefa encerrada — veja o workspace ao lado.');
-      trace.appendChild(fin); trace.scrollTop = trace.scrollHeight;
+      // Sem isto, uma tarefa barrada ANTES de rodar (ex.: workspace vazio) mostrava
+      // "❌ erro" seguido de uma caixa verde "✅ Concluído" logo abaixo — contraditório.
+      if (!hadError) {
+        const fin = document.createElement('div');
+        fin.style.cssText = 'margin-top:10px;padding:10px;background:#0e2b27;border:1px solid #1e5b52;border-radius:8px;color:#d7fff7;white-space:pre-wrap;line-height:1.5';
+        fin.innerHTML = '<b>✅ Concluído</b>\n' + escHtml(answer.trim() || 'Tarefa encerrada — veja o workspace ao lado.');
+        trace.appendChild(fin); trace.scrollTop = trace.scrollHeight;
+      }
     } catch (e) {
       if (e.name === 'AbortError') addStep('⏹', 'Tarefa interrompida por você. As alterações já feitas estão no histórico (dá para desfazer).');
       else addStep('❌', 'Falha: ' + e.message);

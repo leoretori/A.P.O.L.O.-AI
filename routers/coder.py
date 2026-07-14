@@ -133,6 +133,21 @@ async def coder(req: cc.ChatRequest):
         answer = ""
         t0 = _time.time()
         try:
+            # Barreira ANTES de gastar qualquer geração: workspace vazio (a pasta
+            # padrão ./workspace, uma demo) não tem os arquivos que a tarefa
+            # provavelmente pede. Sem isto, o Coder tenta ler o que não existe,
+            # roda em loop de LER/LISTAR fracassados por minutos e no fim "conclui"
+            # sem ter feito nada — visto ao vivo: reaproveitar uma tarefa antiga
+            # com "Executar" depois de reiniciar o app (o ponteiro da cópia sandbox
+            # é só memória de processo, zera no restart) caiu direto aqui.
+            if await asyncio.to_thread(coder_ws.is_empty):
+                yield _ev({"type": "error",
+                           "message": "Workspace vazio — nada pra ler/editar aqui. Se você "
+                                      "queria trabalhar numa cópia do projeto (automelhoria), "
+                                      "clique 🧬 Auto-melhorar de novo (o ponteiro da cópia "
+                                      "reseta a cada reinício do app). Ou selecione uma pasta "
+                                      "com arquivos em 📁 Pasta / Procurar."})
+                return
             system_content = CODER_SYSTEM + CODER_DOCTRINE + CODER_TREE_SECTION.format(tree=coder_ws.tree())
             # Memória de Projeto: se há um projeto memorizado (🎯), o Coder conhece
             # a stack/dependências desde o 1º passo — mesmo contexto que o chat usa.

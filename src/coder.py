@@ -162,6 +162,24 @@ class CoderWorkspace:
         logger.info(f"Coder workspace alterado para: {self.root}")
         return {"ok": True, "root": str(self.root)}
 
+    def is_empty(self) -> bool:
+        """True se o workspace não tem NENHUM arquivo — sinal de que aponta para a
+        pasta padrão (./workspace, uma demo vazia) e não para um projeto/cópia de
+        verdade. Barato: para na 1ª entrada encontrada, não varre tudo.
+
+        Existe para barrar uma tarefa ANTES de gastar minutos de geração: se o
+        Coder roda contra um workspace vazio, ele tenta ler arquivos que não
+        existem, entra num loop de LER/LISTAR fracassados, e no fim 'conclui'
+        mesmo sem ter feito nada — visto ao vivo (2026-07-14): reaproveitar uma
+        tarefa antiga com 'Executar' após reiniciar o app (o ponteiro da cópia
+        sandbox é só memória de processo, zera no restart)."""
+        for p in self.root.rglob("*"):
+            if ".git" in p.parts or "__pycache__" in p.parts:
+                continue
+            if p.is_file():
+                return False
+        return True
+
     def open_in_vscode(self, rel: str = "") -> dict:
         """Abre o workspace (ou um arquivo específico) no VS Code via CLI `code`.
         Com `rel:linha` posiciona o cursor na linha (ex.: 'app.py:42').
