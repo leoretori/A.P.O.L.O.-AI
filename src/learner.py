@@ -377,7 +377,10 @@ class LearningEngine:
                         await self._fetch_and_enqueue_search(topic, "self_directed", "auto_curriculum")
                         continue
                 except Exception as e:
-                    logger.debug(f"[{agent.name}] priority fetch error: {e}")
+                    # warning (não debug): foi um except+debug igual a este que
+                    # escondeu o NameError do fetch_page_text por meses ("buscados:0",
+                    # ver lição na memória). Erro de código não pode sumir em silêncio.
+                    logger.warning(f"[{agent.name}] priority fetch error: {e}")
                     await asyncio.sleep(1)
 
             # Fetch normal do agente
@@ -414,9 +417,11 @@ class LearningEngine:
                     await self._fetch_and_enqueue_search(topic, agent.category, agent.name)
 
             except asyncio.TimeoutError:
-                logger.debug(f"[{agent.name}] fetch timeout")
+                logger.debug(f"[{agent.name}] fetch timeout")   # esperado (rede lenta)
             except Exception as e:
-                logger.debug(f"[{agent.name}] fetch error: {e}")
+                # warning: este é o caminho exato do bug original (fetch_page_text
+                # NameError, engolido aqui em debug, parou o aprendizado sem sinal).
+                logger.warning(f"[{agent.name}] fetch error: {e}")
             finally:
                 agent.active = False
                 agent.current_topic = ""
@@ -446,7 +451,7 @@ class LearningEngine:
                 self._fetched_count += 1
                 enqueued = True
         except Exception as e:
-            logger.debug(f"[search] {topic[:40]}: {e}")
+            logger.warning(f"[search] {topic[:40]}: {e}")
         finally:
             if not enqueued:
                 self._release(topic)
@@ -539,53 +544,61 @@ class LearningEngine:
             await asyncio.sleep(30)
             if not self.running:
                 break
-            cycle += 1
-            q = self._fetch_queue.qsize()
-            logger.info(
-                f"A.P.O.L.O. pipeline — fila:{q} | salvos:{self._saved_count} | "
-                f"buscados:{self._fetched_count}"
-            )
-            # M8 8.1: recall ativo periódico (~10 min). Só RAG+DB, sem LLM → não
-            # concorre com o summarizer; re-enfileira o que o A.P.O.L.O. esqueceu.
-            if cycle % 20 == 0:
-                asyncio.create_task(self._run_active_recall())
-            # Sem progresso (nem salvou, nem buscou) desde o último ciclo?
-            no_progress = (self._saved_count == prev_saved and
-                           self._fetched_count == prev_fetched)
-            prev_saved, prev_fetched = self._saved_count, self._fetched_count
-            if no_progress:
-                stalled_cycles += 1
-            else:
-                stalled_cycles = 0
-                stall_notified = False
-            # ~1 min sem progresso e a fila auto-dirigida vazia → provável ROTAÇÃO
-            # ESGOTADA (tudo já estudado). Gera currículo novo via LLM p/ destravar
-            # (não espera os 2 min do WARNING — recuperação é melhor que só avisar).
-            # Reincide a cada ~1 min enquanto parado (se uma geração vier vazia, tenta
-            # de novo); o flag _replenishing evita sobreposição.
-            if (stalled_cycles >= 2 and stalled_cycles % 2 == 0
-                    and self._self_queue.empty()
-                    and not self._llm_down and not self._replenishing):
-                logger.info("[curriculo] rotação parece esgotada — gerando temas novos…")
-                asyncio.create_task(self._replenish_curriculum())
-            # ~2 min parado com o motor ligado → algo travou; exponha a causa provável.
-            if stalled_cycles >= 4:
-                causa = ("Ollama fora do ar" if self._llm_down else
-                         "fila cheia (summarizer preso)" if q >= FETCH_QUEUE_MAX else
-                         "sem tópicos novos (agentes esgotados / rede)")
-                logger.warning(
-                    f"[pipeline] ⚠️ SEM PROGRESSO há ~{stalled_cycles * 30}s — "
-                    f"provável: {causa} | fila:{q} in-flight:{len(self._inflight)} "
-                    f"llm_down:{self._llm_down} self_q:{self._self_queue.qsize()}"
+            try:
+                cycle += 1
+                q = self._fetch_queue.qsize()
+                logger.info(
+                    f"A.P.O.L.O. pipeline — fila:{q} | salvos:{self._saved_count} | "
+                    f"buscados:{self._fetched_count}"
                 )
-                if self.db and not stall_notified:
-                    stall_notified = True
-                    try:
-                        self.db.add_notification(
-                            f"⚠️ Aprendizado sem progresso — {causa}. Verifique.",
-                            kind="info")
-                    except Exception:
-                        pass
+                # M8 8.1: recall ativo periódico (~10 min). Só RAG+DB, sem LLM → não
+                # concorre com o summarizer; re-enfileira o que o A.P.O.L.O. esqueceu.
+                if cycle % 20 == 0:
+                    asyncio.create_task(self._run_active_recall())
+                # Sem progresso (nem salvou, nem buscou) desde o último ciclo?
+                no_progress = (self._saved_count == prev_saved and
+                               self._fetched_count == prev_fetched)
+                prev_saved, prev_fetched = self._saved_count, self._fetched_count
+                if no_progress:
+                    stalled_cycles += 1
+                else:
+                    stalled_cycles = 0
+                    stall_notified = False
+                # ~1 min sem progresso e a fila auto-dirigida vazia → provável ROTAÇÃO
+                # ESGOTADA (tudo já estudado). Gera currículo novo via LLM p/ destravar
+                # (não espera os 2 min do WARNING — recuperação é melhor que só avisar).
+                # Reincide a cada ~1 min enquanto parado (se uma geração vier vazia, tenta
+                # de novo); o flag _replenishing evita sobreposição.
+                if (stalled_cycles >= 2 and stalled_cycles % 2 == 0
+                        and self._self_queue.empty()
+                        and not self._llm_down and not self._replenishing):
+                    logger.info("[curriculo] rotação parece esgotada — gerando temas novos…")
+                    asyncio.create_task(self._replenish_curriculum())
+                # ~2 min parado com o motor ligado → algo travou; exponha a causa provável.
+                if stalled_cycles >= 4:
+                    causa = ("Ollama fora do ar" if self._llm_down else
+                             "fila cheia (summarizer preso)" if q >= FETCH_QUEUE_MAX else
+                             "sem tópicos novos (agentes esgotados / rede)")
+                    logger.warning(
+                        f"[pipeline] ⚠️ SEM PROGRESSO há ~{stalled_cycles * 30}s — "
+                        f"provável: {causa} | fila:{q} in-flight:{len(self._inflight)} "
+                        f"llm_down:{self._llm_down} self_q:{self._self_queue.qsize()}"
+                    )
+                    if self.db and not stall_notified:
+                        stall_notified = True
+                        try:
+                            self.db.add_notification(
+                                f"⚠️ Aprendizado sem progresso — {causa}. Verifique.",
+                                kind="info")
+                        except Exception:
+                            pass
+            except Exception as e:
+                # O PRÓPRIO monitor de stall não pode morrer em silêncio: sem este
+                # guard, uma exceção aqui matava a task pra sempre e ninguém saberia
+                # (uma exceção não tratada numa asyncio.Task não passa pelo logger da
+                # app — só aparece, se muito, como "Task exception was never
+                # retrieved" no stderr cru, quando a task for coletada).
+                logger.warning(f"[pipeline] monitor de stall falhou (segue vivo): {e}")
 
     async def _save_and_record(self, item: LearnedItem) -> None:
         # M8 8.2: guarda a síntese anterior deste tópico (se houver) p/ comparar fatos.
