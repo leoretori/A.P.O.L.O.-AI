@@ -251,6 +251,13 @@ async def _scheduler_loop():
     while True:
         tick += 1
         try:
+            # Modo de presença (M23.3): calculado 1x por tick, usado abaixo para
+            # decidir quais avisos de BAIXA prioridade saem agora ("sem
+            # incomodar" no modo descanso). O estudo em si NUNCA para — só o
+            # aviso fica quieto; aprender 24/7 é o comportamento certo.
+            from src.presence import current_mode, should_notify
+            _presence_mode = current_mode(datetime.now())
+
             due = await asyncio.to_thread(db.due_schedules, datetime.now())
             for sch in due:
                 logger.info(f"[scheduler] ⏰ Estudo agendado: {sch['topic'][:60]} ({sch['time_of_day']})")
@@ -261,8 +268,9 @@ async def _scheduler_loop():
                         ok = isinstance(res, dict) and res.get("ok")
                         msg = (f"📚 Estudei (agendado): {sch['topic'][:80]}" if ok
                                else f"⚠️ Estudo agendado '{sch['topic'][:60]}' não encontrou material")
-                        db.add_notification(msg, kind="study",
-                                            link=(res.get("url") if ok else "") or "")
+                        if should_notify("study", _presence_mode):
+                            db.add_notification(msg, kind="study",
+                                                link=(res.get("url") if ok else "") or "")
                     except Exception as e:
                         logger.warning(f"[scheduler] erro ao estudar {sch['topic'][:40]}: {e}")
                         db.add_notification(f"❌ Falha no estudo agendado: {sch['topic'][:60]}", kind="study")

@@ -67,3 +67,45 @@ class PresenceMonitor:
         stale = [k for k, t in self._notified.items() if t < cutoff]
         for k in stale:
             del self._notified[k]
+
+
+# ── Modos de presença (M23.3) — o Apolo se comporta conforme o momento do dia ──
+DEFAULT_REST_START_HOUR = 23   # descanso: 23h–7h (atravessa a meia-noite)
+DEFAULT_REST_END_HOUR = 7
+DEFAULT_FOCUS_START_HOUR = 9   # foco: uma janela do período de trabalho
+DEFAULT_FOCUS_END_HOUR = 12
+
+MODE_LABELS = {"descanso": "😴 Descanso", "foco": "🎯 Foco", "trabalho": "💼 Trabalho"}
+
+# Kinds de baixa prioridade que o modo 'descanso' silencia ("sem incomodar").
+# O que é sensível a tempo (lembrete/briefing/aviso de agenda do 23.1) SEMPRE
+# avisa, não importa o modo — silenciar aquilo seria o oposto de presença útil.
+QUIET_KINDS_IN_REST = {"study", "info"}
+
+
+def current_mode(
+    now: datetime, *,
+    rest_start: int = DEFAULT_REST_START_HOUR,
+    rest_end: int = DEFAULT_REST_END_HOUR,
+    focus_start: int = DEFAULT_FOCUS_START_HOUR,
+    focus_end: int = DEFAULT_FOCUS_END_HOUR,
+) -> str:
+    """'descanso' / 'foco' / 'trabalho' pelo horário — determinístico, sem
+    LLM nem perfil (o horário sozinho já diz o essencial; personalizar por
+    hábito fica para um próximo incremento). `rest` atravessa a meia-noite
+    por padrão; fora das janelas configuradas, o padrão é 'trabalho'."""
+    h = now.hour
+    in_rest = (h >= rest_start or h < rest_end) if rest_start > rest_end \
+        else (rest_start <= h < rest_end)
+    if in_rest:
+        return "descanso"
+    if focus_start <= h < focus_end:
+        return "foco"
+    return "trabalho"
+
+
+def should_notify(kind: str, mode: str) -> bool:
+    """Decide se um aviso deste `kind` deve sair AGORA, dado o modo de
+    presença. Só 'descanso' filtra, e só os kinds de baixa prioridade — o
+    resto sempre avisa, porque é sensível a tempo."""
+    return not (mode == "descanso" and kind in QUIET_KINDS_IN_REST)

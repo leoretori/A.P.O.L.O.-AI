@@ -237,7 +237,14 @@ class ConversationsMixin:
     def add_notification(self, message: str, kind: str = "info", link: str = "") -> dict:
         """Cria um aviso já com PRIORIDADE por tipo (M4 4.3). Tipos de baixa
         prioridade (ex.: 'study') COLAPSAM num único aviso rolante — se já há um
-        não-lido do mesmo tipo na janela, incrementa a contagem em vez de spammar."""
+        não-lido do mesmo tipo na janela, incrementa a contagem em vez de spammar.
+
+        NÃO filtra por modo de presença (M23.3) aqui de propósito: `kind`
+        default é "info" e é chamado em centenas de lugares/testes — silenciar
+        na fonte tornaria o comportamento dependente do RELÓGIO da máquina em
+        todo teste que cria uma notificação sem querer testar isso. Quem quer
+        respeitar o modo 'descanso' chama `src.presence.should_notify` ANTES
+        de decidir se avisa (ver o scheduler em app.py)."""
         from datetime import timedelta
         from src.notifications import priority_for, collapses, collapsed_message, COLLAPSE_WINDOW_MIN
         message = message[:500]

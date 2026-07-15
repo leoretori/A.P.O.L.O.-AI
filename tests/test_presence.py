@@ -1,8 +1,15 @@
-"""Presença ambiente (M23, Épico 23.1) — avisa ANTES do compromisso chegar,
-não só quando perguntado. Núcleo determinístico, sem LLM."""
+"""Presença ambiente (M23, Épicos 23.1/23.3) — avisa ANTES do compromisso
+chegar (23.1) e se comporta conforme o momento do dia (23.3). Núcleo
+determinístico, sem LLM."""
 from datetime import datetime, timedelta
 
-from src.presence import PresenceMonitor, format_heads_up, heads_up_due
+from src.presence import (
+    PresenceMonitor,
+    current_mode,
+    format_heads_up,
+    heads_up_due,
+    should_notify,
+)
 
 
 def _ev(summary="Reunião", minutes_from_now=10, now=None, location=""):
@@ -97,3 +104,48 @@ def test_monitor_poda_entradas_com_mais_de_1_dia():
     depois = now + timedelta(days=2)
     mon._prune(depois)
     assert len(mon._notified) == 0
+
+
+# ── current_mode / should_notify (M23.3) ─────────────────────────
+def test_madrugada_e_descanso():
+    assert current_mode(datetime(2026, 7, 15, 2, 0)) == "descanso"
+    assert current_mode(datetime(2026, 7, 15, 23, 30)) == "descanso"
+
+
+def test_janela_de_foco_configuravel():
+    assert current_mode(datetime(2026, 7, 15, 10, 0)) == "foco"       # dentro (9-12 padrão)
+    assert current_mode(datetime(2026, 7, 15, 8, 30)) == "trabalho"    # antes do foco
+
+
+def test_resto_do_dia_e_trabalho():
+    assert current_mode(datetime(2026, 7, 15, 15, 0)) == "trabalho"
+    assert current_mode(datetime(2026, 7, 15, 20, 0)) == "trabalho"
+
+
+def test_limites_das_janelas_sao_inclusivos_no_inicio():
+    assert current_mode(datetime(2026, 7, 15, 23, 0)) == "descanso"   # rest_start exato
+    assert current_mode(datetime(2026, 7, 15, 7, 0)) == "trabalho"     # rest_end exato (já saiu)
+    assert current_mode(datetime(2026, 7, 15, 9, 0)) == "foco"         # focus_start exato
+    assert current_mode(datetime(2026, 7, 15, 12, 0)) == "trabalho"    # focus_end exato (já saiu)
+
+
+def test_janelas_customizadas_via_kwargs():
+    # foco à tarde, descanso mais cedo — configurável sem mexer no default
+    m = current_mode(datetime(2026, 7, 15, 14, 30),
+                     rest_start=21, rest_end=6, focus_start=13, focus_end=17)
+    assert m == "foco"
+
+
+def test_should_notify_silencia_baixa_prioridade_no_descanso():
+    assert should_notify("study", "descanso") is False
+    assert should_notify("info", "descanso") is False
+
+
+def test_should_notify_nao_silencia_o_sensivel_a_tempo_no_descanso():
+    assert should_notify("reminder", "descanso") is True
+    assert should_notify("briefing", "descanso") is True
+
+
+def test_should_notify_fora_do_descanso_sempre_libera():
+    assert should_notify("study", "foco") is True
+    assert should_notify("study", "trabalho") is True

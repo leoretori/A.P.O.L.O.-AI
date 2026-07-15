@@ -45,6 +45,15 @@ def test_briefing_compoe_resumo():
     assert "text" in body and body["text"].startswith(("Bom dia", "Boa tarde", "Boa noite"))
 
 
+def test_presence_mode_responde_um_dos_tres_modos():
+    c = TestClient(_app_with_router())
+    r = c.get("/api/presence/mode")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] in ("descanso", "foco", "trabalho")
+    assert body["label"]  # rótulo com emoji, não vazio
+
+
 def test_status_sem_learner_nao_quebra():
     rt.configure(learner=None, db=None, knowledge_db=None)
     c = TestClient(_app_with_router())

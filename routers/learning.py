@@ -194,6 +194,19 @@ async def briefing(hours: int = 12):
                                    rt.profile, hours)
 
 
+@router.get("/api/presence/mode")
+async def presence_mode():
+    """Modo de presença atual (M23, Épico 23.3): 'descanso'/'foco'/'trabalho'
+    pelo horário — determinístico. No modo descanso, avisos de baixa
+    prioridade (estudo/informativo) ficam em silêncio ("sem incomodar");
+    lembrete/briefing/agenda sempre avisam, não importa o modo."""
+    from datetime import datetime
+
+    from src.presence import MODE_LABELS, current_mode
+    mode = current_mode(datetime.now())
+    return {"mode": mode, "label": MODE_LABELS.get(mode, mode)}
+
+
 @router.get("/api/anticipations")
 async def anticipations(hours: int = 48):
     """Antecipação útil (M17.3): metas/projetos ativos que a atividade recente
