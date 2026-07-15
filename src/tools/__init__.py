@@ -42,3 +42,6 @@ from src.tools import files_move     # noqa: E402,F401  ação files.move (M21.1
 
 # ── Automação web em sandbox (M10 10.3) — read-only, allowlist de domínios ──
 from src.tools import browser        # noqa: E402,F401  tool browser.run
+
+# ── Visão + agência (M22 22.2) — o agente vê a tela sozinho, com consentimento ──
+from src.tools import vision as vision_tool  # noqa: E402,F401  tool vision.screen

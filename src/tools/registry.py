@@ -27,6 +27,7 @@ SCOPES: dict[str, str] = {
     "files.write": "Escrever/criar arquivos nas pastas que você autorizar (com prévia e desfazer)",
     "browser.control": "Automatizar tarefas de leitura na web, só nos domínios que você autorizar",
     "browser.interact": "Interagir na web (clicar/preencher/enviar), só nos domínios que você autorizar — com prévia de cada passo e confirmação dos que mudam algo",
+    "vision.screen": "Ver sua tela (captura + descrição) quando o A.P.O.L.O. decidir sozinho olhar, ao responder uma pergunta",
 }
 
 

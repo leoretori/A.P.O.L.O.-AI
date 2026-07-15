@@ -21,6 +21,9 @@ _RE_READ = re.compile(r"(?:l[êe]r?|leia|abr[ae]|mostr[ae]|resum[ae]).*?"
                       r"\barquivo\b\s+(?P<path>.+)$", re.I)
 _RE_SEARCH = re.compile(r"\b(?:busca[r]?|procur[ae]|encontr[ae]|list[ae])\b.*?"
                         r"\barquivos?\b(?P<q>.*)$", re.I)
+_RE_VISION = re.compile(r"\bminha tela\b|\bna tela\b|\btela agora\b|"
+                        r"screenshot|captura de tela|\bo que (você |vc )?v[êe]\b",
+                        re.I)
 
 
 def detect_intent(text: str) -> tuple[str, dict] | None:
@@ -41,6 +44,8 @@ def detect_intent(text: str) -> tuple[str, dict] | None:
         return "email.recent", {"since": t}          # a ferramenta extrai a janela
     if _RE_AGENDA.search(t):
         return "calendar.events", {"when": t}
+    if _RE_VISION.search(t):
+        return "vision.screen", {}
     return None
 
 
@@ -84,6 +89,16 @@ def _fmt_files_read(res: dict) -> str:
     return f"{res.get('path','')}:\n\n{head}{trunc}"
 
 
+def _fmt_vision_screen(res: dict) -> str:
+    if not res.get("ok"):
+        return f"Não consegui ver a tela: {res.get('error', 'erro desconhecido')}"
+    if res.get("described"):
+        return res.get("description") or "(sem descrição)"
+    if res.get("describe_error"):
+        return f"Capturei a tela, mas não consegui descrevê-la: {res['describe_error']}"
+    return "Capturei a tela."
+
+
 def _fmt_clock(res: dict) -> str:
     return (f"Agora são {res.get('time', '?')}, {res.get('weekday', '')}-feira "
             f"({res.get('date', '')}).").replace("sábado-feira", "sábado") \
@@ -96,6 +111,7 @@ _FORMATTERS = {
     "calendar.events": _fmt_calendar,
     "files.search": _fmt_files_search,
     "files.read": _fmt_files_read,
+    "vision.screen": _fmt_vision_screen,
 }
 
 

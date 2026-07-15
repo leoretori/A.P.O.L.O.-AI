@@ -41,6 +41,14 @@ def test_detecta_relogio():
     assert detect_intent("que dia é hoje") == ("clock", {})
 
 
+def test_detecta_visao_da_tela():
+    # M22.2: o agente vê a tela sozinho quando você pergunta sobre ela.
+    assert detect_intent("veja minha tela") == ("vision.screen", {})
+    assert detect_intent("o que tem na tela agora?")[0] == "vision.screen"
+    assert detect_intent("tira uma screenshot")[0] == "vision.screen"
+    assert detect_intent("o que você vê?")[0] == "vision.screen"
+
+
 def test_nao_entende_conversa_normal():
     assert detect_intent("qual a capital da França?") is None
     assert detect_intent("") is None
@@ -61,6 +69,17 @@ def test_formata_agenda_e_email():
     assert "Dentista" in cal and "14:00" in cal and "Clínica" in cal
     vazio = format_answer("calendar.events", {"count": 0, "when": "amanhã"})
     assert "Nada na agenda" in vazio
+
+
+def test_formata_visao_da_tela():
+    ok = format_answer("vision.screen", {"ok": True, "described": True,
+                                         "description": "um editor de código"})
+    assert ok == "um editor de código"
+    sem_modelo = format_answer("vision.screen",
+        {"ok": True, "described": False, "describe_error": "sem modelo de visão"})
+    assert "Capturei a tela" in sem_modelo and "sem modelo de visão" in sem_modelo
+    falhou = format_answer("vision.screen", {"ok": False, "error": "sem display"})
+    assert "Não consegui ver a tela" in falhou and "sem display" in falhou
 
 
 # ── Endpoint /api/agency/ask (porteira ponta-a-ponta) ─────────
@@ -95,6 +114,23 @@ def test_ask_agenda_ok_com_permissao(client, tmp_path):
                     json={"text": "o que tenho na agenda amanhã"}).json()
     assert d["ok"] is True and d["tool"] == "calendar.events"
     assert "Médico" in d["answer"]
+
+
+def test_ask_visao_negado_sem_permissao(client):
+    r = client.post("/api/agency/ask", json={"text": "veja minha tela"})
+    d = r.json()
+    assert d["ok"] is False and d["denied"] is True and d["tool"] == "vision.screen"
+
+
+def test_ask_visao_ok_com_permissao(client, monkeypatch):
+    rt.db.grant_permission("vision.screen")
+    monkeypatch.setattr("src.vision_read.capture_screen",
+                        lambda: {"ok": True, "size": [1, 1], "image_b64": "x"})
+    monkeypatch.setattr("src.tools.vision._describe",
+                        lambda image_b64, prompt: {"ok": True, "description": "uma planilha aberta"})
+    d = client.post("/api/agency/ask", json={"text": "o que tem na minha tela?"}).json()
+    assert d["ok"] is True and d["tool"] == "vision.screen"
+    assert d["answer"] == "uma planilha aberta"
 
 
 def test_ask_email_ok_com_permissao(client, monkeypatch):
