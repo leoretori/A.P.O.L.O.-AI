@@ -15,7 +15,9 @@ from src.nanollm.distill import (
     make_llm_teacher,
     run_distillation,
     run_knowledge_distillation,
+    run_reaction_distillation,
     source_knowledge_grounded_pairs,
+    source_reaction_pairs,
     source_title_inputs,
     write_distill_dataset,
 )
@@ -109,15 +111,19 @@ def test_write_sem_pares_falha(tokenizer, tmp_path):
 
 class _FakeDB:
     """Banco falso: o que o sourcing usa (first_user_messages + histórico)."""
-    def __init__(self, msgs, summaries=None):
+    def __init__(self, msgs, summaries=None, reaction_pairs=None):
         self._msgs = msgs
         self._summaries = summaries or []
+        self._reaction_pairs = reaction_pairs or []
 
     def first_user_messages(self, limit=300, min_len=8):
         return [m for m in self._msgs if len(m.strip()) >= min_len][:limit]
 
     def get_learning_history(self, limit=30):
         return [{"topic": f"t{i}", "summary": s} for i, s in enumerate(self._summaries)][:limit]
+
+    def positive_reaction_pairs(self, limit=300, min_len=8):
+        return self._reaction_pairs[:limit]
 
 
 class _FakeProvider:
@@ -253,3 +259,29 @@ def test_run_knowledge_distillation_sem_sinteses_falha(tokenizer, tmp_path):
     with pytest.raises(ValueError):
         run_knowledge_distillation(_FakeDB([], summaries=[]), tokenizer, tmp_path / "x",
                                    teacher_fn=lambda p: "P: a?\nR: b.")
+
+
+# ── reações (👍) viram par de treino direto, sem professor (2026-07-15) ──
+def test_source_reaction_pairs_valida_e_repassa():
+    db = _FakeDB([], reaction_pairs=[
+        ("O que é uma LLM?", "É um modelo de linguagem treinado em texto."),
+        ("pergunta lixo", "```codigo\nque nao deveria contar\n```"),  # inválida
+    ])
+    pairs = source_reaction_pairs(db)
+    assert pairs == [("O que é uma LLM?", "É um modelo de linguagem treinado em texto.")]
+
+
+def test_run_reaction_distillation(tokenizer, tmp_path):
+    db = _FakeDB([], reaction_pairs=[
+        ("O que é RAG?", "É busca aumentando o contexto antes de gerar a resposta."),
+        ("O que é Python?", "É uma linguagem de programação de propósito geral."),
+    ])
+    meta = run_reaction_distillation(db, tokenizer, tmp_path / "rd", val_fraction=0.34)
+    assert meta["task"] == "answer_distill_reactions" and meta["pairs"] == 2
+    assert "reações do Leo" in meta["source"]
+    assert (tmp_path / "rd" / "pairs.jsonl").exists()
+
+
+def test_run_reaction_distillation_sem_pares_falha(tokenizer, tmp_path):
+    with pytest.raises(ValueError):
+        run_reaction_distillation(_FakeDB([], reaction_pairs=[]), tokenizer, tmp_path / "x")

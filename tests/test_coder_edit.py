@@ -36,6 +36,27 @@ def test_edit_trecho_ambiguo_falha(ws):
     assert ws.current_content("m.py") == "x = 0\nx = 0\n"   # nada mudou
 
 
+def test_edit_com_indentacao_diferente_usa_match_aproximado(ws):
+    """Falha real do modelo local: copia o texto certo mas erra o espaçamento
+    (ex.: 2 espaços a mais/menos). Se o bloco bate ignorando espaços e é ÚNICO
+    no arquivo, edita direto em vez de exigir outra rodada do modelo."""
+    ws.write_file("m.py", "def f():\n    return 1\n\ndef g():\n    return 2\n")
+    out = ws.edit_file("m.py", "return  1", "return 42")   # 2 espaços — arquivo tem 1
+    assert out.startswith("OK") and "aproximada" in out
+    c = ws.current_content("m.py")
+    assert "return 42" in c and "return 2" in c
+
+
+def test_edit_match_aproximado_ambiguo_nao_edita(ws):
+    """Se o bloco ignorando espaços aparece 2x, não decide sozinho — cai no
+    fluxo normal de erro (ambíguo demais pra adivinhar)."""
+    original = "def f():\n    pass\n\ndef   f():\n    pass\n"
+    ws.write_file("m.py", original)
+    out = ws.edit_file("m.py", "def  f():", "def h():")   # 2 espaços — não bate literal em nenhuma
+    assert not out.startswith("OK")
+    assert ws.current_content("m.py") == original
+
+
 def test_edit_arquivo_inexistente(ws):
     out = ws.edit_file("nao_existe.py", "a", "b")
     assert "não encontrado" in out

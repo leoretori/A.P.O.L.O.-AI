@@ -8,6 +8,7 @@ no GpuGate — o aprendizado de fundo espera, nunca o contrário.
 """
 import asyncio
 import logging
+import os
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -102,7 +103,8 @@ async def _run_flywheel_bg(steps: int, min_pairs: int):
 
 class FlywheelRunRequest(BaseModel):
     steps: int = Field(default=400, ge=20, le=5000)
-    min_pairs: int = Field(default=12, ge=1, le=1000)
+    min_pairs: int = Field(default_factory=lambda: int(os.getenv("FLYWHEEL_MIN_PAIRS", 5)),
+                            ge=1, le=1000)
 
 
 @router.post("/api/nano/flywheel/run")

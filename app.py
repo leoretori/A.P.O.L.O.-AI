@@ -140,6 +140,9 @@ _last_backup_date = None
 # parado. -1 desliga (padrão: 3h da manhã). O treino roda em thread p/ não travar.
 FLYWHEEL_HOUR = int(os.getenv("FLYWHEEL_HOUR", 3))
 FLYWHEEL_STEPS = int(os.getenv("FLYWHEEL_STEPS", 400))
+# Piso de pares pro treino valer a pena (2026-07-15): 12 supõe volume que o Leo
+# ainda não tem — configurável pra destravar o ciclo com o corpus real de hoje.
+FLYWHEEL_MIN_PAIRS = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
 _last_flywheel_date = None
 
 db: DatabaseManager = None
@@ -379,7 +382,8 @@ async def _scheduler_loop():
                             from src.nanollm.flywheel import run_nightly_flywheel
                             logger.info("[flywheel] iniciando ciclo noturno do Nano…")
                             res = await asyncio.to_thread(
-                                run_nightly_flywheel, db, steps=FLYWHEEL_STEPS)
+                                run_nightly_flywheel, db, steps=FLYWHEEL_STEPS,
+                                min_pairs=FLYWHEEL_MIN_PAIRS)
                             st = res.get("status")
                             if st == "promoted":
                                 if rt.nano:            # serve o cérebro novo já

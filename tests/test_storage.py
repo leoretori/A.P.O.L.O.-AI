@@ -326,3 +326,31 @@ def test_diagnose_descarta_primeira_mensagem_curta(db):
     assert diag["com_1a_mensagem_valida"] == 1
     assert diag["descartadas_curtas_demais"] == 1
     assert "oi" in diag["amostra_descartadas"]
+
+
+# ── positive_reaction_pairs: 👍 vira par de treino direto ──────────
+def test_positive_reaction_pairs_so_pega_up_com_pergunta_e_resposta(db):
+    db.save_reaction("h1", "up", "s1", [], question="pergunta bem longa aqui",
+                     answer="resposta bem longa também aqui")
+    db.save_reaction("h2", "down", "s1", [], question="outra pergunta longa",
+                     answer="resposta ruim que não deveria contar")
+    db.save_reaction("h3", "up", "s1", [], question="curta", answer="")  # sem resposta
+    pares = db.positive_reaction_pairs()
+    assert pares == [("pergunta bem longa aqui", "resposta bem longa também aqui")]
+
+
+def test_positive_reaction_pairs_dedup_por_pergunta_mais_recente_vence(db):
+    db.save_reaction("h1", "up", "s1", [], question="pergunta repetida bem longa",
+                     answer="resposta antiga bem longa")
+    db.save_reaction("h2", "up", "s1", [], question="pergunta repetida bem longa",
+                     answer="resposta nova bem longa")
+    pares = db.positive_reaction_pairs()
+    assert pares == [("pergunta repetida bem longa", "resposta nova bem longa")]
+
+
+def test_diagnose_reporta_pares_de_reacoes(db):
+    db.save_message("s-longa", "user", "pergunta com tamanho suficiente")
+    db.save_reaction("h1", "up", "s1", [], question="pergunta bem longa aqui",
+                     answer="resposta bem longa também aqui")
+    diag = db.diagnose_pair_sourcing()
+    assert diag["pares_de_reacoes_up"] == 1

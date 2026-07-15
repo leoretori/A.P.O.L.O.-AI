@@ -199,6 +199,30 @@ class AnalyticsMixin:
         return {"samples": len(flags), "recent_rate": recent,
                 "prev_rate": prev, "trend": trend}
 
+    def positive_reaction_pairs(self, limit: int = 300, min_len: int = 8) -> list[tuple[str, str]]:
+        """Pares (pergunta, resposta) já aprovados com 👍 — o Leo já validou que a
+        resposta é boa, então NÃO precisa do professor rotular de novo: o próprio
+        veredito do Leo é o rótulo (2026-07-15, item da conversa sobre soberania).
+        Dedup por pergunta (mais recente vence); descarta pares curtos/sem resposta."""
+        with Session(self.engine) as s:
+            rows = (s.query(Reaction)
+                    .filter(Reaction.reaction == "up")
+                    .order_by(Reaction.created_at.desc()).all())
+        seen: set[str] = set()
+        out: list[tuple[str, str]] = []
+        for r in rows:
+            q, a = (r.question or "").strip(), (r.answer or "").strip()
+            if len(q) < min_len or len(a) < min_len:
+                continue
+            key = q[:80].lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((q, a))
+            if len(out) >= limit:
+                break
+        return out
+
     def reaction_stats(self) -> dict:
         """Contagem de 👍/👎 e fontes mais polarizadas (para o painel Analytics)."""
         import json as _json

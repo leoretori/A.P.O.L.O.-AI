@@ -4158,6 +4158,7 @@
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Sessões (conversas distintas)</span><span style="color:#cdd">${d.total_sessoes}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Com 1ª mensagem válida</span><span style="color:#4ade80">${d.com_1a_mensagem_valida}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Descartadas (curtas demais)</span><span style="color:#fbbf24">${d.descartadas_curtas_demais}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Pares de 👍 (rótulo direto, sem professor)</span><span style="color:#4ade80">${d.pares_de_reacoes_up ?? 0}</span></div>
       <div style="margin-top:8px;font-size:11px;color:#79798a;line-height:1.5">${escHtml(d.nota || '')}</div>
     </div>`;
   }

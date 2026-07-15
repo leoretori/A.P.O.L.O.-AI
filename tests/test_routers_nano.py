@@ -24,9 +24,16 @@ def test_diagnose_repassa_o_funil_do_banco():
         def diagnose_pair_sourcing(self):
             return {"total_sessoes": 5, "com_1a_mensagem_valida": 3,
                     "descartadas_curtas_demais": 2, "min_len": 8,
-                    "amostra_descartadas": ["oi"], "nota": "..."}
+                    "amostra_descartadas": ["oi"], "pares_de_reacoes_up": 4, "nota": "..."}
     rt.configure(db=_FakeDB())
     r = _client().get("/api/nano/flywheel/diagnose")
     d = r.json()
     assert d["enabled"] is True
     assert d["total_sessoes"] == 5 and d["com_1a_mensagem_valida"] == 3
+    assert d["pares_de_reacoes_up"] == 4
+
+
+def test_flywheel_run_min_pairs_padrao_usa_env(monkeypatch):
+    from routers.nano import FlywheelRunRequest
+    monkeypatch.setenv("FLYWHEEL_MIN_PAIRS", "7")
+    assert FlywheelRunRequest().min_pairs == 7

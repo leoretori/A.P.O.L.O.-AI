@@ -245,6 +245,39 @@ def source_knowledge_grounded_pairs(
     return pairs
 
 
+def source_reaction_pairs(db, *, limit: int = 300, min_len: int = 8) -> list[tuple[str, str]]:
+    """Pares pergunta→resposta que o Leo já avaliou com 👍 (2026-07-15): dispensa
+    o professor rotular de novo — a aprovação do Leo É o rótulo, direto na
+    distribuição real de diálogo (a mesma tarefa de `distill_answers`, só que
+    sem custo de professor e com veredito humano em vez de auto-avaliação)."""
+    pairs = db.positive_reaction_pairs(limit=limit, min_len=min_len)
+    return [(q, a) for q, a in pairs if _valid_answer(a)]
+
+
+def run_reaction_distillation(
+    db,
+    tokenizer_path: str | Path,
+    out_dir: str | Path,
+    *,
+    limit: int = 300,
+    val_fraction: float = 0.1,
+) -> dict:
+    """Destila os 👍 do Leo em dataset de treino (M-reações), ponta a ponta.
+    Dataset SEPARADO (task `answer_distill_reactions`) — mesma distribuição de
+    `distill_answers`, mas com rótulo humano em vez do professor Qwen."""
+    pairs = source_reaction_pairs(db, limit=limit)
+    if not pairs:
+        raise ValueError("sem 👍 aproveitáveis ainda — avalie algumas respostas "
+                         "com pergunta+resposta completas para gerar pares")
+    meta = write_distill_dataset(pairs, tokenizer_path, out_dir,
+                                 template=ANSWER_TEMPLATE, task="answer_distill_reactions",
+                                 val_fraction=val_fraction)
+    meta["source"] = "reações do Leo (👍 vira rótulo direto, sem professor)"
+    (Path(out_dir) / "meta.json").write_text(
+        json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
+    return meta
+
+
 def run_knowledge_distillation(
     db,
     tokenizer_path: str | Path,
@@ -345,9 +378,11 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Destila conhecimento do Qwen para o Apolo-Nano")
     p.add_argument("--tokenizer", required=True, help="caminho do tokenizer do checkpoint")
     p.add_argument("--out", default="", help="pasta de saída (padrão por fonte)")
-    p.add_argument("--source", choices=("conversations", "knowledge"), default="conversations",
+    p.add_argument("--source", choices=("conversations", "knowledge", "reactions"),
+                   default="conversations",
                    help="conversations → pergunta→título (distribuição de conversa); "
-                        "knowledge → Q&A ancorado nas sínteses dos 7 agentes (M28, isolado)")
+                        "knowledge → Q&A ancorado nas sínteses dos 7 agentes (M28, isolado); "
+                        "reactions → pergunta→resposta dos 👍 do Leo (rótulo humano direto)")
     p.add_argument("--limit", type=int, default=300, help="máx. de itens do banco")
     p.add_argument("--max-pairs", type=int, default=None, help="teto de pares (custo do professor)")
     args = p.parse_args(argv)
@@ -360,6 +395,10 @@ def main(argv: list[str] | None = None) -> int:
         meta = run_knowledge_distillation(db, args.tokenizer, out,
                                           limit=args.limit, max_pairs=args.max_pairs)
         print(f"✓ destilados {meta['pairs']} pares Q&A ancorados → {out}")
+    elif args.source == "reactions":
+        out = args.out or "data/nano/distill_reactions"
+        meta = run_reaction_distillation(db, args.tokenizer, out, limit=args.limit)
+        print(f"✓ destilados {meta['pairs']} pares dos 👍 do Leo → {out}")
     else:
         out = args.out or "data/nano/distill_titles"
         meta = run_distillation(db, args.tokenizer, out,

@@ -88,6 +88,33 @@ def extract_fenced(text: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _normalize_line(s: str) -> str:
+    return re.sub(r"\s+", " ", s.strip())
+
+
+def _fuzzy_find_block(before: str, old: str) -> str | None:
+    """Acha, ignorando indentação/espaços, um bloco de linhas de `before` igual a
+    `old` — a falha mais comum do EDITAR em modelo local (copiou o texto certo,
+    errou só o espaçamento). Só usa o achado se for ÚNICO (senão é ambíguo demais
+    pra decidir sozinho); devolve o texto EXATO do arquivo nessas linhas."""
+    before_lines = before.splitlines()
+    old_lines = old.splitlines()
+    if not old_lines:
+        return None
+    norm_old = [_normalize_line(l) for l in old_lines]
+    n = len(norm_old)
+    matches = []
+    for i in range(len(before_lines) - n + 1):
+        if [_normalize_line(l) for l in before_lines[i:i + n]] == norm_old:
+            matches.append(i)
+        if len(matches) > 1:
+            break
+    if len(matches) != 1:
+        return None
+    i = matches[0]
+    return "\n".join(before_lines[i:i + n])
+
+
 def _closest_block(text: str, old: str, max_lines: int = 12) -> tuple[str, int]:
     """Localiza no arquivo o bloco mais parecido com o trecho buscado por um
     EDITAR que falhou. Retorna (bloco, nº da linha 1-based) ou ("", 0) quando
@@ -335,6 +362,24 @@ class CoderWorkspace:
         before = p.read_text(encoding="utf-8", errors="replace")
         count = before.count(old)
         if count == 0:
+            # 2ª causa mais comum de EDITAR falho: o trecho bate linha-a-linha,
+            # só difere em espaçamento/indentação. Antes de desistir, tenta achar
+            # esse bloco ignorando espaços — se for ÚNICO no arquivo, edita direto
+            # (sem precisar de outra rodada do modelo, que só re-erraria de novo).
+            fuzzy_old = _fuzzy_find_block(before, old)
+            if fuzzy_old is not None and before.count(fuzzy_old) == 1:
+                after = before.replace(fuzzy_old, new, 1)
+                p.write_text(after, encoding="utf-8")
+                d = make_diff(before, after, rel)
+                from datetime import datetime, timezone
+                self.history.append({
+                    "path": rel.strip().lstrip("/\\"), "before": before,
+                    "added": d["added"], "removed": d["removed"],
+                    "is_new": False, "ts": datetime.now(timezone.utc).isoformat(),
+                })
+                return (f"OK — editado {rel} (+{d['added']} -{d['removed']}, "
+                        f"via correspondência aproximada — indentação/espaços "
+                        f"diferiam do BUSCAR)")
             # A maior causa de EDITAR falho em modelo local: o trecho difere do
             # arquivo por um detalhe (indentação, espaço, aspas). Em vez de só
             # "não encontrado", mostramos o bloco REAL mais parecido — o modelo

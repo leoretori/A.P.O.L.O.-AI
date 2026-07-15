@@ -134,14 +134,18 @@ class ConversationsMixin:
                     valid.append(text)
                 else:
                     curtas.append(text)
-            return {
+        reacted = len(self.positive_reaction_pairs(limit=10_000, min_len=min_len))
+        return {
                 "total_sessoes": total,
                 "com_1a_mensagem_valida": len(valid),
                 "descartadas_curtas_demais": len(curtas),
                 "min_len": min_len,
                 "amostra_descartadas": curtas[:sample],
+                "pares_de_reacoes_up": reacted,
                 "nota": "cada SESSÃO conta 1 vez (a 1ª mensagem que abre ela) — "
-                        "continuar uma conversa existente não soma; abrir '+ Nova' soma.",
+                        "continuar uma conversa existente não soma; abrir '+ Nova' soma. "
+                        "Já os 👍 contam por si (pares_de_reacoes_up) — cada resposta "
+                        "aprovada vira 1 par de treino direto, sem precisar de sessão nova.",
             }
 
     def search_messages(self, query: str, limit: int = 30) -> list[dict]:
