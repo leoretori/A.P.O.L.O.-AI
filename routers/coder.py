@@ -224,6 +224,7 @@ async def coder(req: cc.ChatRequest):
             rescue_used = False          # resgate único p/ resposta sem ação válida
             last_sig: tuple = ("", "")   # anti-loop: última (ação, alvo) executada
             repeat_count = 0
+            edit_fail_streak = 0         # EDITAR falhando seguido → empurra p/ ESCREVER
             steps_used = 0
             actions_log: list[str] = []  # trilha p/ reflexão pós-tarefa
             compact_notified = False
@@ -260,9 +261,12 @@ async def coder(req: cc.ChatRequest):
 
                 if action == "done":
                     # Resgate único: o modelo despejou código solto (bloco ``` sem
-                    # ESCREVER/EDITAR) ou veio vazio — sem isto, a tarefa terminaria
-                    # "concluída" sem o código ter ido para arquivo nenhum.
-                    stray_code = "```" in content and "CONCLU" not in content.upper()
+                    # ESCREVER/EDITAR), marcadores de EDITAR mal-formados (<<<<<<< sem
+                    # virar uma ação "edit" reconhecida — visto ao vivo: a "conclusão"
+                    # era literalmente um EDITAR cru cortado no meio) ou veio vazio —
+                    # sem isto, a tarefa "concluía" mostrando lixo como se fosse resumo.
+                    stray_code = (("```" in content or "<<<<<<<" in content)
+                                 and "CONCLU" not in content.upper())
                     if (stray_code or not content.strip()) and not rescue_used:
                         rescue_used = True
                         yield _ev({"type": "step", "icon": "🩹",
@@ -283,7 +287,14 @@ async def coder(req: cc.ChatRequest):
                             "Você ainda NÃO verificou. Antes de concluir, RODE um comando para testar "
                             "de verdade (ex.: 'pytest -q' ou 'python <arquivo>'). Escreva só a ação RODAR."})
                         continue
-                    answer = content
+                    # O resgate é único (evita loop infinito) — mas mesmo sem resgate
+                    # sobrando, uma resposta que ainda é lixo (marcadores de EDITAR
+                    # cru, sem CONCLUIR) NUNCA vira "✅ Concluído" como se fosse um
+                    # resumo de verdade. Honesto > bonito.
+                    answer = (content if not stray_code else
+                              "Não consegui concluir com um resumo válido — a última "
+                              "tentativa de edição falhou e nada foi escrito. "
+                              "Veja o histórico de passos acima para o detalhe.")
                     break
 
                 messages.append({"role": "assistant", "content": content})
@@ -376,6 +387,7 @@ async def coder(req: cc.ChatRequest):
                     out = await asyncio.to_thread(coder_ws.edit_file, arg, spec.get("old", ""), spec.get("new", ""))
                     if out.startswith("OK"):
                         wrote_files = True
+                        edit_fail_streak = 0
                         new_content = await asyncio.to_thread(coder_ws.current_content, arg)
                         diff = make_diff(old_content, new_content, arg)
                         yield _ev({"type": "step", "icon": "✏️",
@@ -386,6 +398,7 @@ async def coder(req: cc.ChatRequest):
                         if _related:
                             yield _ev({"type": "test_hint", "path": arg, "tests": _related})
                     else:
+                        edit_fail_streak += 1
                         yield _ev({"type": "step", "icon": "✗", "message": f"EDITAR {arg} — {out[:80]}"})
                     chk = await _syntax_check(arg) if out.startswith("OK") else ""
                     if chk:
@@ -394,7 +407,19 @@ async def coder(req: cc.ChatRequest):
                     actions_log.append(
                         f"EDITAR {arg} → {'ok' if out.startswith('OK') else 'FALHOU: ' + out[:100]}"
                         + (" (sintaxe quebrada detectada)" if chk else ""))
-                    obs = out + chk + "\n\nPróxima ação (verifique com RODAR antes de CONCLUIR)."
+                    # EDITAR falhou 2x seguidas no mesmo alvo (mesmo com a dica do trecho
+                    # mais parecido) → o problema não é "quase acertou", é o modelo não
+                    # conseguir reproduzir texto EXATO. Empurra pra ESCREVER (reescreve o
+                    # arquivo inteiro, sem exigir match) em vez de deixar o loop repetir a
+                    # mesma falha até estourar os passos (visto ao vivo: 3 falhas seguidas,
+                    # 0 mudanças, ~50min gastos). Reseta pra dar mais uma chance depois.
+                    if edit_fail_streak >= 2:
+                        edit_fail_streak = 0
+                        obs = (out + chk + "\n\n⚠️ EDITAR falhou 2 vezes seguidas neste arquivo — "
+                               "pare de tentar EDITAR. Use ESCREVER (reescreva o arquivo INTEIRO "
+                               "com a mudança já aplicada) — não exige texto exato.")
+                    else:
+                        obs = out + chk + "\n\nPróxima ação (verifique com RODAR antes de CONCLUIR)."
                 elif action == "write":
                     if not payload:
                         obs = "Faltou o bloco ``` com o conteúdo do arquivo. Reenvie ESCREVER + bloco."
@@ -404,6 +429,7 @@ async def coder(req: cc.ChatRequest):
                         diff = make_diff(old, payload, arg)
                         out = await asyncio.to_thread(coder_ws.write_file, arg, payload)
                         wrote_files = True
+                        edit_fail_streak = 0
                         verb = "criou" if diff["is_new"] else "alterou"
                         yield _ev({"type": "step", "icon": "✍️",
                                    "message": f"ESCREVER {arg} — {verb} (+{diff['added']} -{diff['removed']})"})
