@@ -51,3 +51,29 @@ register(Tool(
     description="Vê sua tela (captura + descrição) para responder perguntas sobre o que está nela",
     handler=_tool_vision_screen,
 ))
+
+
+def _tool_vision_camera(args: dict, ctx) -> dict:
+    """Tira UMA foto pela câmera e, se houver modelo de visão, descreve o que
+    vê (M22.3). Mesmas regras do vision.screen: sem imagem crua no resultado,
+    `describe=False` só captura. Escopo PRÓPRIO (`vision.camera`) — o mundo
+    físico é mais sensível que a tela, não compartilha permissão com ela."""
+    cap = vision_read.capture_camera()
+    if not cap.get("ok"):
+        return cap
+    out: dict = {"ok": True, "size": cap["size"]}
+    if (args or {}).get("describe", True):
+        desc = _describe(cap["image_b64"], vision_read.DESCRIBE_IMAGE_PROMPT)
+        out["described"] = desc.get("ok", False)
+        if desc.get("ok"):
+            out["description"] = desc.get("description")
+        else:
+            out["describe_error"] = desc.get("error")
+    return out
+
+
+register(Tool(
+    name="vision.camera", scope="vision.camera",
+    description="Tira uma foto pela câmera (captura + descrição) para responder perguntas sobre o mundo físico",
+    handler=_tool_vision_camera,
+))

@@ -1,8 +1,36 @@
-"""Testes do núcleo determinístico da Visão útil (M22, Épico 22.1) — adiados a
-pedido do Leo ("testes fazemos depois") e fechados agora (2026-07-15)."""
+"""Testes do núcleo determinístico da Visão útil (M22, Épicos 22.1/22.3) —
+22.1 adiados a pedido do Leo ("testes fazemos depois") e fechados agora
+(2026-07-15). 22.3 (câmera) fecha no mesmo dia."""
 import base64
+import sys
+import types
 
 from src import vision_read as V
+
+
+def _fake_cv2(*, opens=True, read_ok=True):
+    """cv2 falso — evita depender do pacote pesado (opcional, `opt-in`) real
+    nos testes; injetado direto em sys.modules, como `import cv2` acharia."""
+    import numpy as np
+    mod = types.ModuleType("cv2")
+
+    class _Cap:
+        def __init__(self, index):
+            self.index = index
+
+        def isOpened(self):
+            return opens
+
+        def read(self):
+            if not read_ok:
+                return False, None
+            return True, np.zeros((60, 100, 3), dtype=np.uint8)
+
+        def release(self):
+            pass
+
+    mod.VideoCapture = _Cap
+    return mod
 
 
 # ── capture_screen ──────────────────────────────────────────────
@@ -37,6 +65,66 @@ def test_capture_screen_erro_quando_indisponivel(monkeypatch):
     out = V.capture_screen()
     assert out["ok"] is False
     assert "captura de tela indisponível" in out["error"]
+
+
+# ── capture_camera (M22.3) ──────────────────────────────────────
+def test_capture_camera_sem_lib_instalada():
+    # opencv-python de fato NÃO está instalado neste ambiente — exercita o
+    # ImportError real, sem monkeypatch (mesmo padrão do docx no 22.1).
+    out = V.capture_camera()
+    assert out["ok"] is False
+    assert "opencv-python" in out["error"]
+
+
+def test_capture_camera_sucesso(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cv2", _fake_cv2())
+    out = V.capture_camera()
+    assert out["ok"] is True
+    assert out["size"] == [100, 60]
+    decoded = base64.b64decode(out["image_b64"])
+    assert decoded[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_capture_camera_redimensiona_quando_maior_que_max_width(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cv2", _fake_cv2())
+    out = V.capture_camera(max_width=50)
+    assert out["ok"] is True
+    assert out["size"] == [50, 30]
+
+
+def test_capture_camera_nao_encontrada(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cv2", _fake_cv2(opens=False))
+    out = V.capture_camera()
+    assert out["ok"] is False
+    assert "não encontrada" in out["error"]
+
+
+def test_capture_camera_falha_ao_ler_frame(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cv2", _fake_cv2(read_ok=False))
+    out = V.capture_camera()
+    assert out["ok"] is False
+    assert "falha ao capturar frame" in out["error"]
+
+
+def test_capture_camera_libera_a_camera_sempre(monkeypatch):
+    released = []
+
+    class _CapTracked:
+        def __init__(self, index): pass
+        def isOpened(self): return True
+        def read(self):
+            raise RuntimeError("erro no meio da leitura")
+        def release(self): released.append(True)
+
+    mod = types.ModuleType("cv2")
+    mod.VideoCapture = _CapTracked
+    monkeypatch.setitem(sys.modules, "cv2", mod)
+
+    try:
+        V.capture_camera()
+    except RuntimeError:
+        pass
+    assert released == [True]  # release() roda mesmo se read() explodir
 
 
 # ── read_document ────────────────────────────────────────────────
@@ -155,6 +243,7 @@ def test_capabilities_com_modelo_de_visao():
     assert out["vision"] is True and out["vision_model"] == "llava"
     assert out["text_docs"] is True
     assert out["pdf"] is True   # pypdf está instalado neste ambiente
+    assert out["camera"] is False   # opencv-python NÃO está instalado (honesto)
 
 
 def test_capabilities_sem_modelo_de_visao():

@@ -75,6 +75,68 @@ def test_screen_falha_de_captura_nao_tenta_descrever(monkeypatch):
     assert called == []
 
 
+# ── POST /api/vision/camera (M22.3) ─────────────────────────────
+def _fake_cv2_module(monkeypatch, *, opens=True, read_ok=True):
+    import sys
+    import types
+    import numpy as np
+    mod = types.ModuleType("cv2")
+
+    class _Cap:
+        def __init__(self, index): pass
+        def isOpened(self): return opens
+        def read(self):
+            return (True, np.zeros((60, 100, 3), dtype=np.uint8)) if read_ok else (False, None)
+        def release(self): pass
+
+    mod.VideoCapture = _Cap
+    monkeypatch.setitem(sys.modules, "cv2", mod)
+
+
+def test_camera_sem_lib_instalada():
+    # opencv-python de fato não está instalado neste ambiente.
+    r = _client().post("/api/vision/camera", json={"describe": False})
+    body = r.json()
+    assert body["ok"] is False
+    assert "opencv-python" in body["error"]
+
+
+def test_camera_sem_descrever_nao_chama_modelo(monkeypatch):
+    _fake_cv2_module(monkeypatch)
+    rt.configure(get_vision_model=lambda: "llava")
+
+    r = _client().post("/api/vision/camera", json={"describe": False})
+    body = r.json()
+    assert body["ok"] is True
+    assert body["size"] == [100, 60]
+    assert "described" not in body
+
+
+def test_camera_com_descricao_sucesso(monkeypatch):
+    _fake_cv2_module(monkeypatch)
+    rt.configure(get_vision_model=lambda: "llava")
+    monkeypatch.setattr("src.llm.chat_resilient",
+                        lambda model, msgs, **kw: "uma pessoa sorrindo")
+
+    r = _client().post("/api/vision/camera", json={"describe": True})
+    body = r.json()
+    assert body["ok"] is True
+    assert body["described"] is True
+    assert body["description"] == "uma pessoa sorrindo"
+
+
+def test_camera_falha_de_captura_nao_tenta_descrever(monkeypatch):
+    _fake_cv2_module(monkeypatch, opens=False)
+    called = []
+    monkeypatch.setattr("src.llm.chat_resilient",
+                        lambda *a, **kw: called.append(1) or "nunca deveria chamar")
+
+    r = _client().post("/api/vision/camera", json={"describe": True})
+    body = r.json()
+    assert body["ok"] is False
+    assert called == []
+
+
 # ── POST /api/vision/document ───────────────────────────────────
 def test_document_texto_simples():
     data = base64.b64encode(b"conteudo do arquivo").decode("ascii")

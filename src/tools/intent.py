@@ -21,9 +21,11 @@ _RE_READ = re.compile(r"(?:l[êe]r?|leia|abr[ae]|mostr[ae]|resum[ae]).*?"
                       r"\barquivo\b\s+(?P<path>.+)$", re.I)
 _RE_SEARCH = re.compile(r"\b(?:busca[r]?|procur[ae]|encontr[ae]|list[ae])\b.*?"
                         r"\barquivos?\b(?P<q>.*)$", re.I)
-_RE_VISION = re.compile(r"\bminha tela\b|\bna tela\b|\btela agora\b|"
-                        r"screenshot|captura de tela|\bo que (você |vc )?v[êe]\b",
-                        re.I)
+_RE_VISION_SCREEN = re.compile(r"\bminha tela\b|\bna tela\b|\btela agora\b|"
+                               r"screenshot|captura de tela|\bo que (você |vc )?v[êe]\b",
+                               re.I)
+_RE_VISION_CAMERA = re.compile(r"\bc[âa]mera\b|\bwebcam\b|tira(r)? (uma )?foto|"
+                               r"me v[êe](ja)?\b|\bfoto de mim\b", re.I)
 
 
 def detect_intent(text: str) -> tuple[str, dict] | None:
@@ -44,8 +46,10 @@ def detect_intent(text: str) -> tuple[str, dict] | None:
         return "email.recent", {"since": t}          # a ferramenta extrai a janela
     if _RE_AGENDA.search(t):
         return "calendar.events", {"when": t}
-    if _RE_VISION.search(t):
+    if _RE_VISION_SCREEN.search(t):
         return "vision.screen", {}
+    if _RE_VISION_CAMERA.search(t):
+        return "vision.camera", {}
     return None
 
 
@@ -99,6 +103,16 @@ def _fmt_vision_screen(res: dict) -> str:
     return "Capturei a tela."
 
 
+def _fmt_vision_camera(res: dict) -> str:
+    if not res.get("ok"):
+        return f"Não consegui usar a câmera: {res.get('error', 'erro desconhecido')}"
+    if res.get("described"):
+        return res.get("description") or "(sem descrição)"
+    if res.get("describe_error"):
+        return f"Tirei a foto, mas não consegui descrevê-la: {res['describe_error']}"
+    return "Tirei a foto."
+
+
 def _fmt_clock(res: dict) -> str:
     return (f"Agora são {res.get('time', '?')}, {res.get('weekday', '')}-feira "
             f"({res.get('date', '')}).").replace("sábado-feira", "sábado") \
@@ -112,6 +126,7 @@ _FORMATTERS = {
     "files.search": _fmt_files_search,
     "files.read": _fmt_files_read,
     "vision.screen": _fmt_vision_screen,
+    "vision.camera": _fmt_vision_camera,
 }
 
 

@@ -82,3 +82,66 @@ def test_vision_screen_sem_modelo_de_visao_ainda_captura(db, monkeypatch):
     result = res["result"]
     assert result["described"] is False
     assert "describe_error" in result and "description" not in result
+
+
+# ── vision.camera (M22.3) — escopo PRÓPRIO, mundo físico ────────
+def test_vision_camera_esta_no_catalogo_de_escopos():
+    assert "vision.camera" in SCOPES
+
+
+def test_vision_camera_escopo_e_diferente_do_vision_screen():
+    # o mundo físico é mais sensível que a tela — não compartilham permissão.
+    assert "vision.camera" != "vision.screen"
+
+
+def test_vision_camera_negado_sem_grant(db):
+    res = run_tool("vision.camera", {}, db)
+    assert res["ok"] is False and res["denied"] is True
+    assert res["scope"] == "vision.camera"
+
+
+def test_grant_de_vision_screen_nao_libera_vision_camera(db):
+    db.grant_permission("vision.screen")
+    res = run_tool("vision.camera", {}, db)
+    assert res["ok"] is False and res["denied"] is True
+
+
+def test_vision_camera_com_grant_captura_e_descreve(db, monkeypatch):
+    db.grant_permission("vision.camera")
+    monkeypatch.setattr("src.vision_read.capture_camera",
+                        lambda: {"ok": True, "size": [100, 60], "image_b64": "xyz"})
+    monkeypatch.setattr("src.tools.vision._describe",
+                        lambda image_b64, prompt: {"ok": True, "description": "uma xícara de café"})
+
+    res = run_tool("vision.camera", {}, db)
+    assert res["ok"] is True
+    result = res["result"]
+    assert result["ok"] is True and result["size"] == [100, 60]
+    assert result["described"] is True
+    assert result["description"] == "uma xícara de café"
+    assert "image_b64" not in result
+
+
+def test_vision_camera_describe_false_nao_chama_descricao(db, monkeypatch):
+    db.grant_permission("vision.camera")
+    monkeypatch.setattr("src.vision_read.capture_camera",
+                        lambda: {"ok": True, "size": [100, 60], "image_b64": "xyz"})
+
+    def _boom(image_b64, prompt):
+        raise AssertionError("não deveria descrever")
+    monkeypatch.setattr("src.tools.vision._describe", _boom)
+
+    res = run_tool("vision.camera", {"describe": False}, db)
+    assert res["ok"] is True
+    assert "described" not in res["result"]
+
+
+def test_vision_camera_falha_de_captura_propaga_erro(db, monkeypatch):
+    db.grant_permission("vision.camera")
+    monkeypatch.setattr("src.vision_read.capture_camera",
+                        lambda: {"ok": False, "error": "câmera não encontrada"})
+
+    res = run_tool("vision.camera", {}, db)
+    assert res["ok"] is True
+    assert res["result"]["ok"] is False
+    assert "câmera não encontrada" in res["result"]["error"]

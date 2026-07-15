@@ -49,6 +49,20 @@ def test_detecta_visao_da_tela():
     assert detect_intent("o que você vê?")[0] == "vision.screen"
 
 
+def test_detecta_visao_da_camera():
+    # M22.3: câmera é escopo/intenção DIFERENTE da tela.
+    assert detect_intent("tira uma foto pela câmera") == ("vision.camera", {})
+    assert detect_intent("veja pela webcam")[0] == "vision.camera"
+    assert detect_intent("me veja")[0] == "vision.camera"
+
+
+def test_frase_com_tela_e_foto_prioriza_tela():
+    # "tira uma foto DA MINHA TELA" é ambíguo de propósito — o usuário quer um
+    # screenshot (usou "foto" coloquialmente); a tela ganha por ser o caso mais
+    # comum e o menos sensível dos dois escopos.
+    assert detect_intent("tira uma foto da minha tela")[0] == "vision.screen"
+
+
 def test_nao_entende_conversa_normal():
     assert detect_intent("qual a capital da França?") is None
     assert detect_intent("") is None
@@ -80,6 +94,17 @@ def test_formata_visao_da_tela():
     assert "Capturei a tela" in sem_modelo and "sem modelo de visão" in sem_modelo
     falhou = format_answer("vision.screen", {"ok": False, "error": "sem display"})
     assert "Não consegui ver a tela" in falhou and "sem display" in falhou
+
+
+def test_formata_visao_da_camera():
+    ok = format_answer("vision.camera", {"ok": True, "described": True,
+                                         "description": "um cachorro no sofá"})
+    assert ok == "um cachorro no sofá"
+    sem_modelo = format_answer("vision.camera",
+        {"ok": True, "described": False, "describe_error": "sem modelo de visão"})
+    assert "Tirei a foto" in sem_modelo and "sem modelo de visão" in sem_modelo
+    falhou = format_answer("vision.camera", {"ok": False, "error": "opencv-python ausente"})
+    assert "Não consegui usar a câmera" in falhou and "opencv-python" in falhou
 
 
 # ── Endpoint /api/agency/ask (porteira ponta-a-ponta) ─────────
@@ -131,6 +156,23 @@ def test_ask_visao_ok_com_permissao(client, monkeypatch):
     d = client.post("/api/agency/ask", json={"text": "o que tem na minha tela?"}).json()
     assert d["ok"] is True and d["tool"] == "vision.screen"
     assert d["answer"] == "uma planilha aberta"
+
+
+def test_ask_camera_negado_sem_permissao(client):
+    r = client.post("/api/agency/ask", json={"text": "tira uma foto pela câmera"})
+    d = r.json()
+    assert d["ok"] is False and d["denied"] is True and d["tool"] == "vision.camera"
+
+
+def test_ask_camera_ok_com_permissao(client, monkeypatch):
+    rt.db.grant_permission("vision.camera")
+    monkeypatch.setattr("src.vision_read.capture_camera",
+                        lambda: {"ok": True, "size": [1, 1], "image_b64": "x"})
+    monkeypatch.setattr("src.tools.vision._describe",
+                        lambda image_b64, prompt: {"ok": True, "description": "uma sala vazia"})
+    d = client.post("/api/agency/ask", json={"text": "veja pela webcam"}).json()
+    assert d["ok"] is True and d["tool"] == "vision.camera"
+    assert d["answer"] == "uma sala vazia"
 
 
 def test_ask_email_ok_com_permissao(client, monkeypatch):

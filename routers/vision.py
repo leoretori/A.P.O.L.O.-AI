@@ -60,6 +60,22 @@ async def vision_screen(req: ScreenRequest):
     return out
 
 
+@router.post("/api/vision/camera")
+async def vision_camera(req: ScreenRequest):
+    """Tira uma foto da câmera (M22.3); se `describe` e houver modelo de
+    visão, descreve o que vê. Clique seu = consentimento, como o 22.1."""
+    cap = await asyncio.to_thread(V.capture_camera)
+    if not cap.get("ok"):
+        return cap
+    out = {"ok": True, "size": cap["size"], "image_b64": cap["image_b64"]}
+    if req.describe:
+        desc = await asyncio.to_thread(_describe, cap["image_b64"], V.DESCRIBE_IMAGE_PROMPT)
+        out["described"] = desc.get("ok", False)
+        out["description"] = desc.get("description")
+        out["describe_error"] = desc.get("error")
+    return out
+
+
 @router.post("/api/vision/document")
 async def vision_document(req: DocRequest):
     """Extrai o conteúdo de um documento (PDF/DOCX/texto) ou marca imagem p/ visão.

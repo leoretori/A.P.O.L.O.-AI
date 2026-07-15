@@ -50,6 +50,37 @@ def capture_screen(max_width: int = SCREEN_MAX_WIDTH) -> dict:
             "size": list(img.size)}
 
 
+def capture_camera(index: int = 0, max_width: int = SCREEN_MAX_WIDTH) -> dict:
+    """Tira UMA foto da câmera (M22, Épico 22.3) — abre, lê 1 frame, fecha na
+    hora. Não grava vídeo nem mantém a câmera aberta: é o mínimo de captura
+    para o consentimento (opt-in) fazer sentido de verdade. Requer
+    `opencv-python` (import preguiçoso — 🔒 opt-in, igual ao Playwright do
+    M20; erro claro se faltar em vez de quebrar o app).
+    {ok, image_b64, size:[w,h]} ou {ok:False, error}."""
+    try:
+        import cv2
+    except ImportError:
+        return {"ok": False, "error": "captura de câmera requer: pip install opencv-python"}
+    cap = cv2.VideoCapture(index)
+    try:
+        if not cap.isOpened():
+            return {"ok": False, "error": f"câmera {index} não encontrada ou indisponível"}
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            return {"ok": False, "error": "falha ao capturar frame da câmera"}
+    finally:
+        cap.release()   # nunca fica ligada além do 1 frame — reforça o opt-in
+    from PIL import Image
+    img = Image.fromarray(frame[:, :, ::-1])  # BGR (OpenCV) → RGB (PIL)
+    w, h = img.size
+    if w > max_width:
+        img = img.resize((max_width, max(1, round(h * max_width / w))))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    return {"ok": True, "image_b64": base64.b64encode(buf.getvalue()).decode("ascii"),
+            "size": list(img.size)}
+
+
 def read_document(filename: str, raw: bytes) -> dict:
     """Roteia por tipo e EXTRAI o conteúdo textual (sem LLM). Imagens não têm
     texto → marcadas com `needs_vision` para o caminho de visão.
@@ -113,6 +144,7 @@ def capabilities(vision_model: str | None) -> dict:
         pass
     import importlib.util
     pdf_ok = importlib.util.find_spec("pypdf") is not None
+    camera_ok = importlib.util.find_spec("cv2") is not None
     return {"screen": screen_ok, "vision": bool(vision_model),
             "vision_model": vision_model or None, "pdf": pdf_ok,
-            "text_docs": True}
+            "camera": camera_ok, "text_docs": True}

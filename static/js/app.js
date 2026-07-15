@@ -1467,6 +1467,21 @@
     } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
 
+  async function readCamera() {
+    const box = document.getElementById('vis-result');
+    box.innerHTML = '<span style="color:#666">Tirando a foto…</span>';
+    try {
+      const d = await fetch('/api/vision/camera', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({describe:true})}).then(r=>r.json());
+      if (!d.ok) { box.innerHTML = `<span style="color:#f87171">${escHtml(d.error||'falhou')}</span>`; return; }
+      const imgTag = `<img src="data:image/png;base64,${d.image_b64}" style="max-width:100%;border:1px solid #1c2420;border-radius:8px;margin-top:6px" />`;
+      const desc = d.described
+        ? `<div style="color:#cde;font-size:12px;line-height:1.5;margin-top:6px">${escHtml(d.description)}</div>`
+        : `<div style="color:#fbbf24;font-size:11px;margin-top:6px">Tirei a foto (${d.size[0]}×${d.size[1]}), mas ${escHtml(d.describe_error||'não há modelo de visão para descrever')}.</div>`;
+      box.innerHTML = desc + imgTag;
+    } catch(e) { box.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
+  }
+
   async function readDocument() {
     const input = document.getElementById('vis-file');
     const box = document.getElementById('vis-result');
