@@ -42,14 +42,29 @@ def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 _GELU_C = math.sqrt(2.0 / math.pi)
 
 
+def _gelu_fwd(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Forward que devolve também tanh(...) — o MLP reusa no backward em vez
+    de recalcular (medido: era o maior custo do treino — profiling do M5.1).
+    `x*x*x`/`x*x` em vez de `x**3`/`x**2`: mesma conta, sem o overhead de
+    `np.power` elementwise."""
+    x3 = x * x * x
+    t = np.tanh(_GELU_C * (x + 0.044715 * x3))
+    return 0.5 * x * (1.0 + t), t
+
+
+def _gelu_bwd(x: np.ndarray, t: np.ndarray, dy: np.ndarray) -> np.ndarray:
+    du = _GELU_C * (1.0 + 3 * 0.044715 * x * x)
+    return dy * (0.5 * (1.0 + t) + 0.5 * x * (1.0 - t * t) * du)
+
+
 def gelu(x: np.ndarray) -> np.ndarray:
-    return 0.5 * x * (1.0 + np.tanh(_GELU_C * (x + 0.044715 * x**3)))
+    y, _ = _gelu_fwd(x)
+    return y
 
 
 def gelu_backward(x: np.ndarray, dy: np.ndarray) -> np.ndarray:
-    t = np.tanh(_GELU_C * (x + 0.044715 * x**3))
-    du = _GELU_C * (1.0 + 3 * 0.044715 * x**2)
-    return dy * (0.5 * (1.0 + t) + 0.5 * x * (1.0 - t**2) * du)
+    _, t = _gelu_fwd(x)
+    return _gelu_bwd(x, t, dy)
 
 
 # ------------------------------------------------------------------- Linear
@@ -245,15 +260,18 @@ class MLP(Module):
             f"{name}.proj", 4 * n_embd, n_embd, rng, std=0.02 / math.sqrt(2 * n_layer), dtype=dtype
         )
         self._pre: np.ndarray | None = None
+        self._t: np.ndarray | None = None  # tanh(...) do forward, reusado no backward
 
     def forward(self, x: np.ndarray) -> np.ndarray:
         pre = self.fc.forward(x)
         self._pre = pre
-        return self.proj.forward(gelu(pre))
+        y, t = _gelu_fwd(pre)
+        self._t = t
+        return self.proj.forward(y)
 
     def backward(self, dy: np.ndarray) -> np.ndarray:
         dh = self.proj.backward(dy)
-        return self.fc.backward(gelu_backward(self._pre, dh))
+        return self.fc.backward(_gelu_bwd(self._pre, self._t, dh))
 
     def params(self) -> list[Param]:
         return self.fc.params() + self.proj.params()

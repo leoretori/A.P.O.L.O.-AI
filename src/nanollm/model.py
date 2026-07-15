@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from src.nanollm.layers import Block, Embedding, LayerNorm, Linear, Module, Param, softmax
+from src.nanollm.quantize import dequantize_int8, quantize_int8
 
 
 @dataclass
@@ -190,6 +191,28 @@ class GPT(Module):
         )
         np.savez_compressed(path, **arrays)
 
+    def save_quantized(self, path: str | Path) -> dict:
+        """Checkpoint p/ INFERÊNCIA (M5.2): as matrizes 2D (embeddings/lineares —
+        a maior parte do tamanho) viram int8 + escala por coluna; bias/LayerNorm
+        (1D, já pequenos) seguem float32. `load()` dequantiza sozinho — quem lê
+        não precisa saber que o arquivo era quantizado. Só para servir; treinar
+        a partir daqui perderia precisão do gradiente."""
+        arrays: dict = {}
+        n_quantized = 0
+        for p in self.params():
+            if p.data.ndim == 2:
+                q, scale = quantize_int8(p.data)
+                arrays[f"{p.name}.q8"] = q
+                arrays[f"{p.name}.scale"] = scale
+                n_quantized += 1
+            else:
+                arrays[p.name] = p.data
+        arrays["__config__"] = np.frombuffer(
+            json.dumps(asdict(self.config)).encode("utf-8"), dtype=np.uint8
+        )
+        np.savez_compressed(path, **arrays)
+        return {"params": len(self.params()), "quantized": n_quantized}
+
     @classmethod
     def load(cls, path: str | Path) -> "GPT":
         with np.load(path) as data:
@@ -197,5 +220,9 @@ class GPT(Module):
             config = GPTConfig(**json.loads(cfg_json))
             model = cls(config)
             for p in model.params():
-                p.data[...] = data[p.name]
+                qkey = f"{p.name}.q8"
+                if qkey in data:
+                    p.data[...] = dequantize_int8(data[qkey], data[f"{p.name}.scale"])
+                else:
+                    p.data[...] = data[p.name]
         return model
