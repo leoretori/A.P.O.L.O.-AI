@@ -295,3 +295,34 @@ def test_lista_inclui_chats_antigos(db):
     assert "velho" in ids
     # Com janela curta, o chat antigo de 2020 fica de fora.
     assert "velho" not in [x["session_id"] for x in db.list_sessions(days=7)]
+
+
+# ── diagnose_pair_sourcing: por que "poucos pares" persiste ───────
+def test_diagnose_conta_1_por_sessao_nao_por_mensagem(db):
+    """Dúvida real do Leo (2026-07-14): teve 5 trocas de mensagem mas achou que o
+    flywheel não estava 'salvando'. Continuar UMA sessão várias vezes só conta 1
+    par — é preciso abrir sessões NOVAS. Aqui: 1 sessão, 5 mensagens → total 1."""
+    for i in range(5):
+        db.save_message("sessao-unica", "user", f"pergunta número {i} bem longa o suficiente")
+        db.save_message("sessao-unica", "assistant", "resposta")
+    diag = db.diagnose_pair_sourcing()
+    assert diag["total_sessoes"] == 1
+    assert diag["com_1a_mensagem_valida"] == 1
+
+
+def test_diagnose_sessoes_novas_somam_pares(db):
+    for i in range(5):
+        db.save_message(f"sessao-{i}", "user", f"pergunta distinta número {i} bem longa")
+    diag = db.diagnose_pair_sourcing()
+    assert diag["total_sessoes"] == 5
+    assert diag["com_1a_mensagem_valida"] == 5
+
+
+def test_diagnose_descarta_primeira_mensagem_curta(db):
+    db.save_message("s-curta", "user", "oi")            # curta demais (min_len=8)
+    db.save_message("s-longa", "user", "pergunta com tamanho suficiente")
+    diag = db.diagnose_pair_sourcing()
+    assert diag["total_sessoes"] == 2
+    assert diag["com_1a_mensagem_valida"] == 1
+    assert diag["descartadas_curtas_demais"] == 1
+    assert "oi" in diag["amostra_descartadas"]

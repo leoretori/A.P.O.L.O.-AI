@@ -109,6 +109,41 @@ class ConversationsMixin:
             out = [(r.content or "").strip() for r in firsts]
             return [c for c in out if len(c) >= min_len][:limit]
 
+    def diagnose_pair_sourcing(self, min_len: int = 8, sample: int = 5) -> dict:
+        """Por que o flywheel mostra 'poucos pares' mesmo com várias conversas
+        recentes (dúvida real, 2026-07-14): `first_user_messages` conta UMA
+        entrada POR SESSÃO (a 1ª mensagem que abre a conversa) — continuar uma
+        conversa existente não soma novo par; só sessões NOVAS contam. Este
+        instrumento mostra o funil de verdade: total de sessões → quantas têm
+        1ª mensagem longa o bastante (min_len) → amostra das descartadas
+        (curtas demais, tipo 'oi'). Não chama o professor — é só leitura/contagem,
+        o passo ANTES da validação do teacher (que reduz o número de novo)."""
+        with Session(self.engine) as s:
+            rows = (s.query(SessionMessage)
+                    .filter(SessionMessage.role == "user")
+                    .order_by(SessionMessage.timestamp.asc()).all())
+            first_by_session: dict[str, SessionMessage] = {}
+            for r in rows:
+                if r.session_id not in first_by_session:
+                    first_by_session[r.session_id] = r
+            total = len(first_by_session)
+            valid, curtas = [], []
+            for r in first_by_session.values():
+                text = (r.content or "").strip()
+                if len(text) >= min_len:
+                    valid.append(text)
+                else:
+                    curtas.append(text)
+            return {
+                "total_sessoes": total,
+                "com_1a_mensagem_valida": len(valid),
+                "descartadas_curtas_demais": len(curtas),
+                "min_len": min_len,
+                "amostra_descartadas": curtas[:sample],
+                "nota": "cada SESSÃO conta 1 vez (a 1ª mensagem que abre ela) — "
+                        "continuar uma conversa existente não soma; abrir '+ Nova' soma.",
+            }
+
     def search_messages(self, query: str, limit: int = 30) -> list[dict]:
         """Busca no histórico de conversas — retorna trechos com a sessão de origem.
         Agrupa por sessão (mostra o primeiro acerto de cada) para a sidebar de busca."""

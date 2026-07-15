@@ -4136,20 +4136,33 @@
     const body = document.getElementById('brain-body');
     body.innerHTML = '<div class="pf-empty" style="color:#79798a;padding:20px 0;text-align:center">Carregando…</div>';
     try {
-      const [cov, log, blind, status] = await Promise.all([
+      const [cov, log, blind, status, diag] = await Promise.all([
         fetch('/api/nano/coverage').then(r => r.json()).catch(() => ({})),
         fetch('/api/nano/flywheel/log').then(r => r.json()).catch(() => ({rounds: []})),
         fetch('/api/nano/blind-eval/last').then(r => r.json()).catch(() => ({})),
         fetch('/api/nano/status').then(r => r.json()).catch(() => ({})),
+        fetch('/api/nano/flywheel/diagnose').then(r => r.json()).catch(() => ({enabled: false})),
       ]);
-      body.innerHTML = renderBrain(cov, log, blind, status);
+      body.innerHTML = renderBrain(cov, log, blind, status, diag);
       requestAnimationFrame(() => body.querySelectorAll('.brain-bar-fill').forEach(el => { el.style.width = el.dataset.w + '%'; }));
     } catch (e) {
       body.innerHTML = `<div class="mind-empty">Erro: ${escHtml(e.message)}</div>`;
     }
   }
 
-  function renderBrain(cov, log, blind, status) {
+  function renderFunilSourcing(diag) {
+    if (!diag || !diag.enabled) return '';
+    const d = diag;
+    return `<div style="background:#0d0d12;border:1px solid #1c1c24;border-radius:12px;padding:13px 15px;margin-bottom:12px">
+      <div style="color:#ddd;font-weight:600;margin-bottom:6px;font-size:12.5px">📊 Funil de conversas → pares</div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Sessões (conversas distintas)</span><span style="color:#cdd">${d.total_sessoes}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Com 1ª mensagem válida</span><span style="color:#4ade80">${d.com_1a_mensagem_valida}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Descartadas (curtas demais)</span><span style="color:#fbbf24">${d.descartadas_curtas_demais}</span></div>
+      <div style="margin-top:8px;font-size:11px;color:#79798a;line-height:1.5">${escHtml(d.nota || '')}</div>
+    </div>`;
+  }
+
+  function renderBrain(cov, log, blind, status, diag) {
     const ov = (cov && cov.overall) || {nano: 0, teacher: 0, total: 0, pct: 0};
     const tasks = (cov && cov.tasks) || {};
     const cand = (cov && cov.candidates) || {};
@@ -4189,6 +4202,7 @@
       ${card('Modelo próprio', line('Apolo-Nano', escHtml(nanoVal)))}
       ${card('Nano vs Qwen (às cegas)', line('Vitórias do cérebro próprio', blindVal) +
         (b && b.quando ? line('Medido em', escHtml(b.quando)) : ''))}
+      ${renderFunilSourcing(diag)}
       ${renderFlywheelLog((log && log.rounds) || [])}`;
   }
 

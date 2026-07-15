@@ -48,6 +48,18 @@ async def nano_coverage():
     return cov
 
 
+@router.get("/api/nano/flywheel/diagnose")
+async def nano_flywheel_diagnose():
+    """Por que 'poucos pares' persiste mesmo com conversas novas? Mostra o funil
+    real de sourcing (sessões → 1ª mensagem válida), sem chamar o professor —
+    só leitura. Dúvida real do Leo (2026-07-14): achava que dar 👍/👎 ou
+    continuar conversando contava como novo par; só sessão NOVA conta."""
+    if not rt.db:
+        return {"enabled": False}
+    diag = await asyncio.to_thread(rt.db.diagnose_pair_sourcing)
+    return {"enabled": True, **diag}
+
+
 @router.get("/api/nano/flywheel/log")
 async def nano_flywheel_log():
     """Histórico das rodadas do flywheel (promovido/rejeitado/pulado)."""
