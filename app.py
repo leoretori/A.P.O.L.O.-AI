@@ -129,6 +129,13 @@ REMOTE_TOKEN = os.getenv("REMOTE_TOKEN", "").strip()
 BRIEFING_HOUR = int(os.getenv("BRIEFING_HOUR", 8))
 _last_briefing_date = None
 
+# Presença ambiente (M23 23.1): avisa ANTES de um compromisso da agenda
+# chegar, não só quando perguntado — evolui o briefing de "1x/dia" pra "no
+# momento certo". Minutos de antecedência do aviso; -1 desliga.
+PRESENCE_LOOKAHEAD_MIN = int(os.getenv("PRESENCE_LOOKAHEAD_MIN", 15))
+from src.presence import PresenceMonitor  # noqa: E402
+_presence_monitor = PresenceMonitor()
+
 # Backup cifrado automático (M11 11.2): se BACKUP_PASSPHRASE estiver no .env, o
 # A.P.O.L.O. grava 1 backup local cifrado por dia a partir de BACKUP_HOUR.
 BACKUP_HOUR = int(os.getenv("BACKUP_HOUR", 3))
@@ -343,6 +350,29 @@ async def _scheduler_loop():
                     logger.info(f"[reminder] vencido → avisado: {rem['text'][:60]}")
             except Exception as e:
                 logger.warning(f"[reminder] resurface: {e}")
+
+            # Presença ambiente (M23 23.1): avisa ANTES de um compromisso da
+            # agenda chegar — reusa o .ics já autorizado em calendar.read
+            # (M6.3). Read-only e silencioso sem autorização (mesma regra de
+            # consentimento das demais ações do M6); cada evento avisa 1 vez
+            # (PresenceMonitor deduplica entre ticks).
+            if PRESENCE_LOOKAHEAD_MIN >= 0:
+                try:
+                    if await asyncio.to_thread(db.is_permission_granted, "calendar.read"):
+                        ics_path = (await asyncio.to_thread(
+                            db.permission_note, "calendar.read") or "").strip().strip('"').strip("'")
+                        if ics_path and os.path.isfile(ics_path):
+                            from src.tools.calendar_read import parse_ics
+                            with open(ics_path, encoding="utf-8", errors="replace") as f:
+                                _ics_text = f.read()
+                            _events = await asyncio.to_thread(parse_ics, _ics_text)
+                            from src.presence import format_heads_up
+                            for ev in _presence_monitor.check(_events, datetime.now(),
+                                                              PRESENCE_LOOKAHEAD_MIN):
+                                db.add_notification(format_heads_up(ev), kind="reminder")
+                                logger.info(f"[presenca] aviso antecipado: {ev.get('summary')}")
+                except Exception as e:
+                    logger.warning(f"[presenca] loop: {e}")
 
             # Briefing diário (M4 4.1): a partir de BRIEFING_HOUR, uma vez por dia,
             # o A.P.O.L.O. te aborda primeiro com o resumo do dia (vira notificação;
