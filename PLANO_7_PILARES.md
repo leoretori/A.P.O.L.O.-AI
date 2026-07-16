@@ -289,12 +289,23 @@ dadas até agora. Isso não é código, é processo.
 redirect, bypass de undo, vazamento de conteúdo) num código que já tinha passado por revisão
 normal. Isso não deve ser ad-hoc.
 
-- 🔲 **P4.1 — Definir gatilho de recorrência.** Rodar `/security-review` antes de todo merge
-  "grande" no `main` (critério objetivo a definir: ex. >10 arquivos ou qualquer mudança em
-  rotas/`routers/`, `src/actions.py`, `src/webtask.py`, auth/CORS).
-  crontab? Definir junto com o Leo se é manual-lembrado ou automatizado via rotina.
-- 🔲 **P4.2 — Registro histórico de auditorias.** Um arquivo/tabela simples com data, achados,
-  status de correção — pra não perder o histórico de "o que já foi auditado e quando".
+- 🏁 **P4.1 — Gatilho definido (2026-07-16, decisão do Leo).** Lembrete manual, não automação
+  nova: antes de todo merge "grande" no `main`, EU (Claude) verifico o critério objetivo e aviso
+  o Leo pra rodar `/security-review` (o skill é billado — não dispara sozinho). **Critério
+  objetivo:** >10 arquivos tocados NO MERGE, OU qualquer mudança em `routers/`, `src/actions.py`,
+  `src/webtask.py`, autenticação/CORS/permissões — qualquer um dos dois já dispara o lembrete.
+  Sem tabela/cron novo — é uma checagem que entra na minha rotina de "antes do merge grande",
+  registrada como memória de longo prazo (`feedback_security_review_gatilho`) pra valer em
+  sessões futuras, não só nesta.
+- 🏁 **P4.2 — Registro histórico de auditorias (2026-07-16).** Novo `src/security_audit_log.py`
+  (`log_audit`/`read_audit_history`) — mesmo padrão JSONL append-only do resto do projeto
+  (`src.jsonl_history`, P1.4/P2.5/P2.6). Cada entrada: data, gatilho (`manual`/`pre-merge-large`),
+  lista de achados (categoria/severidade/arquivo/resumo/status) e contagem corrigidos/total.
+  **Populado retroativamente com a auditoria real de 15/07** (não deixei vazio): os 4 achados
+  reais (CSRF em `routers/vision.py`, SSRF em `src/webtask.py`, bypass de undo em
+  `src/actions.py`, vazamento de conteúdo em `routers/actions.py`) — todos `fixed` no mesmo dia
+  (commit `ffda7be`). Copiado pro `data/` da instância principal também, não só do worktree.
+  4 testes novos em `test_security_audit_log.py`.
 
 ---
 
