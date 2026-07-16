@@ -51,9 +51,34 @@ Blind-eval Nano-vs-Qwen só mediu com n=5 (ruído).
   depende do Pilar 3 (uso real). 19 testes novos/ajustados em `tests/test_nanollm_corpus.py`.
   ⏭️ **Distillation sintética (2ª metade do item) ainda não feita** — o corpus já bateu a meta
   numérica sem precisar dela; fica registrada como opção futura se o corpus voltar a estagnar.
-- 🔲 **P1.2 — Sweep de scaling-law compute-matched.** Reproduzir o experimento `medium` (que
-  regrediu por undertraining) com passos proporcionais ao tamanho, não passos fixos. **DoD:**
-  tabela params × passos × ppl com pelo menos 3 pontos, decisão de tamanho baseada nela.
+- 🏁 **P1.2 — Sweep de scaling-law compute-matched (2026-07-16, medido).** Novo `src/nanollm/sweep.py`:
+  em vez de passos fixos por preset (o viés do `medium`/M6.1 — mesmo nº de passos, mas cada
+  preset tem batch/block diferentes, então tokens vistos diferentes), os passos agora vêm de um
+  orçamento **tokens-por-parâmetro constante** (`steps_for_budget`) — um preset com mais
+  parâmetros treina por mais passos, proporcionalmente. Rodado de verdade contra o corpus
+  atualizado (1.055.664 tokens, `data/nanollm/sweep_dataset`), orçamento pequeno de propósito
+  (`tokens_per_param=0.15`, bem abaixo do ideal — é um sweep direcional, não a curva final):
+
+  | preset | params | passos | tokens vistos | val loss | ppl | tempo |
+  |---|---|---|---|---|---|---|
+  | nano | 1,47M | 107 | 219.136 | 7,1772 | **1309,21** | 86,8s |
+  | mini | 3,39M | 220 | 506.880 | 6,4150 | **610,91** | 246,9s |
+  | small | 6,91M | 505 | 1.034.240 | 5,4564 | **234,25** | 969,7s |
+
+  **DoD numérico batido** (tabela com 3 pontos, decisão apoiada nela). **Leitura honesta:** sob
+  comparação justa (passos proporcionais), ppl melhora MONOTONICAMENTE com o tamanho — o oposto
+  do que o experimento `medium` sugeria. Isso não prova que "maior é sempre melhor" em geral; prova
+  que a comparação anterior estava **contaminada pelo viés de passos fixos**, não que os modelos
+  maiores são estruturalmente piores. Nenhum dos 3 pontos está perto de convergência (orçamento
+  0,15 tokens/param é muito abaixo do que a literatura considera saudável, ~15-20) — os ppl
+  absolutos aqui são bem piores que o `ckpt_v1` de produção (158), que treinou por muito mais
+  passos. **Decisão apoiada na tabela:** manter a aposta em escalar o Nano (`medium`/`large`) para
+  o próximo treino real, agora sabendo que dar mais passos ao modelo maior é necessário, não
+  opcional. 10 testes novos em `tests/test_nanollm_sweep.py` (sintéticos, determinísticos).
+  **Efeito colateral corrigido:** o sweep real esbarrou num bug bloqueante nos 11 entry points
+  `python -m src.nanollm.*` — `UnicodeEncodeError` no console cp1252 do Windows sempre que um
+  print usava "→" (não era só cosmético, derrubava o processo no meio do treino). Corrigido com
+  `sys.stdout.reconfigure(encoding="utf-8")` em todos os `if __name__ == "__main__":`.
 - 🔲 **P1.3 — Uma tarefa até passar o DoD antes de somar outra.** Priorizar o portão binário
   (M27) — a aposta é que 2 classes generaliza melhor que 9 num modelo de 3M. Só considerar nova
   tarefa depois que essa passar ≥70% na porta de qualidade em produção.
