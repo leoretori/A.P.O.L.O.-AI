@@ -152,6 +152,13 @@ FLYWHEEL_STEPS = int(os.getenv("FLYWHEEL_STEPS", 400))
 FLYWHEEL_MIN_PAIRS = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
 _last_flywheel_date = None
 
+# Dedup automático (P2.4): dedup_exact (RAG) e dedup_learned_topics (log SQLite)
+# hoje só rodavam por ação manual do Curador — 1x/dia a partir de DEDUP_HOUR,
+# sem intervenção. Leve (compara texto exato, não IA) — sem restrição de
+# ocioso como o flywheel. -1 desliga.
+DEDUP_HOUR = int(os.getenv("DEDUP_HOUR", 4))
+_last_dedup_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -266,6 +273,25 @@ async def _run_flywheel_cycle(source: str) -> None:
         logger.warning(f"[flywheel] ciclo ({source}) falhou: {e}")
 
 
+async def _run_dedup_cycle() -> None:
+    """Uma rodada de dedup automático (P2.4) — RAG (exato) + log de aprendizado
+    (SQLite). Nunca derruba o scheduler se falhar; cada destino se protege
+    sozinho (mesma disciplina do flywheel)."""
+    chroma_pruned = log_pruned = 0
+    try:
+        if rag:
+            chroma_pruned = await asyncio.to_thread(rag.dedup_exact)
+    except Exception as e:
+        logger.warning(f"[dedup] rag falhou: {e}")
+    try:
+        if db:
+            log_pruned = await asyncio.to_thread(db.dedup_learned_topics)
+    except Exception as e:
+        logger.warning(f"[dedup] log falhou: {e}")
+    if chroma_pruned or log_pruned:
+        logger.info(f"[dedup] noturno: {chroma_pruned} (recall) + {log_pruned} (log) removidos")
+
+
 async def _scheduler_loop():
     """Dispara estudos agendados e ativa aprendizado idle.
 
@@ -346,6 +372,16 @@ async def _scheduler_loop():
                         logger.info(f"[backup] backup cifrado diário: {_info['name']} ({_info['bytes']} bytes)")
                     except Exception as e:
                         logger.warning(f"[backup] auto falhou: {e}")
+
+            # Dedup automático (P2.4): 1x/dia a partir de DEDUP_HOUR — RAG (exato)
+            # + log de aprendizado. Leve (texto exato, sem IA); não depende de
+            # ocioso como o flywheel.
+            global _last_dedup_date
+            if DEDUP_HOUR >= 0:
+                _td = datetime.now()
+                if _td.hour >= DEDUP_HOUR and _last_dedup_date != _td.date():
+                    _last_dedup_date = _td.date()
+                    await _run_dedup_cycle()
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:

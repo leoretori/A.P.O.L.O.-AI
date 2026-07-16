@@ -212,8 +212,13 @@ depois.
   agora. Um teste (`test_interest_corpus_ignora_historico_de_proposito`) trava essa decisão.
 
   8 testes novos em `test_learner_logic.py`.
-- 🔲 **P2.4 — Automatizar dedup.** `dedup_learned_topics()` e `RAGManager.dedup_exact()` hoje só
-  rodam por ação manual de curador; agendar como rotina noturna (mesmo padrão do M10/flywheel).
+- 🏁 **P2.4 — Dedup automático noturno (2026-07-16).** `app.py::_run_dedup_cycle()` roda
+  `rag.dedup_exact()` + `db.dedup_learned_topics()` 1×/dia a partir de `DEDUP_HOUR` (padrão 4h),
+  mesmo padrão exato do backup/flywheel (`_last_dedup_date`, marca a data ANTES de rodar,
+  `-1` desliga). Diferente do flywheel, não exige ocioso/learner parado — é leve (comparação de
+  texto exato, sem IA). Os dois destinos são independentes: um falhar não impede o outro (testado).
+  O caminho manual do Curador (`MemoryCurator.apply`) continua existindo do jeito que era — isto
+  soma, não substitui. 4 testes novos em `tests/test_dedup_scheduler.py`.
 - 🔲 **P2.5 — Métrica de qualidade real, não só estrutural.** Substituir/estender
   `get_summary_quality()` (hoje só checa se tem cabeçalho markdown) por uma amostragem com
   LLM-juiz avaliando precisão/utilidade/não-genericidade, rastreada como indicador no tempo.
