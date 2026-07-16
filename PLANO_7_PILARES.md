@@ -344,9 +344,12 @@ logs e commits. Não existe um lugar só pra ver "como o cérebro está indo".
 (`src/webtask.py`, Playwright instalado), mas sem tarefa real definida. Débito de roadmap
 esquecido é pior que decisão explícita de abandonar.
 
-- 🔲 **P6.1 — Decisão explícita.** Ou (a) escolher a tarefa semanal real a automatizar e fechar o
-  épico, ou (b) marcar como ⏭️ adiado/descartado no roadmap com motivo, liberando o item da lista
-  de pendências ativas.
+- ⏭️ **P6.1 — Decisão explícita: adiado (2026-07-16).** Perguntado diretamente, o Leo escolheu (b)
+  — adiar em vez de forçar uma tarefa artificial só pra fechar o item. Atualizado o status no
+  `JARVIS_ROADMAP_ANO2.md` (Épico 20.3: de "⏳ PENDENTE DO LEO" pra "⏭️ ADIADO, decisão explícita")
+  — a infra (`src/webtask.py`, Playwright instalado) fica pronta e parada até uma tarefa semanal
+  real aparecer. Sem código nesta entrada — o ponto do item era justamente parar de deixar isso
+  como débito esquecido, não construir automação sem propósito real.
 
 ---
 

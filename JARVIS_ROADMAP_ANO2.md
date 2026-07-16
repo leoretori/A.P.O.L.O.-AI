@@ -140,7 +140,11 @@ Três eixos, costurados pelo Apolo-Nano:
 >
 > **Progresso — Épico 20.2 ENTREGUE (2026-07-10):** trilha reversível/auditável. Cada ação com EFEITO executada de fato entra numa trilha durável (o handler persiste o ledger via `db.log_tool "web.effect"`). `GET /api/webtask/interactive/trail`; front "🧾 Trilha de efeitos". Honesto: web submits não são auto-reversíveis — a garantia é o registro + o gate de confirmação do 20.1 (nunca um clique cego). +3 testes. Suite → 1269.
 >
-> **⏳ Épico 20.3 — PENDENTE DO LEO:** o motor está pronto (20.1+20.2); fechar o DoD exige (1) `pip install playwright` + `playwright install chromium` (🔒 opt-in — hoje não instalado) e (2) escolher a tarefa semanal REAL a automatizar ("a definir com você"). Assim que houver os dois, monto a receita ponta-a-ponta e demonstro auditada.
+> **⏭️ Épico 20.3 — ADIADO (decisão explícita do Leo, 2026-07-16, P6.1 do `PLANO_7_PILARES.md`):** o
+> motor está pronto (20.1+20.2, Playwright já instalado) — só falta uma tarefa semanal REAL pra
+> automatizar, e nenhuma surgiu ainda. Em vez de deixar "PENDENTE DO LEO" acumulando como débito
+> esquecido, o Leo decidiu adiar explicitamente: a infra fica pronta e parada até uma tarefa real
+> aparecer — não é mais um item de pendência ativa do roadmap.
 
 #### **Mês 21 — Apps nativos & sistema**
 - Épico 21.1 — **Ações no desktop com permissão:** abrir apps, mover/organizar arquivos **com undo**, automações simples — reusando o framework de consentimento + auditoria do M6/M10.
