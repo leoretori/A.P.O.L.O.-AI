@@ -10,6 +10,7 @@ setores ou itens — o rodízio se ajusta sozinho.
 Idioma: as queries ficam em inglês (mais conteúdo na web); o resumo sai em PT-BR.
 """
 
+import os
 import re
 from functools import lru_cache
 from itertools import zip_longest
@@ -673,3 +674,32 @@ def classify_sector(text: str) -> str:
         if score > best_score:
             best, best_score = sector, score
     return best
+
+
+# ── Re-verificação priorizada (P2.7) ────────────────────────────────
+# Setores que mudam RÁPIDO (framework nova, API depreciada, versão nova) —
+# re-verificar em janela mais curta que o padrão de RELEARN_DAYS (21). O
+# resto (ciência, matemática, história...) é estável de propósito: não teria
+# sentido "atualizar" a Segunda Lei de Newton toda semana.
+VOLATILE_SECTORS: frozenset[str] = frozenset({
+    "backend_apis", "frontend_web", "mobile", "data_ml", "systems_languages",
+    "devops_cloud", "databases", "security", "ai_agents", "game_dev",
+    "blockchain_web3", "data_engineering", "sre_reliability", "embedded_iot",
+    "graphics_xr", "networking_protocols",
+})
+VOLATILE_RELEARN_DAYS = int(os.getenv("VOLATILE_RELEARN_DAYS", 10))
+
+
+def relearn_window_days(topic: str, base: int | None = None) -> int:
+    """Quantos dias até um TÓPICO poder ser re-estudado — mais curto pra
+    setores voláteis (tech que muda rápido), o padrão (`RELEARN_DAYS`) pro
+    resto. `base` sobrescreve o padrão (injetável nos testes, sem depender
+    de env). `base<=0` é "nunca re-estuda" (RELEARN_DAYS desligado) — nunca
+    encurtado, desligado é desligado."""
+    from src.storage_models import RELEARN_DAYS
+
+    base = RELEARN_DAYS if base is None else base
+    if base <= 0:
+        return base
+    sector = classify_sector(topic)
+    return min(base, VOLATILE_RELEARN_DAYS) if sector in VOLATILE_SECTORS else base

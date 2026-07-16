@@ -1,8 +1,8 @@
 """Testes do universo de estudo e do classificador de setor."""
 
 from src.topics import (
-    ALL_SECTORS, ALL_TOPICS, SECTOR_LABELS, TOPIC_SECTOR,
-    classify_sector, interleave, is_smalltalk,
+    ALL_SECTORS, ALL_TOPICS, SECTOR_LABELS, TOPIC_SECTOR, VOLATILE_RELEARN_DAYS,
+    classify_sector, interleave, is_smalltalk, relearn_window_days,
 )
 
 
@@ -66,3 +66,27 @@ def test_classify_remove_prefixos():
 def test_classify_desconhecido_vira_outros():
     assert classify_sector("xyzzy plugh blibble") == "outros"
     assert classify_sector("") == "outros"
+
+
+# ── relearn_window_days (P2.7) ───────────────────────────────────
+def test_relearn_window_setor_volatil_e_mais_curto():
+    dias = relearn_window_days("guia rápido de Kubernetes na AWS", base=21)
+    assert dias == VOLATILE_RELEARN_DAYS
+    assert dias < 21
+
+
+def test_relearn_window_setor_estavel_usa_o_base():
+    # "física quântica" cai em ciência/setor estável — usa o padrão inteiro.
+    dias = relearn_window_days("Introdução à física quântica", base=21)
+    assert dias == 21
+
+
+def test_relearn_window_nao_estoura_acima_do_base():
+    """Um base já MENOR que o padrão volátil não deve subir por ser volátil."""
+    dias = relearn_window_days("guia rápido de Kubernetes na AWS", base=5)
+    assert dias == 5
+
+
+def test_relearn_window_base_desligado_fica_desligado():
+    assert relearn_window_days("guia rápido de Kubernetes na AWS", base=0) == 0
+    assert relearn_window_days("Introdução à física quântica", base=-1) == -1

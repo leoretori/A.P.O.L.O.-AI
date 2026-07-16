@@ -159,3 +159,37 @@ def test_sample_topics_for_quality_ignora_sem_resumo(db):
 
 def test_sample_topics_for_quality_vazio(db):
     assert db.sample_topics_for_quality(n=10) == []
+
+
+# ── relearn_days por tópico (P2.7) ──────────────────────────────
+def _envelhecer(db, topic: str, dias: int) -> None:
+    """Empurra `studied_at` pro passado — só pra controlar o teste, não é API
+    pública do projeto."""
+    from datetime import timedelta
+
+    from sqlalchemy.orm import Session
+
+    from src.storage_models import LearnedTopic, _now
+
+    with Session(db.engine) as s:
+        row = s.query(LearnedTopic).filter(LearnedTopic.topic == topic).first()
+        row.studied_at = _now() - timedelta(days=dias)
+        s.commit()
+
+
+def test_is_topic_studied_respeita_relearn_days_customizado(db):
+    db.save_learned_topic("Kubernetes", "u1", "s")
+    _envelhecer(db, "Kubernetes", dias=8)
+    # janela padrão (21d): ainda "estudado" — 8 dias é recente demais pra liberar.
+    assert db.is_topic_studied("Kubernetes") is True
+    # janela curta (5d, ex.: setor volátil): já passou — livre pra re-estudar.
+    assert db.is_topic_studied("Kubernetes", relearn_days=5) is False
+    # janela mais longa que 8d ainda segura.
+    assert db.is_topic_studied("Kubernetes", relearn_days=10) is True
+
+
+def test_is_url_studied_respeita_relearn_days_customizado(db):
+    db.save_learned_topic("Kubernetes", "https://k8s", "s")
+    _envelhecer(db, "Kubernetes", dias=8)
+    assert db.is_url_studied("https://k8s") is True
+    assert db.is_url_studied("https://k8s", relearn_days=5) is False

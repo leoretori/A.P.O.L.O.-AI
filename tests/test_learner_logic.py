@@ -368,6 +368,66 @@ def test_enqueue_self_studies_descarta_topico_fora_do_perfil(monkeypatch):
     assert fila == ["Rust ownership básico"]
 
 
+# ── P2.7: re-verificação priorizada ────────────────────────────────────
+def test_effective_relearn_days_setor_volatil_encurta():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    dias = eng._effective_relearn_days("guia rápido de Kubernetes na AWS")
+    assert dias < 21   # RELEARN_DAYS padrão do storage_models
+
+
+def test_effective_relearn_days_setor_estavel_usa_padrao():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    assert eng._effective_relearn_days("Introdução à física quântica") == 21
+
+
+def test_effective_relearn_days_ligado_a_meta_ativa_encurta_mais():
+    """O tópico bate com uma meta ativa do perfil → janela some pra metade,
+    além do que o setor já daria — o caso de uso real do item."""
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = _FakeProfile({"goal": [{"fact": "aprender Rust ownership e borrow checker"}]})
+    sem_meta = LearningEngine.__new__(LearningEngine)
+    sem_meta.profile = None
+
+    com = eng._effective_relearn_days("Rust ownership básico")
+    sem = sem_meta._effective_relearn_days("Rust ownership básico")
+    assert com < sem
+
+
+def test_effective_relearn_days_piso_de_3_dias():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = _FakeProfile({"goal": [{"fact": "aprender Kubernetes AWS"}]})
+    # setor volátil (10d) cortado pela metade (5d) — ainda acima do piso, mas
+    # prova que o piso existe e não deixa a janela sumir de vez.
+    assert eng._effective_relearn_days("guia rápido de Kubernetes na AWS") >= 3
+
+
+def test_effective_relearn_days_desligado_fica_desligado(monkeypatch):
+    import src.storage_models as sm_mod
+    monkeypatch.setattr(sm_mod, "RELEARN_DAYS", 0)
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    assert eng._effective_relearn_days("qualquer tópico de kubernetes") == 0
+
+
+def test_already_known_usa_janela_efetiva(monkeypatch):
+    chamado = {}
+
+    class _DB:
+        def is_topic_studied(self, topic, relearn_days=None):
+            chamado["relearn_days"] = relearn_days
+            return False
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    eng.db = _DB()
+    eng._skip_session = set()
+    eng._already_known("guia rápido de Kubernetes na AWS")
+    assert chamado["relearn_days"] == eng._effective_relearn_days("guia rápido de Kubernetes na AWS")
+    assert chamado["relearn_days"] < 21
+
+
 def test_llm_lock_serializa_inferencias(monkeypatch):
     """Regressão do 'estudou muito e travou de vez': o lock impede que summarize
     (3b) e síntese (14b) infiram AO MESMO TEMPO — numa 16GB CPU-only isso travava

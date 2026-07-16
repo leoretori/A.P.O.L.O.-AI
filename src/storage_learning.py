@@ -135,22 +135,28 @@ class LearningMixin:
                    .order_by(LearnedTopic.studied_at.desc()).first())
             return row.summary if row else None
 
-    def is_url_studied(self, url: str) -> bool:
-        """Evita re-estudar a mesma URL — mas libera após RELEARN_DAYS (refresh)."""
+    def is_url_studied(self, url: str, relearn_days: int | None = None) -> bool:
+        """Evita re-estudar a mesma URL — mas libera após `relearn_days` (padrão
+        RELEARN_DAYS; P2.7 deixa o chamador encurtar a janela por tópico —
+        setor volátil / ligado a meta ativa — sem mudar o comportamento de
+        quem não passa o argumento)."""
+        days = RELEARN_DAYS if relearn_days is None else relearn_days
         with Session(self.engine) as s:
             q = s.query(LearnedTopic).filter(LearnedTopic.url == url)
-            if RELEARN_DAYS > 0:
-                q = q.filter(LearnedTopic.studied_at >= _now() - timedelta(days=RELEARN_DAYS))
+            if days > 0:
+                q = q.filter(LearnedTopic.studied_at >= _now() - timedelta(days=days))
             return q.count() > 0
 
-    def is_topic_studied(self, topic: str) -> bool:
-        """Anti-duplicação na rotação dos agentes — mas libera após RELEARN_DAYS (refresh)."""
+    def is_topic_studied(self, topic: str, relearn_days: int | None = None) -> bool:
+        """Anti-duplicação na rotação dos agentes — mas libera após `relearn_days`
+        (padrão RELEARN_DAYS; P2.7, ver `is_url_studied`)."""
         if not topic:
             return False
+        days = RELEARN_DAYS if relearn_days is None else relearn_days
         with Session(self.engine) as s:
             q = s.query(LearnedTopic).filter(LearnedTopic.topic == topic)
-            if RELEARN_DAYS > 0:
-                q = q.filter(LearnedTopic.studied_at >= _now() - timedelta(days=RELEARN_DAYS))
+            if days > 0:
+                q = q.filter(LearnedTopic.studied_at >= _now() - timedelta(days=days))
             return q.first() is not None
 
     def delete_learned_topic(self, topic_id: int) -> dict | None:

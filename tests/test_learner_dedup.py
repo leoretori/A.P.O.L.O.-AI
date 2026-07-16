@@ -15,10 +15,10 @@ class FakeDB:
         self.topics = set(topics)
         self.urls = set(urls)
 
-    def is_topic_studied(self, t):
+    def is_topic_studied(self, t, relearn_days=None):
         return t in self.topics
 
-    def is_url_studied(self, u):
+    def is_url_studied(self, u, relearn_days=None):
         return u in self.urls
 
 

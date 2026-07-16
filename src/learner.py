@@ -191,6 +191,24 @@ class LearningEngine:
     def _release(self, topic: str) -> None:
         self._inflight.discard(self._norm(topic))
 
+    def _effective_relearn_days(self, topic: str) -> int:
+        """P2.7: janela de re-verificação MENOR que o padrão (RELEARN_DAYS) pra
+        tópicos que merecem atenção mais cedo — setor volátil (tech que muda
+        rápido, `topics.relearn_window_days`) OU ligado a uma meta/projeto
+        ATIVO do perfil (reusa `_curriculum_relevance` do P2.3: mesma régua
+        de 'conecta com o que importa agora'). Os dois cortam a janela; o
+        menor vence — piso de 3 dias, EXCETO se RELEARN_DAYS estiver desligado
+        (<=0) — desligado é desligado, não hesitamos."""
+        from src.topics import relearn_window_days
+
+        days = relearn_window_days(topic)
+        if days <= 0:
+            return days
+        needs = self._active_needs_context()
+        if needs and self._curriculum_relevance(topic, needs) >= CURRICULUM_RELEVANCE_MIN:
+            days = max(1, days // 2)
+        return max(3, days)
+
     def _already_known(self, topic: str, url: str = "") -> bool:
         """Já estudado (por tópico OU por URL) ou desistido nesta sessão? Vale
         para TODOS os agentes — antes só o doc_agent checava URL."""
@@ -198,9 +216,10 @@ class LearningEngine:
             return True
         if not self.db:
             return False
-        if url and self.db.is_url_studied(url):
+        relearn_days = self._effective_relearn_days(topic)
+        if url and self.db.is_url_studied(url, relearn_days=relearn_days):
             return True
-        return self.db.is_topic_studied(topic)
+        return self.db.is_topic_studied(topic, relearn_days=relearn_days)
 
     # ── API pública ───────────────────────────────────────────
 

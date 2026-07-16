@@ -243,9 +243,21 @@ depois.
   compartilhado; os dois módulos antigos foram refatorados pra usá-lo por dentro, API pública
   intacta (testes antigos continuam passando sem alteração). 17 testes novos entre
   `test_jsonl_history.py`, `test_recall_calibration.py`, `test_recall_gate_scheduler.py`.
-- 🔲 **P2.7 — Re-verificação priorizada.** Tópicos ligados a projetos/metas ativas devem
-  re-verificar mais cedo que os 21 dias padrão; tópicos de áreas voláteis (tech) mais cedo que
-  áreas estáveis (ciência básica).
+- 🏁 **P2.7 — Re-verificação priorizada (2026-07-16, fecha o Pilar 2).** `topics.py::relearn_window_days(topic, base)`
+  encurta a janela de `RELEARN_DAYS` (21→10) pra setores VOLÁTEIS (tech que muda rápido —
+  `VOLATILE_SECTORS`: backend, frontend, mobile, data/ML, devops, segurança, IoT... 16 setores);
+  áreas estáveis (ciência, matemática, história) mantêm o padrão — nunca sobe acima do `base`
+  passado, e `base<=0` (RELEARN_DAYS desligado) nunca é "reativado" por engano.
+  `LearningEngine._effective_relearn_days` combina isso com o P2.2/P2.3: se o tópico conecta com
+  uma meta/projeto ATIVO do perfil (reusa `_curriculum_relevance`), a janela corta pela metade de
+  novo — piso de 3 dias. `_already_known` (o choke point único de anti-duplicação, já usado desde
+  o M8) passa essa janela efetiva pro `is_topic_studied`/`is_url_studied`, que ganham o parâmetro
+  opcional `relearn_days` (backward-compatible: `None` = comportamento de sempre, todo outro
+  chamador do projeto segue igual). 12 testes novos entre `test_topics.py`,
+  `test_storage_learning.py`, `test_learner_logic.py` (mais 2 fixes de fakes existentes que
+  precisavam do novo parâmetro opcional).
+
+**Pilar 2 (Modo Aprendizado) fechado: P2.1–P2.7 todos 🏁.**
 
 ---
 
