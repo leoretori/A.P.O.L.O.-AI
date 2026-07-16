@@ -132,9 +132,9 @@ def test_painel_saude_mostra_apolo_nano():
     assert "🧬 Apolo-Nano" in app_js
     assert "h.nano" in app_js
     # o cartão precisa entrar no innerHTML DO PAINEL DE SAÚDE (linha que
-    # começa com ollamaCard — a montagem final do painel)
+    # monta o painel final — contém "ollamaCard" e "nanoCard" concatenados)
     saude_render = next(ln for ln in app_js.splitlines()
-                        if "body.innerHTML = ollamaCard" in ln)
+                        if "body.innerHTML =" in ln and "ollamaCard" in ln)
     assert "nanoCard" in saude_render
 
 

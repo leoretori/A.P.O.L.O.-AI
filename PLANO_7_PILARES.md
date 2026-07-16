@@ -315,13 +315,26 @@ normal. Isso não deve ser ad-hoc.
 alucinação) estão espalhadas entre `/api/health`, `/api/nano/coverage`, `/api/retrospective2`,
 logs e commits. Não existe um lugar só pra ver "como o cérebro está indo".
 
-- 🔲 **P5.1 — Levantar as fontes existentes.** Mapear todo endpoint/métrica já existente
-  (`/api/health`, `/api/nano/coverage`, canário `src/evals.py`, `get_summary_quality()`,
-  `recall_calibration.py`) antes de construir qualquer UI nova.
-- 🔲 **P5.2 — Painel consolidado.** Um card/seção único agregando: % cobertura Nano, ppl atual,
-  win-rate blind-eval mais recente, qualidade do aprendizado (P2.5), progresso de volume (P3.2).
-- 🔲 **P5.3 — Série histórica, não só snapshot.** Guardar essas métricas ao longo do tempo (não
-  só o valor atual) pra enxergar tendência, não só ponto isolado.
+- 🏁 **P5.1 — Fontes mapeadas (2026-07-16, sem código).** `/api/health`, `/api/nano/coverage`,
+  `/api/nano/flywheel/diagnose` (P3.2), `src/evals.py` (canário), `get_summary_quality()`
+  (estrutural), `quality_sampler`/`recall_calibration` (P2.5/P2.6). **Achado real no mapeamento:**
+  o blind-eval tinha DOIS caminhos de registro — `data/nano/blind_eval_last.json` (só o último
+  resultado, escrito pelo endpoint `/api/nano/blind-eval/run`) E `blind_eval_history.jsonl` (a
+  série completa do P1.4, escrita pelo CLI). Decisão: o painel novo usa o histórico JSONL (fonte
+  de tendência de verdade), não o arquivo solto — sem "consertar" o endpoint antigo agora (fora
+  do escopo deste item), só registrado aqui pra não se perder.
+- 🏁 **P5.2 + P5.3 — Painel consolidado com tendência (2026-07-16).** Novo
+  `src/intelligence_dashboard.py::build_snapshot()` — agrega os 5 números exatos que o item pede
+  (cobertura Nano via `db.nano_coverage()`, ppl via `nano_engine.info()`, win-rate blind-eval,
+  qualidade P2.5, volume P3.2) reaproveitando os históricos JSONL do P1.4/P2.5/P2.6 — cada bloco
+  já vem com `latest` E uma janela de `trend` (não só o valor atual). Cada fonte falha
+  independente (banco fora não derruba o resto). Novo `GET /api/health/intelligence`
+  (`routers/health.py`). Card "🧠 Saúde da inteligência" no painel de Saúde existente, reaproveitando
+  os mesmos helpers `card`/`line` já usados pelos outros cartões. **Verificado AO VIVO no
+  preview** (não só teste): abri o painel de verdade e o card mostrou os números reais da
+  instância — qualidade 100% (15/15), gate de recall 100% (19/19), "faltam 5 reações". 13 testes
+  novos entre `test_intelligence_dashboard.py` e `test_routers_health.py` + 1 teste existente
+  ajustado (`test_frontend_assets.py` fazia match textual exato na linha de montagem do painel).
 
 ---
 

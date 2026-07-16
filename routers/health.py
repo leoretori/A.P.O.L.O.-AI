@@ -210,3 +210,15 @@ async def health():
             pass
 
     return out
+
+
+@router.get("/api/health/intelligence")
+async def health_intelligence():
+    """Painel único de saúde da inteligência (P5.2/P5.3): cobertura Nano, ppl
+    atual, win-rate blind-eval mais recente, qualidade do aprendizado (P2.5),
+    gate de recall (P2.6) e progresso de volume (P3.2) — numa chamada só, com
+    janela de tendência (não só o valor atual). Antes espalhado em 4+ endpoints
+    separados."""
+    from src.intelligence_dashboard import build_snapshot
+
+    return await asyncio.to_thread(build_snapshot, db=rt.db, nano_engine=rt.nano)

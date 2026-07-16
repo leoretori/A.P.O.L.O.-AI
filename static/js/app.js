@@ -2346,10 +2346,11 @@
     const body = document.getElementById('health-body');
     body.textContent = 'Carregando…';
     try {
-      const [h, perf, emb] = await Promise.all([
+      const [h, perf, emb, intel] = await Promise.all([
         fetch('/api/health').then(r=>r.json()),
         fetch('/api/perf').then(r=>r.json()).catch(()=>null),
         fetch('/api/embeddings/info').then(r=>r.json()).catch(()=>null),
+        fetch('/api/health/intelligence').then(r=>r.json()).catch(()=>null),
       ]);
       const dot = (ok)=>`<span style="color:${ok?'#4ade80':'#f87171'}">●</span>`;
       const card = (title, rows)=>`
@@ -2505,7 +2506,31 @@
         ? `<div style="text-align:center;color:#666;font-size:10.5px;margin-top:6px">
              A.P.O.L.O. v${escHtml(b.version)} · <span title="commit em execução">${escHtml(b.git_sha||'—')}</span> · no ar há ${escHtml(b.uptime_human||'—')}</div>`
         : '';
-      body.innerHTML = ollamaCard + nanoCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;
+
+      // Painel único de saúde da inteligência (P5.2/P5.3): antes espalhado
+      // em /api/nano/coverage + /api/nano/flywheel/diagnose +
+      // /api/nano/blind-eval/last + qualidade + gate de recall.
+      let intelCard = '';
+      if (intel) {
+        const pctColor = (v)=> v==null ? '#888' : v>=70 ? '#4ade80' : v>=40 ? '#facc15' : '#f87171';
+        const be = intel.blind_eval && intel.blind_eval.latest;
+        const q = intel.quality && intel.quality.latest;
+        const rg = intel.recall_gate && intel.recall_gate.latest;
+        const vol = intel.volume;
+        intelCard = card(`🧠 Saúde da inteligência <span style="font-weight:400;color:#666;font-size:10px">(consolidado)</span>`,
+          line('Win-rate blind-eval (Nano vs Qwen)', be
+            ? `<span style="color:${pctColor(be.nano_win_rate)}">${be.nano_win_rate}%</span> <span style="color:#666">(n=${be.n})</span>`
+            : '<span style="color:#666">ainda não medido</span>') +
+          line('Qualidade real do aprendizado', q
+            ? `<span style="color:${pctColor(q.pass_rate)}">${q.pass_rate}%</span> <span style="color:#666">(${q.passed}/${q.decided})</span>`
+            : '<span style="color:#666">ainda não amostrado</span>') +
+          line('Gate de recall (acha o que já sabe)', rg
+            ? `<span style="color:${pctColor(rg.hit_rate)}">${rg.hit_rate}%</span> <span style="color:#666">(${rg.hits}/${rg.n})</span>`
+            : '<span style="color:#666">ainda não medido</span>') +
+          (vol ? line('Faltam p/ próximo treino', `título: <b>${vol.faltam_titulo}</b> · reações: <b>${vol.faltam_reacoes}</b>`) : ''));
+      }
+
+      body.innerHTML = intelCard + ollamaCard + nanoCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;
     } catch (e) {
       body.innerHTML = '<span style="color:#f87171">Falha ao carregar saúde do sistema</span>';
     }

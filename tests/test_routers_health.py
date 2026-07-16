@@ -73,3 +73,36 @@ def test_health_agrega(monkeypatch):
     # Épico 1.3: /api/health expõe versão/uptime/git p/ saber qual código roda.
     assert set(body["build"]) >= {"version", "git_sha", "uptime_seconds", "uptime_human"}
     assert isinstance(body["build"]["uptime_seconds"], int)
+
+
+# ── /api/health/intelligence (P5.2/P5.3) ────────────────────────
+class FakeDBIntelligence:
+    def nano_coverage(self):
+        return {"overall": {"nano": 3, "teacher": 7, "total": 10, "pct": 30.0}, "tasks": {}}
+
+    def diagnose_pair_sourcing(self):
+        return {"com_1a_mensagem_valida": 5, "pares_de_reacoes_up": 2}
+
+
+class FakeNanoIntelligence:
+    def info(self):
+        return {"available": True, "ready": True, "params_m": 3.39, "val_ppl": 158.0}
+
+
+def test_health_intelligence_agrega_tudo(monkeypatch):
+    monkeypatch.setenv("FLYWHEEL_MIN_PAIRS", "5")
+    rt.configure(db=FakeDBIntelligence(), nano=FakeNanoIntelligence())
+    r = _client().get("/api/health/intelligence")
+    body = r.json()
+    assert body["coverage"]["overall"]["pct"] == 30.0
+    assert body["nano_status"]["val_ppl"] == 158.0
+    assert body["volume"]["faltam_titulo"] == 0
+    assert body["volume"]["faltam_reacoes"] == 3
+
+
+def test_health_intelligence_sem_db_nem_nano_nao_quebra():
+    rt.configure(db=None, nano=None)
+    r = _client().get("/api/health/intelligence")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["coverage"] is None and body["nano_status"] is None
