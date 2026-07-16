@@ -5,7 +5,7 @@ import time
 
 import src.learner as learner_mod
 from src.learner import _extract_self_queries, _parse_topic_lines, LearningEngine
-from src.learner_types import FetchedItem, LearnedItem
+from src.learner_types import CURRICULUM_RELEVANCE_MIN, FetchedItem, LearnedItem
 
 
 def test_enqueue_pula_topicos_ja_estudados():
@@ -286,6 +286,86 @@ def test_replenish_curriculum_sem_metas_usa_exploracao_geral(monkeypatch):
     asyncio.run(run())
     assert "PRIORIZE" not in captured["prompt"]
     assert "Misture tecnologia e conhecimento geral" in captured["prompt"]
+
+
+# ── P2.3: filtro de deriva do currículo ────────────────────────────────
+def test_curriculum_too_verbose_bate_os_exemplos_reais():
+    """Os exemplos REAIS de deriva vistos em produção (2026-07-15) têm que
+    cair no filtro; os tópicos legítimos medidos não podem ser pegos."""
+    eng = LearningEngine
+    derivados = [
+        "Otimização de infraestruturas urbanas inteligentes com Machine Learning",
+        "Desenvolvimento e implementação da IA aplicada à gestão das águas "
+        "potáveis urbanas resilientes",
+    ]
+    legitimos = ["Filosofia estoica", "Sistemas distribuídos", "Genética molecular",
+                "Async no FastAPI"]
+    assert all(eng._curriculum_too_verbose(t) for t in derivados)
+    assert not any(eng._curriculum_too_verbose(t) for t in legitimos)
+
+
+def test_interest_corpus_sem_perfil_fica_vazio():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    eng.db = None
+    assert eng._interest_corpus() == ""
+
+
+def test_interest_corpus_ignora_historico_de_proposito():
+    """Regressão da 1ª tentativa (descartada): histórico de tópicos já
+    estudados NÃO entra no corpus — usá-lo rejeitava diversidade legítima."""
+    class _DB:
+        def get_learning_history(self, n):
+            raise AssertionError("o corpus de interesse não deve consultar o histórico")
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    eng.db = _DB()
+    assert eng._interest_corpus() == ""   # nem chega a chamar o histórico
+
+
+def test_curriculum_relevance_sem_corpus_nao_filtra():
+    eng = LearningEngine.__new__(LearningEngine)
+    assert eng._curriculum_relevance("qualquer tópico aqui", "") == 1.0
+
+
+def test_curriculum_relevance_topico_conectado_ao_perfil():
+    eng = LearningEngine.__new__(LearningEngine)
+    corpus = "aprender rust em 2026 migrar apolo pro llama cpp"
+    alta = eng._curriculum_relevance("Ownership e borrow checker em Rust", corpus)
+    baixa = eng._curriculum_relevance("Culinária francesa clássica", corpus)
+    assert alta > baixa
+    assert baixa < CURRICULUM_RELEVANCE_MIN
+
+
+def test_enqueue_self_studies_descarta_topico_verboso(monkeypatch):
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    eng.db = None
+    eng._self_queue = asyncio.Queue(maxsize=24)
+    eng._next_studies = []
+    eng._enqueue_self_studies([
+        "Otimização de infraestruturas urbanas inteligentes com Machine Learning",
+        "Filosofia estoica",
+    ])
+    fila = []
+    while not eng._self_queue.empty():
+        fila.append(eng._self_queue.get_nowait())
+    assert fila == ["Filosofia estoica"]
+
+
+def test_enqueue_self_studies_descarta_topico_fora_do_perfil(monkeypatch):
+    """Com metas/projetos preenchidos, um tópico sem NENHUMA conexão é
+    descartado — o próprio caso de uso que o item pede."""
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = _FakeProfile({"goal": [{"fact": "aprender Rust em 2026"}]})
+    eng.db = None
+    eng._self_queue = asyncio.Queue(maxsize=24)
+    eng._next_studies = []
+    eng._enqueue_self_studies(["Culinária francesa clássica", "Rust ownership básico"])
+    fila = []
+    while not eng._self_queue.empty():
+        fila.append(eng._self_queue.get_nowait())
+    assert fila == ["Rust ownership básico"]
 
 
 def test_llm_lock_serializa_inferencias(monkeypatch):

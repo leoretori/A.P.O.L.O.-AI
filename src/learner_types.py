@@ -19,6 +19,13 @@ MAX_CONTENT_CHARS = 3500 # limita conteúdo enviado ao LLM (mais rápido)
 PERSIST_TIMEOUT   = float(os.getenv("PERSIST_TIMEOUT", 45))
 # P2.1: audita 1 em cada N resumos salvos contra a fonte (~10% por padrão).
 VERIFY_SAMPLE_EVERY = int(os.getenv("VERIFY_SAMPLE_EVERY", 10))
+# P2.3: limiar baixo de propósito — só barra deriva TOTAL (zero conexão com
+# qualquer interesse conhecido do PERFIL), não exige match forte. Só entra em
+# jogo quando o perfil tem metas/projetos/preferências/valores preenchidos.
+CURRICULUM_RELEVANCE_MIN = float(os.getenv("CURRICULUM_RELEVANCE_MIN", 0.12))
+# P2.3: tópicos com mais palavras que isto são tratados como deriva de
+# jargão (ver `_curriculum_too_verbose`) — medido contra exemplos reais.
+CURRICULUM_MAX_WORDS = int(os.getenv("CURRICULUM_MAX_WORDS", 6))
 
 
 @dataclass

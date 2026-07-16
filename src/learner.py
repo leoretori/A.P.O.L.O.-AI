@@ -37,7 +37,7 @@ SYNTHESIS_MAX_TOKENS = int(os.getenv("SYNTHESIS_MAX_TOKENS", 1000))
 
 from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
     FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
-    PERSIST_TIMEOUT, VERIFY_SAMPLE_EVERY,
+    PERSIST_TIMEOUT, VERIFY_SAMPLE_EVERY, CURRICULUM_RELEVANCE_MIN, CURRICULUM_MAX_WORDS,
     FetchedItem, LearnedItem,
     SUMMARIZE_PROMPT, SUMMARIZE_PROMPT_GERAL, GENERAL_CATEGORIES,
 )
@@ -869,6 +869,54 @@ class LearningEngine:
         itens = [i for i in itens if i]
         return "; ".join(itens[:15])[:800]
 
+    def _interest_corpus(self) -> str:
+        """P2.3: o texto contra o qual um tópico AUTOGERADO é julgado antes de
+        entrar na fila — SÓ metas/projetos/preferências/valores do PERFIL
+        (sinal curado, explícito). Tentativa inicial incluía o histórico de
+        tópicos já estudados como corpus também — descartada depois de medir:
+        rejeitava diversidade LEGÍTIMA (ex.: "Filosofia estoica" reprovado só
+        por não compartilhar palavra com "Docker"/"Redis" recém-estudados),
+        indo contra o próprio objetivo do currículo, que É diversidade, não
+        repetição temática. Perfil vazio → "" → `_curriculum_relevance` não
+        filtra por relevância (só a verbosidade, sempre ativa, continua)."""
+        parts = [self._active_needs_context()]
+        profile = getattr(self, "profile", None)
+        if profile:
+            try:
+                groups = profile.by_category()
+                for cat in ("preference", "value"):
+                    parts.extend(f.get("fact", "") for f in groups.get(cat, []))
+            except Exception:
+                pass
+        return " ".join(p for p in parts if p)
+
+    def _curriculum_relevance(self, topic: str, corpus: str) -> float:
+        """0..1 — fração do tópico que se conecta ao corpus de interesse.
+        SEM sinal pra julgar (corpus vazio — perfil sem metas/projetos/
+        preferências/valores) devolve 1.0 — não filtra no cold start; isso não
+        é 'todo tópico é relevante', é 'não temos como saber ainda'."""
+        from src.rerank import lexical_overlap, tokenize
+
+        corpus_tokens = tokenize(corpus)
+        if not corpus_tokens:
+            return 1.0
+        topic_tokens = tokenize(topic)
+        if not topic_tokens:
+            return 0.0
+        return lexical_overlap(topic_tokens, corpus)
+
+    @staticmethod
+    def _curriculum_too_verbose(topic: str) -> bool:
+        """P2.3: heurística SEMPRE ativa (não depende de perfil) pro padrão
+        real de deriva visto em produção (2026-07-15) — o LLM do currículo
+        compondo jargão tipo 'Otimização de infraestruturas urbanas
+        inteligentes com Machine Learning' (8 palavras) ou pior, 'Desenvolvimento
+        e implementação da IA aplicada à gestão das águas potáveis urbanas
+        resilientes' (12). Tópicos genuínos medidos são frases curtas — 'Filosofia
+        estoica', 'Sistemas distribuídos' (2 palavras). Limiar com folga entre
+        os dois grupos, não ajustado fino demais de propósito."""
+        return len((topic or "").split()) > CURRICULUM_MAX_WORDS
+
     async def _replenish_curriculum(self) -> None:
         """Rotação de listas fixas ESGOTADA (tudo já estudado na janela) e a fila
         auto-dirigida vazia? Gera tópicos NOVOS via LLM a partir do que já sabe e
@@ -932,10 +980,19 @@ class LearningEngine:
             self._replenishing = False
 
     def _enqueue_self_studies(self, queries: list[str]) -> None:
-        """Injeta na fila auto-dirigida os tópicos que o A.P.O.L.O. decidiu estudar."""
+        """Injeta na fila auto-dirigida os tópicos que o A.P.O.L.O. decidiu estudar.
+
+        P2.3: antes de enfileirar, cada tópico passa pelo filtro de deriva —
+        pontua a conexão com o que já se sabe ser do interesse do Leo (metas/
+        projetos/preferências + histórico de estudo) e descarta o que não bate
+        com NADA disso. Ataca o padrão real visto em produção (2026-07-15):
+        o LLM do currículo divagando pra "Otimização de infraestruturas urbanas
+        inteligentes com Machine Learning" — bem-formado, mas sem nenhuma
+        conexão com o que o Leo realmente estuda."""
         if not queries:
             return
-        added = []
+        corpus = self._interest_corpus()
+        added, dropped = [], []
         for q in queries:
             if self._self_queue.full():
                 break
@@ -943,6 +1000,12 @@ class LearningEngine:
             # a checagem correta é is_topic_studied — antes usava is_url_studied, que
             # nunca casava e fazia o A.P.O.L.O. re-estudar tópicos conhecidos.
             if self.db and self.db.is_topic_studied(q):
+                continue
+            if self._curriculum_too_verbose(q):
+                dropped.append(q)
+                continue
+            if self._curriculum_relevance(q, corpus) < CURRICULUM_RELEVANCE_MIN:
+                dropped.append(q)
                 continue
             try:
                 self._self_queue.put_nowait(q)
@@ -952,6 +1015,9 @@ class LearningEngine:
         if added:
             self._next_studies = added
             logger.info(f"[auto-curriculum] 🎯 A.P.O.L.O. decidiu estudar: {added}")
+        if dropped:
+            logger.info(f"[curriculo] filtro de deriva descartou {len(dropped)}: "
+                        f"{dropped[:5]}")
 
     # ── Sumarização ───────────────────────────────────────────
 

@@ -190,9 +190,28 @@ depois.
   (`src/learner.py:376-384` — checa a fila do usuário primeiro, sempre) — conferido por leitura,
   não precisou de correção. 6 testes novos em `test_learner_logic.py` (contexto vazio/com
   dados/perfil quebrado sem derrubar, prompt com e sem metas ativas).
-- 🔲 **P2.3 — Filtro de deriva do currículo.** Antes de enfileirar um tópico autogerado, pontuar
-  relevância contra seus interesses/perfil conhecidos; descartar ou reformular o que pontuar
-  baixo, em vez de estudar qualquer coisa que a LLM sugerir.
+- 🏁 **P2.3 — Filtro de deriva do currículo (2026-07-16).** `_enqueue_self_studies` (ponto único
+  usado tanto por `_replenish_curriculum` quanto pela síntese cruzada — os dois caminhos que geram
+  tópico via LLM) ganha 2 filtros antes de enfileirar:
+  1. **`_curriculum_too_verbose`** (sempre ativo, determinístico): tópicos com mais de
+     `CURRICULUM_MAX_WORDS` (6) palavras são descartados. Calibrado contra os exemplos REAIS de
+     deriva vistos em produção (2026-07-15) — "Otimização de infraestruturas urbanas inteligentes
+     com Machine Learning" (8 palavras) e pior, "Desenvolvimento e implementação da IA aplicada à
+     gestão das águas potáveis urbanas resilientes" (12) — contra tópicos legítimos medidos
+     ("Filosofia estoica", "Sistemas distribuídos", 2 palavras cada): folga grande entre os grupos.
+  2. **`_curriculum_relevance`** (só ativo quando o perfil tem metas/projetos/preferências/valores
+     preenchidos): pontua sobreposição lexical contra esse corpus; abaixo de
+     `CURRICULUM_RELEVANCE_MIN` (0,12) descarta.
+
+  **Achado honesto no caminho — 1ª tentativa descartada, não escondida:** a ideia original (do
+  próprio texto deste item) incluía o HISTÓRICO de tópicos já estudados no corpus de relevância.
+  Implementei, testei, e o teste REAL revelou o problema: "Filosofia estoica" era reprovado só por
+  não compartilhar palavra com "Docker"/"Redis" recém-estudados — rejeitando diversidade
+  LEGÍTIMA, contra o próprio objetivo do currículo (que É diversidade, não repetição temática).
+  Removido do corpus; só o perfil CURADO (sinal explícito, não incidental) entra na relevância
+  agora. Um teste (`test_interest_corpus_ignora_historico_de_proposito`) trava essa decisão.
+
+  8 testes novos em `test_learner_logic.py`.
 - 🔲 **P2.4 — Automatizar dedup.** `dedup_learned_topics()` e `RAGManager.dedup_exact()` hoje só
   rodam por ação manual de curador; agendar como rotina noturna (mesmo padrão do M10/flywheel).
 - 🔲 **P2.5 — Métrica de qualidade real, não só estrutural.** Substituir/estender
