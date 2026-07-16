@@ -99,10 +99,20 @@ Blind-eval Nano-vs-Qwen só mediu com n=5 (ruído).
   não wireia produção** — ligar `nano_binary_classify` no roteamento (`routing.py`/`NANO_TASKS`)
   fica registrado como próximo passo natural (não feito aqui, para não misturar medição com
   decisão de promover). 4 testes novos em `tests/test_nanollm_binary_eval.py` (fake determinístico).
-- 🔲 **P1.4 — Blind-eval com rigor estatístico.** Fixar um conjunto de ≥30 perguntas reais do
-  banco (não amostra nova a cada rodada) e rodar `blind_eval` nele, virando isso um placar
-  histórico rastreável (`data/nano/blind_eval_history.jsonl` ou similar) em vez de números soltos
-  em commit messages.
+- 🔨 **P1.4 — Blind-eval com rigor estatístico (2026-07-16, infra pronta, DoD ainda não).**
+  `blind_eval.py` ganhou `freeze_questions` (congela o conjunto na 1ª vez, IDEMPOTENTE — rodar de
+  novo não re-sorteia, mesmo que o banco tenha crescido; ataca a causa exata do ruído medido no
+  M28 em 2026-07-15, onde 20%→40% era só amostra nova de n=5, não melhora real), `append_history`/
+  `read_history` (JSONL append-only, nunca reescreve o passado) e `run_tracked_blind_eval`
+  (congela + roda + registra em 1 chamada). `run_blind_eval` ganhou o parâmetro `questions` pra
+  aceitar o conjunto congelado em vez de sempre reamostrar. CLI atualizado (`--questions`,
+  `--history`, `--min-questions`). 9 testes novos (fakes determinísticos).
+  **DoD ainda NÃO batido:** medido de verdade contra o banco principal — só **14 perguntas reais**
+  existem (`db.first_user_messages`), abaixo do mínimo de 30 que o próprio item exige. Confirmei
+  que o gate recusa corretamente em vez de forçar (`ValueError: poucas perguntas reais...`,
+  testado ao vivo via CLI). Mesmo padrão do M27 antes do banco crescer: infraestrutura pronta e
+  testada, medição real adiada até o Pilar 3 (uso real) produzir volume suficiente — não é tarefa
+  de código pendente, é dado que ainda não existe.
 - 🔲 **P1.5 — Contexto e arquitetura baratos em CPU.** Avaliar RoPE/ALiBi para contexto maior que
   192 tokens, tying embedding/unembedding, vocabulário do tokenizer. Cada mudança validada pelo
   harness de eval do P1.4 antes/depois — só entra se medir melhora.

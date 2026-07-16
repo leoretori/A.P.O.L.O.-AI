@@ -12,9 +12,11 @@ liga tudo no banco + Nano + Qwen para rodar de verdade.
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 import re
+from pathlib import Path
 from typing import Callable
 
 logger = logging.getLogger("apolo.nano.blindeval")
@@ -99,13 +101,17 @@ def make_llm_judge(model: str | None = None, *, temperature: float = 0.0):
 
 
 def run_blind_eval(db, nano_engine, *, limit: int = 30, seed: int = 0,
-                   max_tokens: int = 80) -> dict:
-    """Roda a avaliação às cegas de verdade: perguntas reais do banco, Nano do
-    checkpoint vivo, professor + juiz no motor próprio. É o número honesto do M28
-    (win-rate do Nano vs Qwen). Barato de pular se não há checkpoint/perguntas."""
+                   max_tokens: int = 80, questions: list[str] | None = None) -> dict:
+    """Roda a avaliação às cegas de verdade: Nano do checkpoint vivo, professor +
+    juiz no motor próprio. É o número honesto do M28 (win-rate do Nano vs Qwen).
+    Barato de pular se não há checkpoint/perguntas.
+
+    `questions`, se dado, SUBSTITUI a amostragem de `db.first_user_messages` —
+    é o que permite medir sempre no MESMO conjunto (P1.4/`freeze_questions`),
+    em vez de um número novo (e não comparável) a cada rodada."""
     from src.nanollm.distill import make_llm_teacher
 
-    prompts = db.first_user_messages(limit=limit)
+    prompts = questions if questions is not None else db.first_user_messages(limit=limit)
     if not prompts:
         return {"status": "skipped", "reason": "sem perguntas no banco"}
     if nano_engine is None or not nano_engine.available():
@@ -122,25 +128,106 @@ def run_blind_eval(db, nano_engine, *, limit: int = 30, seed: int = 0,
     return res
 
 
+# ── Placar histórico rastreável (P1.4) ─────────────────────────────
+def freeze_questions(db, path: str | Path, limit: int = 30,
+                     min_questions: int = 30) -> list[str]:
+    """O MESMO conjunto de perguntas em toda rodada futura — sem isso, o
+    win-rate de duas rodadas não é comparável (n pequeno, amostra nova a cada
+    vez = ruído, exatamente o problema medido no M28 em 2026-07-15: 20% → 40%
+    era só ruído de amostra, não melhora real).
+
+    Se `path` já existe, carrega e devolve o conjunto congelado (idempotente —
+    rodar de novo NÃO re-sorteia). Senão, tira uma amostra nova de
+    `db.first_user_messages` e congela. Levanta ValueError se não houver
+    `min_questions` perguntas reais disponíveis — não força medição com n
+    pequeno demais pra significar algo (mesmo espírito do 'poucos pares' do
+    resto do projeto)."""
+    p = Path(path)
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    prompts = db.first_user_messages(limit=limit)
+    if len(prompts) < min_questions:
+        raise ValueError(
+            f"poucas perguntas reais pra congelar o conjunto do blind-eval "
+            f"({len(prompts)} < {min_questions}) — junte mais conversas antes de medir")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8")
+    return prompts
+
+
+def append_history(path: str | Path, result: dict, seed: int) -> None:
+    """Acrescenta 1 linha ao placar histórico (JSONL — append-only, nunca
+    reescreve o passado). Só grava rodadas com resultado real (`status=ok`);
+    pular por falta de checkpoint/perguntas não é um ponto da série."""
+    if result.get("status") != "ok":
+        return
+    from datetime import datetime, timezone
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "n": result["n"], "wins": result["wins"],
+        "nano_win_rate": result["nano_win_rate"], "seed": seed,
+    }
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def read_history(path: str | Path, limit: int = 50) -> list[dict]:
+    """Lê o placar histórico, mais recente por último (ordem de gravação)."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    lines = p.read_text(encoding="utf-8").strip().splitlines()
+    return [json.loads(line) for line in lines[-limit:]]
+
+
+def run_tracked_blind_eval(db, nano_engine, *, questions_path: str | Path,
+                           history_path: str | Path, limit: int = 30,
+                           min_questions: int = 30, seed: int = 0,
+                           max_tokens: int = 80) -> dict:
+    """`run_blind_eval` no conjunto CONGELADO de perguntas, registrando o
+    resultado no placar histórico — o jeito certo de rodar isto a partir de
+    agora (em vez de `run_blind_eval` cru, que reamostra toda vez)."""
+    questions = freeze_questions(db, questions_path, limit, min_questions)
+    result = run_blind_eval(db, nano_engine, seed=seed, max_tokens=max_tokens,
+                            questions=questions)
+    append_history(history_path, result, seed)
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI: `python -m src.nanollm.blind_eval [--limit N]`. Roda o Nano do
-    checkpoint vivo contra o Qwen, às cegas, e imprime o win-rate honesto."""
+    checkpoint vivo contra o Qwen, às cegas, no conjunto CONGELADO de
+    perguntas (P1.4) — comparável entre rodadas, registrado no histórico."""
     import argparse
 
-    p = argparse.ArgumentParser(description="Nano vs Qwen às cegas (M28)")
-    p.add_argument("--limit", type=int, default=30, help="máx. de perguntas do banco")
+    p = argparse.ArgumentParser(description="Nano vs Qwen às cegas (M28/P1.4)")
+    p.add_argument("--limit", type=int, default=30, help="tamanho do conjunto ao congelar")
+    p.add_argument("--min-questions", type=int, default=30)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--questions", default="data/nano/blind_eval_questions.json")
+    p.add_argument("--history", default="data/nano/blind_eval_history.jsonl")
     args = p.parse_args(argv)
 
     from src.nanollm.engine import NanoEngine
     from src.storage import DatabaseManager
 
-    res = run_blind_eval(DatabaseManager(), NanoEngine(), limit=args.limit, seed=args.seed)
+    try:
+        res = run_tracked_blind_eval(
+            DatabaseManager(), NanoEngine(), questions_path=args.questions,
+            history_path=args.history, limit=args.limit,
+            min_questions=args.min_questions, seed=args.seed)
+    except ValueError as e:
+        print(f"pulado: {e}")
+        return 1
     if res.get("status") != "ok":
         print(f"pulado: {res.get('reason')}")
         return 1
     w = res["wins"]
-    print(f"Nano vs Qwen (às cegas, {res['n']} perguntas): "
+    print(f"Nano vs Qwen (às cegas, {res['n']} perguntas, conjunto congelado): "
           f"Nano {w['nano']} · Qwen {w['teacher']} · empates {w['tie']}")
     print(f"→ win-rate do cérebro próprio: {res['nano_win_rate']}%")
     return 0
