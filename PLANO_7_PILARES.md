@@ -79,9 +79,26 @@ Blind-eval Nano-vs-Qwen só mediu com n=5 (ruído).
   `python -m src.nanollm.*` — `UnicodeEncodeError` no console cp1252 do Windows sempre que um
   print usava "→" (não era só cosmético, derrubava o processo no meio do treino). Corrigido com
   `sys.stdout.reconfigure(encoding="utf-8")` em todos os `if __name__ == "__main__":`.
-- 🔲 **P1.3 — Uma tarefa até passar o DoD antes de somar outra.** Priorizar o portão binário
-  (M27) — a aposta é que 2 classes generaliza melhor que 9 num modelo de 3M. Só considerar nova
-  tarefa depois que essa passar ≥70% na porta de qualidade em produção.
+- 🏁 **P1.3 — Uma tarefa até passar o DoD (2026-07-16, medido, DoD batido).** O bloqueio do M27
+  (só 19 exemplos com setor válido, 2026-07-15) sumiu sozinho: o aprendizado autônomo rodou e o
+  banco principal tem hoje **3.220 tópicos** com resumo (367 `backend_apis`). Construído
+  `src/nanollm/binary_eval.py` (`load_held_out` reproduz o MESMO split determinístico que
+  `taskdata._write_tokenized` usou, pra medir só no que o modelo NUNCA viu; `evaluate_binary_gate`
+  mede acurácia geral, acurácia-quando-decide e taxa de decisão separadas — um portão que só
+  recusa não deve parecer bom por omissão). Dataset real: `collect_binary_pairs(db, "backend_apis")`
+  → 964 pares balanceados (482 sim/482 não). Fine-tune de verdade (warm-start de `ckpt_v1`, preset
+  `mini`, lr 3e-4, 1200 passos): **overfitting claro e visível** — loss de treino caiu de 5,47 a
+  0,61 enquanto o val nunca melhorou depois do passo 300 (val mínimo 2,9975); `model_best.npz`
+  guardou automaticamente esse ponto (o mecanismo de "só promove por qualidade" do M25.3 funcionou
+  como desenhado, sem precisar de intervenção). **Avaliação real no held-out val (144 pares nunca
+  vistos): 80,56% de acurácia, 100% de taxa de decisão, 0 recusas — DoD (≥70%) batido de verdade.**
+  Confirma a aposta do M27: framing binário generaliza MUITO melhor que os 31,4% do multi-classe
+  de 9 classes na mesma fonte de dado. Ressalvas honestas: (1) medido só para o setor `backend_apis`
+  — não presume que outros setores generalizem igual sem medir; (2) o modelo overfita rápido com
+  964 pares (mais dado real ajudaria, não é urgente); (3) **este item mede se o gate PASSA o DoD,
+  não wireia produção** — ligar `nano_binary_classify` no roteamento (`routing.py`/`NANO_TASKS`)
+  fica registrado como próximo passo natural (não feito aqui, para não misturar medição com
+  decisão de promover). 4 testes novos em `tests/test_nanollm_binary_eval.py` (fake determinístico).
 - 🔲 **P1.4 — Blind-eval com rigor estatístico.** Fixar um conjunto de ≥30 perguntas reais do
   banco (não amostra nova a cada rodada) e rodar `blind_eval` nele, virando isso um placar
   histórico rastreável (`data/nano/blind_eval_history.jsonl` ou similar) em vez de números soltos
