@@ -358,11 +358,17 @@ esquecido é pior que decisão explícita de abandonar.
 **Por quê:** os roadmaps estão crescendo (`JARVIS_ROADMAP_ANO2.md` já é longo, múltiplos `.md` na
 raiz). Manutenção, não urgência — por isso é o último da fila.
 
-- 🔲 **P7.1 — Definir cadência.** Ex.: a cada Ano fechado (como já aconteceu Ano1→Ano2), revisar
-  se algum doc pode migrar pra `docs/` como histórico, igual já foi feito uma vez.
-- 🔲 **P7.2 — Aplicar aos docs deste próprio plano.** Quando os pilares 1–6 avançarem o
-  suficiente, revisar se este arquivo (`PLANO_7_PILARES.md`) deve virar seção de um roadmap maior
-  ou continuar solo.
+- 🏁 **P7.1 — Cadência definida (2026-07-16).** Regra: quando um documento de plano/roadmap na
+  RAIZ do repo tem TODOS os itens fechados (🏁/⏭️, nenhum 🔲 restante), ele migra pra `docs/` como
+  histórico (`git mv`) — mesmo padrão já aplicado uma vez (raiz 8→4 `.md` na consolidação de
+  2026-07-10). A raiz fica só com o que está ATIVO; o que já fechou vira referência em `docs/`,
+  sem apagar nada. Não é cron nem automação — é uma checagem de "este plano ainda tem 🔲?" a fazer
+  ao fechar o último item de qualquer plano futuro.
+- 🏁 **P7.2 — Aplicado a este próprio plano (2026-07-16).** Com os 7 pilares fechados (Pilares 1
+  e 2 com número medido em cada item; 3, 4, 5 com código+verificação; 6 com decisão explícita
+  registrada), este arquivo segue exatamente a regra do P7.1: migra pra `docs/PLANO_7_PILARES.md`
+  no mesmo commit que fecha este item — não fica solto na raiz depois de cumprir seu papel de
+  plano ativo.
 
 ---
 
