@@ -8,9 +8,12 @@ import pytest
 
 from src.nanollm.taskdata import (
     TITLE_TEMPLATE,
+    _binary_question,
     _valid_title,
+    build_binary_dataset,
     build_sector_dataset,
     build_task_dataset,
+    collect_binary_pairs,
     collect_sector_pairs,
     collect_title_pairs,
 )
@@ -158,6 +161,60 @@ def test_build_sector_dataset(sector_db, tokenizer, tmp_path):
     from src.nanollm.taskdata import SECTOR_TEMPLATE
     rendered = SECTOR_TEMPLATE.format(context="X", label="Y")
     assert sector_prompt("X").rstrip() == rendered.rsplit("Y", 1)[0].rstrip()
+
+
+# ── Gate binário (M27+): mesma fonte, framing sim/não ─────────────
+def test_binary_question_tira_o_emoji():
+    assert _binary_question("backend_apis") == "É Backend & APIs?"
+    assert _binary_question("nao_existe") == "É nao existe?"
+
+
+def test_collect_binary_pairs_balanceia_classes(sector_db):
+    pairs = collect_binary_pairs(sector_db, "backend_apis", min_per_class=3)
+    answers = [a for _, a in pairs]
+    assert answers.count("sim") == answers.count("não")   # balanceado
+    assert set(answers) == {"sim", "não"}
+    # todo "sim" veio mesmo de um tópico de backend (não é rótulo furado)
+    sims = {c for c, a in pairs if a == "sim"}
+    assert all("fastapi" in c.lower() or "api" in c.lower() for c in sims)
+
+
+def test_collect_binary_pairs_poucos_pares_levanta_erro(sector_db):
+    with pytest.raises(ValueError, match="poucos pares"):
+        collect_binary_pairs(sector_db, "backend_apis", min_per_class=100)
+
+
+def test_collect_binary_pairs_deterministico(sector_db):
+    p1 = collect_binary_pairs(sector_db, "backend_apis", min_per_class=3, seed=7)
+    p2 = collect_binary_pairs(sector_db, "backend_apis", min_per_class=3, seed=7)
+    assert p1 == p2
+
+
+def test_build_binary_dataset(sector_db, tokenizer, tmp_path):
+    out = tmp_path / "binary"
+    meta = build_binary_dataset(sector_db, tokenizer, out, "backend_apis",
+                                val_fraction=0.2, min_per_class=3, verbose=False)
+    assert meta["task"] == "binary:backend_apis"
+    assert meta["question"] == "É Backend & APIs?"
+    assert meta["label_counts"]["sim"] == meta["label_counts"]["não"]
+    assert meta["tokens"] == meta["train_tokens"] + meta["val_tokens"]
+
+    # o template de treino casa o prompt de inferência
+    from src.nanollm.taskdata import BINARY_TEMPLATE
+    from src.nanollm.tasks import binary_prompt
+    rendered = BINARY_TEMPLATE.format(context="X", question="É Y?", answer="sim")
+    assert binary_prompt("X", "É Y?").rstrip() == rendered.rsplit("sim", 1)[0].rstrip()
+
+    pairs_file = (out / "pairs.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    assert json.loads(pairs_file[0]).keys() == {"context", "question", "answer"}
+
+
+def test_build_binary_dataset_poucos_pares_nao_grava_nada(sector_db, tokenizer, tmp_path):
+    out = tmp_path / "binary_vazio"
+    with pytest.raises(ValueError):
+        build_binary_dataset(sector_db, tokenizer, out, "backend_apis",
+                             min_per_class=100, verbose=False)
+    assert not (out / "meta.json").exists()
 
 
 def test_build_sem_pares(tmp_path, tokenizer):

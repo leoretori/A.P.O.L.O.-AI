@@ -114,6 +114,44 @@ def nano_classify_sector(engine, text: str, labels: list[str],
         return None
 
 
+_YES = ("sim", "s")
+_NO = ("não", "nao", "n")
+
+
+def binary_prompt(text: str, question: str) -> str:
+    """Formata o texto + a pergunta binária e pede a continuação (mesmo
+    template do treino em `taskdata.BINARY_TEMPLATE`)."""
+    return f"{(text or '').strip()[:240]}\n\n{question} "
+
+
+def nano_binary_classify(engine, text: str, question: str,
+                         seed: int | None = None) -> bool | None:
+    """Responde sim/não via Nano; None se indisponível ou a saída não casar
+    nenhum dos dois (o portão de qualidade — melhor recusar que inventar).
+
+    Tarefa FECHADA de propósito (2 classes só) — a aposta do M27+ é que um
+    modelo pequeno generaliza binário melhor que multi-classe (M4.3 mediu
+    31,4% em 9 classes); ainda não promovida a produção até medir de verdade
+    com dado suficiente (ver `taskdata.collect_binary_pairs`). NUNCA levanta
+    exceção — o fallback do chamador decide o que fazer.
+    """
+    try:
+        if engine is None or not engine.available():
+            return None
+        result = engine.complete(binary_prompt(text, question), max_tokens=4,
+                                 temperature=0.2, top_k=5, seed=seed)
+        out = result["text"].strip().lower()
+        first = re.split(r"[\s\n.,!?]", out)[0] if out else ""
+        if first in _YES:
+            return True
+        if first in _NO:
+            return False
+        return None
+    except Exception as e:
+        logger.debug(f"Nano binário falhou: {e}")
+        return None
+
+
 def nano_session_title(engine, message: str, seed: int | None = None) -> str | None:
     """Título via Apolo-Nano, ou None (qualidade insuficiente/indisponível).
 

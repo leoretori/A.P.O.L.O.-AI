@@ -37,6 +37,12 @@ TITLE_TEMPLATE = "{context}\n\nTópico: {title}"
 # Classificação de setor (tarefa FECHADA — joga a favor de um modelo pequeno).
 SECTOR_TEMPLATE = "{context}\n\nSetor: {label}"
 SECTOR_MIN_EXAMPLES = 25  # setores com menos exemplos que isto são descartados
+# Gate binário (M27+, "tarefa nova mais fácil"): mesma fonte do setor, mas
+# reformulada como sim/não — a hipótese medida no M6.1/M4.3 é que um modelo de
+# 3,4M generaliza MELHOR uma pergunta de 2 classes do que 9. Formato "É X?" em
+# vez de nomear a classe, pra casar com como um portão de qualidade se usa.
+BINARY_TEMPLATE = "{context}\n\n{question} {answer}"
+BINARY_MIN_PER_CLASS = 10  # cada classe (sim/não) precisa desse mínimo
 _CONTEXT_CHARS = 240  # regime parecido com o da 1ª mensagem de conversa (200)
 
 # Ruído de scraping nas sínteses: linhas só-URL, cabeçalho markdown "**Fonte**",
@@ -137,17 +143,10 @@ def collect_title_pairs(db: str | Path) -> list[tuple[str, str]]:
     return _dedup_by_context(pairs)
 
 
-def collect_sector_pairs(
-    db: str | Path, min_examples: int = SECTOR_MIN_EXAMPLES
-) -> tuple[list[tuple[str, str]], list[str]]:
-    """Pares (contexto → setor) rotulados por classify_sector.
-
-    Só mantém setores com >= min_examples (conjunto FECHADO e representado);
-    os tópicos de setores raros são descartados (não viram 'outros' inflado).
-    Retorna (pares, rótulos_ordenados).
-    """
-    from collections import Counter
-
+def _raw_sector_pairs(db: str | Path) -> list[tuple[str, str]]:
+    """(contexto, setor) de TODO tópico aprendido, sem filtro de mínimo —
+    a fonte crua compartilhada por `collect_sector_pairs` (multi-classe) e
+    `collect_binary_pairs` (M27+, uma classe-alvo vs. o resto)."""
     from src.topics import classify_sector
 
     con = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True)
@@ -164,12 +163,58 @@ def collect_sector_pairs(
         context = _prose_context(f"{topic}. {summary or ''}")
         if len(context) >= 20:
             raw.append((context, sector))
+    return raw
 
+
+def collect_sector_pairs(
+    db: str | Path, min_examples: int = SECTOR_MIN_EXAMPLES
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """Pares (contexto → setor) rotulados por classify_sector.
+
+    Só mantém setores com >= min_examples (conjunto FECHADO e representado);
+    os tópicos de setores raros são descartados (não viram 'outros' inflado).
+    Retorna (pares, rótulos_ordenados).
+    """
+    from collections import Counter
+
+    raw = _raw_sector_pairs(db)
     counts = Counter(s for _, s in raw)
     keep = {s for s, n in counts.items() if n >= min_examples}
     pairs = _dedup_by_context([(c, s) for c, s in raw if s in keep])
     labels = sorted({s for _, s in pairs})
     return pairs, labels
+
+
+def collect_binary_pairs(
+    db: str | Path, target_sector: str, min_per_class: int = BINARY_MIN_PER_CLASS,
+    seed: int = 42,
+) -> list[tuple[str, str]]:
+    """Pares (contexto → 'sim'/'não') — "isto é `target_sector`?" — pela MESMA
+    fonte do `collect_sector_pairs` (learned_topics + classify_sector já
+    existente, sem heurística nova), só reformulada como pergunta BINÁRIA.
+
+    Hipótese do M27+ (a medir, não presumida): um modelo de 3,4M generaliza
+    melhor 2 classes do que 9 (M4.3 mediu 31,4% no multi-classe). Balanceia
+    os negativos pro mesmo tamanho dos positivos (embaralhado, semente fixa)
+    — senão "sempre não" vira solução preguiçosa e o gate não aprende nada.
+    Levanta ValueError se QUALQUER classe não bater `min_per_class` (mesmo
+    espírito do 'poucos pares' do resto do projeto: não força treino em
+    dado insuficiente)."""
+    raw = _dedup_by_context(_raw_sector_pairs(db))
+    positives = [c for c, s in raw if s == target_sector]
+    negatives = [c for c, s in raw if s != target_sector]
+    if len(positives) < min_per_class or len(negatives) < min_per_class:
+        raise ValueError(
+            f"poucos pares pra 'é {target_sector}?' (sim={len(positives)}, "
+            f"não={len(negatives)}, mínimo {min_per_class} cada) — junte mais "
+            f"tópicos aprendidos antes de treinar este gate")
+    rng = np.random.default_rng(seed)
+    n = min(len(positives), len(negatives))
+    pos = [positives[i] for i in rng.permutation(len(positives))[:n]]
+    neg = [negatives[i] for i in rng.permutation(len(negatives))[:n]]
+    pairs = [(c, "sim") for c in pos] + [(c, "não") for c in neg]
+    order = rng.permutation(len(pairs))
+    return [pairs[i] for i in order]
 
 
 def _write_tokenized(
@@ -278,9 +323,69 @@ def build_sector_dataset(
     return meta
 
 
+def _binary_question(target_sector: str) -> str:
+    """Pergunta legível pro gate binário, a partir do rótulo já existente em
+    `SECTOR_LABELS` (sem o emoji — a distribuição de treino é prosa)."""
+    from src.topics import SECTOR_LABELS
+
+    label = SECTOR_LABELS.get(target_sector, target_sector.replace("_", " "))
+    parts = label.split(" ", 1)
+    # o 1º "token" é emoji (sem nenhuma letra) → descarta, fica só o nome.
+    if len(parts) == 2 and not any(ch.isalpha() for ch in parts[0]):
+        label = parts[1]
+    return f"É {label}?"
+
+
+def build_binary_dataset(
+    db: str | Path,
+    tokenizer_path: str | Path,
+    out_dir: str | Path,
+    target_sector: str,
+    val_fraction: float = 0.15,
+    seed: int = 42,
+    min_per_class: int = BINARY_MIN_PER_CLASS,
+    verbose: bool = True,
+) -> dict:
+    """Monta o dataset do GATE BINÁRIO "é `target_sector`?" (M27+). Mesma
+    fonte do dataset de setor, framing diferente — ver `collect_binary_pairs`.
+    Levanta ValueError (poucos pares) sem inventar dado."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    tok = ByteBPETokenizer.load(tokenizer_path)
+
+    pairs = collect_binary_pairs(db, target_sector, min_per_class)
+    question = _binary_question(target_sector)
+
+    examples = [BINARY_TEMPLATE.format(context=c, question=question, answer=a)
+               for c, a in pairs]
+    (out / "pairs.jsonl").write_text(
+        "\n".join(json.dumps({"context": c, "question": question, "answer": a},
+                             ensure_ascii=False) for c, a in pairs),
+        encoding="utf-8",
+    )
+
+    from collections import Counter
+    meta = {
+        "task": f"binary:{target_sector}",
+        "question": question,
+        "pairs": len(pairs),
+        "label_counts": dict(Counter(a for _, a in pairs)),
+        "template": BINARY_TEMPLATE,
+    }
+    meta.update(_write_tokenized(examples, tok, out, val_fraction, seed))
+    (out / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False),
+                                   encoding="utf-8")
+    if verbose:
+        print(f"dataset binário '{question}': {meta['pairs']} pares "
+              f"(balanceado sim/não) → {meta['tokens']:,} tokens → {out}")
+    return meta
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Monta o dataset de tarefa do Apolo-Nano")
-    ap.add_argument("--task", choices=["title", "sector"], default="title")
+    ap.add_argument("--task", choices=["title", "sector", "binary"], default="title")
+    ap.add_argument("--target-sector", default="backend_apis",
+                    help="setor-alvo do gate binário (--task binary)")
     ap.add_argument("--db", default="data/apolo.db")
     ap.add_argument("--tokenizer", default="data/nanollm/ckpt_v1/tokenizer.json")
     ap.add_argument("--out", default=None, help="padrão: data/nanollm/{task}s")
@@ -289,6 +394,10 @@ def main() -> None:
     if args.task == "sector":
         out = args.out or "data/nanollm/sectors"
         build_sector_dataset(args.db, args.tokenizer, out,
+                             args.val_fraction if args.val_fraction is not None else 0.15)
+    elif args.task == "binary":
+        out = args.out or f"data/nanollm/binary_{args.target_sector}"
+        build_binary_dataset(args.db, args.tokenizer, out, args.target_sector,
                              args.val_fraction if args.val_fraction is not None else 0.15)
     else:
         out = args.out or "data/nanollm/tasks"

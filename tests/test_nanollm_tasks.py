@@ -6,7 +6,14 @@ import pytest
 
 import src.chat_common as cc
 from src import runtime as rt
-from src.nanollm.tasks import extract_title, nano_session_title, title_ok, title_prompt
+from src.nanollm.tasks import (
+    binary_prompt,
+    extract_title,
+    nano_binary_classify,
+    nano_session_title,
+    title_ok,
+    title_prompt,
+)
 
 
 # ------------------------------------------------------------ portão/extração
@@ -105,6 +112,36 @@ def test_nano_classify_sector_sem_casar_vira_none():
     assert nano_classify_sector(FakeEngine("backend_apis"), "?", []) is None
     assert nano_classify_sector(None, "?", labels) is None
     assert nano_classify_sector(FakeEngine(raises=True), "?", labels) is None
+
+
+# ------------------------------------------------ gate binário (M27+)
+def test_binary_prompt_usa_a_pergunta_como_continuacao():
+    p = binary_prompt("FastAPI com pydantic", "É Backend & APIs?")
+    assert p.endswith("É Backend & APIs? ")
+    assert "FastAPI" in p
+
+
+def test_nano_binary_classify_sim_e_nao():
+    assert nano_binary_classify(FakeEngine("sim"), "texto", "É X?") is True
+    assert nano_binary_classify(FakeEngine("não"), "texto", "É X?") is False
+    assert nano_binary_classify(FakeEngine("nao"), "texto", "É X?") is False  # sem acento
+    assert nano_binary_classify(FakeEngine("s"), "texto", "É X?") is True
+
+
+def test_nano_binary_classify_tokens_extras_ainda_casam():
+    assert nano_binary_classify(FakeEngine("sim, com certeza"), "texto", "É X?") is True
+    assert nano_binary_classify(FakeEngine("não é sobre isso"), "texto", "É X?") is False
+
+
+def test_nano_binary_classify_sem_casar_vira_none():
+    assert nano_binary_classify(FakeEngine("talvez"), "texto", "É X?") is None
+    assert nano_binary_classify(FakeEngine(""), "texto", "É X?") is None
+
+
+def test_nano_binary_classify_indisponivel_ou_erro_vira_none():
+    assert nano_binary_classify(None, "texto", "É X?") is None
+    assert nano_binary_classify(FakeEngine(avail=False), "texto", "É X?") is None
+    assert nano_binary_classify(FakeEngine(raises=True), "texto", "É X?") is None
 
 
 def test_nano_title_indisponivel_ou_erro_vira_none():
