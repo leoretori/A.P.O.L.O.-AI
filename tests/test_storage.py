@@ -354,3 +354,28 @@ def test_diagnose_reporta_pares_de_reacoes(db):
                      answer="resposta bem longa também aqui")
     diag = db.diagnose_pair_sourcing()
     assert diag["pares_de_reacoes_up"] == 1
+
+
+# ── Migração de coluna em banco pré-existente (P2.1) ────────────
+def test_migracao_adiciona_coluna_verified_em_banco_legado(tmp_path):
+    """Simula um apolo.db de ANTES do P2.1: cria a tabela learned_topics sem a
+    coluna `verified` e confirma que abrir com DatabaseManager a adiciona
+    sozinha (ALTER TABLE), sem exigir recriar o banco."""
+    import sqlite3
+
+    path = tmp_path / "legado.db"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE learned_topics (id INTEGER PRIMARY KEY, topic TEXT, "
+                "url TEXT, summary TEXT, category TEXT, studied_at TEXT)")
+    con.execute("INSERT INTO learned_topics (topic, url, summary, category, studied_at) "
+                "VALUES ('X', 'u', 's', 'web', '2026-01-01 00:00:00')")
+    con.commit()
+    con.close()
+
+    db = DatabaseManager(database_url=f"sqlite:///{path}")
+    # A migração rodou (não recriou a tabela — a linha antiga sobrevive).
+    hist = db.get_learning_history(10)
+    assert len(hist) == 1 and hist[0]["topic"] == "X" and hist[0]["verified"] is None
+    # E a coluna aceita escrita normalmente daqui pra frente.
+    db.save_learned_topic("Y", "u2", "s", "web", verified="verified")
+    assert db.get_verification_stats()["verified"] == 1

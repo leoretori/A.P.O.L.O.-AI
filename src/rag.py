@@ -151,16 +151,20 @@ class RAGManager:
             title, source, body = _parse_learned_doc(doc)
             relevance = round(1 - dist, 3) if isinstance(dist, (int, float)) else None
             studied_at = (meta or {}).get("studied_at") if isinstance(meta, dict) else None
+            verified = (meta or {}).get("verified") if isinstance(meta, dict) else None
             candidates.append({
                 "title": title,
                 "source": source,
                 "snippet": body[:600],
                 "relevance": relevance,
                 "recency": _recency_from_iso(studied_at),
+                "verified": verified,
             })
         # Recência leve (memória recém-estudada pesa um pouco mais); docs antigos sem
-        # metadado simplesmente não recebem o bônus (recency=0).
-        return _rerank(query, candidates, n_results, w_recency=0.15)
+        # metadado simplesmente não recebem o bônus (recency=0). P2.1: fidelidade à
+        # fonte também pesa um pouco — "failed" penaliza, "verified" bonifica de leve,
+        # "unchecked"/ausente (maioria, só ~10% é amostrado) fica neutro.
+        return _rerank(query, candidates, n_results, w_recency=0.15, w_verified=0.08)
 
     def recall_quality(self, sample_queries: list[str]) -> dict:
         """Mede a saúde do recall: para cada consulta de amostra, pega o melhor

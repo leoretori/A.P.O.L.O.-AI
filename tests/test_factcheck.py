@@ -2,6 +2,8 @@
 determinísticas. Hook do learner avisa contradição ao re-estudar.
 """
 
+import asyncio
+
 from fastapi.testclient import TestClient
 
 from app import app
@@ -90,3 +92,56 @@ def test_learner_sem_drift_nao_notifica():
     eng.db = _DB()
     eng._check_fact_drift("Empresa X", "Fundada em 1998.", "Fundada em 1998, cresceu.")
     assert notes == []
+
+
+# ── Fidelidade à fonte via juiz LLM (P2.1) ─────────────────────
+def test_parse_groundedness_sim_e_nao():
+    assert F.parse_groundedness("sim") == "verified"
+    assert F.parse_groundedness("Sim, é fiel.") == "verified"
+    assert F.parse_groundedness("não") == "failed"
+    assert F.parse_groundedness("nao, inventou dados") == "failed"
+
+
+def test_parse_groundedness_inconclusivo_vira_none():
+    assert F.parse_groundedness("talvez") is None
+    assert F.parse_groundedness("") is None
+    assert F.parse_groundedness(None) is None
+
+
+def test_groundedness_prompt_inclui_fonte_e_resumo():
+    p = F.GROUNDEDNESS_PROMPT.format(source="A fonte diz X.", summary="O resumo diz Y.")
+    assert "A fonte diz X." in p and "O resumo diz Y." in p
+
+
+# ── _verify_summary (learner.py) — amostra 1/N, nunca derruba o pipeline ──
+def test_verify_summary_marca_verified(monkeypatch):
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.gpu_gate = None
+    eng.summarize_model = "modelo"
+    eng._llm_lock = asyncio.Lock()
+    monkeypatch.setattr("src.learner.chat_resilient", lambda *a, **k: "sim")
+    result = asyncio.run(eng._verify_summary("resumo qualquer", "fonte qualquer"))
+    assert result == "verified"
+
+
+def test_verify_summary_marca_failed(monkeypatch):
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.gpu_gate = None
+    eng.summarize_model = "modelo"
+    eng._llm_lock = asyncio.Lock()
+    monkeypatch.setattr("src.learner.chat_resilient", lambda *a, **k: "não")
+    result = asyncio.run(eng._verify_summary("resumo qualquer", "fonte qualquer"))
+    assert result == "failed"
+
+
+def test_verify_summary_erro_nunca_derruba_pipeline(monkeypatch):
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.gpu_gate = None
+    eng.summarize_model = "modelo"
+    eng._llm_lock = asyncio.Lock()
+
+    def _raise(*a, **k):
+        raise RuntimeError("motor fora do ar")
+    monkeypatch.setattr("src.learner.chat_resilient", _raise)
+    result = asyncio.run(eng._verify_summary("resumo", "fonte"))
+    assert result is None  # NUNCA propaga a exceção

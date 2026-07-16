@@ -102,3 +102,33 @@ def test_toggle_schedule_alterna_enabled(db):
 
 def test_toggle_schedule_inexistente(db):
     assert db.toggle_schedule(9999) is False
+
+
+# ── verified (P2.1) ────────────────────────────────────────────
+def test_save_learned_topic_grava_verified(db):
+    db.save_learned_topic("A", "u1", "s", verified="verified")
+    db.save_learned_topic("B", "u2", "s", verified="failed")
+    db.save_learned_topic("C", "u3", "s")  # sem amostrar → None
+    hist = {r["topic"]: r["verified"] for r in db.get_learning_history(limit=10)}
+    assert hist["A"] == "verified"
+    assert hist["B"] == "failed"
+    assert hist["C"] is None
+
+
+def test_get_verification_stats(db):
+    db.save_learned_topic("A", "u1", "s", verified="verified")
+    db.save_learned_topic("B", "u2", "s", verified="verified")
+    db.save_learned_topic("C", "u3", "s", verified="failed")
+    db.save_learned_topic("D", "u4", "s")  # não amostrado
+    stats = db.get_verification_stats()
+    assert stats == {
+        "total": 4, "sampled": 3, "verified": 2, "failed": 1,
+        "pct_sampled": 75, "pct_faithful_of_sampled": 67,
+    }
+
+
+def test_get_verification_stats_vazio(db):
+    assert db.get_verification_stats() == {
+        "total": 0, "sampled": 0, "verified": 0, "failed": 0,
+        "pct_sampled": None, "pct_faithful_of_sampled": None,
+    }

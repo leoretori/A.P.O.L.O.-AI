@@ -113,6 +113,41 @@ def test_rerank_sem_recencia_ignora_campo():
     assert out[0]["score"] == out[1]["score"]  # recency ignorada sem peso
 
 
+# ── Fidelidade à fonte (P2.1) ──────────────────────────────────
+def test_rerank_verified_desempata_a_favor_do_fiel():
+    cands = [
+        {"title": "Não checado", "snippet": "fastapi async rotas", "relevance": 0.6,
+         "verified": None},
+        {"title": "Verificado", "snippet": "fastapi async rotas", "relevance": 0.6,
+         "verified": "verified"},
+    ]
+    out = _rerank("fastapi async rotas", cands, top=2, w_verified=0.1)
+    assert out[0]["title"] == "Verificado"
+
+
+def test_rerank_failed_penaliza():
+    cands = [
+        {"title": "Reprovado", "snippet": "fastapi async rotas", "relevance": 0.6,
+         "verified": "failed"},
+        {"title": "Não checado", "snippet": "fastapi async rotas", "relevance": 0.6,
+         "verified": None},
+    ]
+    out = _rerank("fastapi async rotas", cands, top=2, w_verified=0.1)
+    assert out[0]["title"] == "Não checado"  # neutro vence o reprovado
+
+
+def test_rerank_sem_w_verified_ignora_campo():
+    """Padrão (w_verified=0): 'failed' não penaliza — compat com rag.recall antigo."""
+    cands = [
+        {"title": "A", "snippet": "kafka streaming em producao", "relevance": 0.6,
+         "verified": "failed"},
+        {"title": "B", "snippet": "kafka streaming usando python", "relevance": 0.6,
+         "verified": "verified"},
+    ]
+    out = _rerank("kafka streaming", cands, top=2)
+    assert out[0]["score"] == out[1]["score"]
+
+
 def test_recency_score_decai_com_idade():
     from src.knowledge import _recency_score
     from datetime import datetime, timezone, timedelta

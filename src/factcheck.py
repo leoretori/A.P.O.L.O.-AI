@@ -89,3 +89,32 @@ def _pretty(fact: str) -> str:
         return f"ano {fact[4:]}"
     parts = fact.split(":")
     return f"{parts[1]} {parts[2]}" if len(parts) == 3 else fact
+
+
+# ── Fidelidade à fonte via juiz LLM (P2.1) ─────────────────────────
+# Diferente do resto deste módulo (determinístico, sem LLM): aqui a pergunta é
+# "o resumo é fiel ao que a fonte disse" — algo que regex de fato objetivo não
+# cobre (um resumo pode inventar SEM usar número/data nenhum). Amostral (~10%
+# dos resumos salvos, ver learner.py) porque cada chamada custa uma inferência.
+GROUNDEDNESS_PROMPT = (
+    "Você é um auditor cético. Compare o RESUMO com a FONTE original e diga se "
+    "o resumo é FIEL — não inventa nem distorce o que está na fonte. Pequenas "
+    "omissões não contam como infidelidade; invenção de fatos conta. Responda "
+    "APENAS 'sim' (fiel) ou 'não' (tem invenção/distorção).\n\n"
+    "FONTE:\n{source}\n\nRESUMO:\n{summary}\n\nO resumo é fiel à fonte? (sim/não):"
+)
+
+_YES = ("sim", "s")
+_NO = ("não", "nao", "n")
+
+
+def parse_groundedness(text: str) -> str | None:
+    """'verified' (sim) | 'failed' (não) | None (resposta não decidiu) — puro,
+    sem IO, para ser testável sem LLM de verdade."""
+    out = (text or "").strip().lower()
+    first = re.split(r"[\s\n.,!?]", out)[0] if out else ""
+    if first in _YES:
+        return "verified"
+    if first in _NO:
+        return "failed"
+    return None

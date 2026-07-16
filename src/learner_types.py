@@ -17,6 +17,8 @@ MAX_CONTENT_CHARS = 3500 # limita conteúdo enviado ao LLM (mais rápido)
 # escrita lenta em rede ruim segure o pipeline (o save roda em background, mas
 # sem teto uma pendência acumula threads do pool e pode congelar o aprendizado).
 PERSIST_TIMEOUT   = float(os.getenv("PERSIST_TIMEOUT", 45))
+# P2.1: audita 1 em cada N resumos salvos contra a fonte (~10% por padrão).
+VERIFY_SAMPLE_EVERY = int(os.getenv("VERIFY_SAMPLE_EVERY", 10))
 
 
 @dataclass
@@ -37,6 +39,9 @@ class LearnedItem:
     category: str
     agent_name: str
     timestamp: str = field(default_factory=lambda: datetime.now().strftime("%H:%M"))
+    # "verified" | "failed" | None (P2.1: amostra de ~10% auditada contra a
+    # fonte na mesma sessão; None = não sorteado desta vez, não é "ruim").
+    verified: str | None = None
 
 
 SUMMARIZE_PROMPT = """Você é A.P.O.L.O., agente de IA de elite em engenharia de software.

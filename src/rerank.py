@@ -34,15 +34,19 @@ def lexical_overlap(query_tokens: set[str], text: str) -> float:
 def rerank(query: str, candidates: list[dict], top: int,
            text_keys: tuple[str, ...] = ("title", "snippet"),
            w_vector: float = 0.65, w_lexical: float = 0.35,
-           w_recency: float = 0.0) -> list[dict]:
-    """Reordena candidatos por score híbrido (vetorial + lexical [+ recência]) e
-    remove quase-duplicatas (mesmo título ou alta sobreposição de tokens).
+           w_recency: float = 0.0, w_verified: float = 0.0) -> list[dict]:
+    """Reordena candidatos por score híbrido (vetorial + lexical [+ recência]
+    [+ fidelidade à fonte]) e remove quase-duplicatas (mesmo título ou alta
+    sobreposição de tokens).
 
     Cada candidato é um dict; o texto avaliado é a junção de `text_keys`. Se houver
     'relevance' numérico, entra como sinal vetorial; senão usa 0.5 de base. Se
     `w_recency` > 0, usa o campo 'recency' (0..1, mais recente → mais perto de 1)
-    para dar leve preferência a conhecimento recém-estudado. Os dicts originais são
-    preservados (com um campo 'score' adicionado)."""
+    para dar leve preferência a conhecimento recém-estudado. Se `w_verified` > 0,
+    usa o campo 'verified' (P2.1): "verified" → +1× o peso, "failed" → -1×, o
+    resto ("unchecked"/None/ausente — a maioria, só uma amostra é auditada) fica
+    neutro (0) — não afirma nada sobre o que nunca foi checado. Os dicts
+    originais são preservados (com um campo 'score' adicionado)."""
     qtokens = tokenize(query)
     scored: list[tuple[float, dict]] = []
     for c in candidates:
@@ -54,6 +58,9 @@ def rerank(query: str, candidates: list[dict], top: int,
         if w_recency > 0:
             rec = c.get("recency")
             score += w_recency * (rec if isinstance(rec, (int, float)) else 0.0)
+        if w_verified > 0:
+            v = c.get("verified")
+            score += w_verified * (1.0 if v == "verified" else -1.0 if v == "failed" else 0.0)
         c = {**c, "score": round(score, 4)}
         scored.append((c["score"], c))
     scored.sort(key=lambda x: x[0], reverse=True)

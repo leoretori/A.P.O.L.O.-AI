@@ -157,11 +157,28 @@ do pipeline**. Dedup existe mas é majoritariamente manual (ação de curador). 
 parecido com "revalidação" é um diff de drift que só roda quando um tópico é re-estudado 21 dias
 depois.
 
-- 🔲 **P2.1 — Camada de validação factual (o maior buraco hoje).** Passe amostral (ex.: 10% dos
-  resumos salvos) onde a LLM grande audita o resumo contra as fontes já buscadas na mesma sessão,
-  marcando `verificado`/`não verificado`. Conteúdo não verificado rankeia mais baixo no RAG.
-  **DoD:** campo de verificação existe no schema, é populado automaticamente, e influencia o
-  rerank em `rag.py`.
+- 🏁 **P2.1 — Camada de validação factual, ligada de ponta a ponta (2026-07-16).** O buraco era
+  real: nada checava se um resumo era fiel à fonte, só forma (tamanho/markdown/anti-injeção).
+  Agora existe uma amostra real:
+  - `src/factcheck.py` ganha `GROUNDEDNESS_PROMPT` + `parse_groundedness()` (juiz LLM sim/não,
+    puro e testável sem motor de verdade — mesmo padrão do `blind_eval`/`nano_binary_classify`).
+  - `learner.py::_process_item` audita **1 em cada `VERIFY_SAMPLE_EVERY` (10) resumos salvos**
+    contra a fonte crua (`item.content`, que só existe em memória nesta sessão — é agora ou nunca)
+    via `_verify_summary` (mesmo lock/gate/timeout do `_summarize`, nunca derruba o pipeline em
+    erro). Contador determinístico, não aleatório — reproduzível.
+  - Schema: `learned_topics.verified` (nova coluna, migração automática — `_COLUMN_MIGRATIONS` em
+    `storage.py`, testada contra um banco "legado" simulado sem a coluna). `None` = não sorteado
+    (a maioria — não é "reprovado"), `"verified"`/`"failed"` = resultado real da auditoria.
+  - `_persist` propaga pro SQLite E pro metadata do RAG (Chroma) — `"unchecked"` quando `None`.
+  - `rag.py::recall()` passa `verified` pro candidato; `rerank()` ganha `w_verified` — "failed"
+    penaliza, "verified" bonifica de leve, "unchecked" (maioria) fica neutro — não afirma nada
+    sobre o que nunca foi checado.
+  - `storage_learning.py::get_verification_stats()` novo — quantos % já foram amostrados e quantos
+    passaram, pronto pro dashboard do Pilar 5.
+  **DoD batido nos 3 critérios:** campo existe no schema (✓ migração testada), é populado
+  automaticamente (✓ 1/10 resumos reais, não simulado), influencia o rerank (✓ `w_verified`
+  testado isolando o efeito). 19 testes novos entre `test_factcheck.py`, `test_storage.py`,
+  `test_storage_learning.py`, `test_learner_dedup.py`, `test_rerank.py`, `test_recall_recency.py`.
 - 🔲 **P2.2 — Currículo dirigido por necessidade, não só por novidade.** Ligar a geração de
   tópicos do auto-currículo ao perfil/metas/projetos ativos (a infraestrutura de grafo + perfil já
   existe em `src/graph.py`/`src/profile.py`, só não está conectada aqui). Dar peso maior a

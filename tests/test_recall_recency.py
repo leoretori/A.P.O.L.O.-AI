@@ -56,3 +56,25 @@ def test_recency_from_iso():
     assert _recency_from_iso(agora) > 0.9
     assert _recency_from_iso(None) == 0.0
     assert _recency_from_iso("lixo-invalido") == 0.0
+
+
+# ── Fidelidade à fonte no recall (P2.1) ─────────────────────────
+def test_recall_propaga_verified_do_metadata():
+    docs = [
+        "# Reprovado\nFonte: u1\n\nredis cache mensageria distribuida em cluster",
+        "# Verificado\nFonte: u2\n\nredis cache mensageria pubsub replicado",
+    ]
+    dists = [0.4, 0.4]
+    metas = [{"verified": "failed"}, {"verified": "verified"}]
+    out = RAGManager.recall(_rag_with(docs, dists, metas), "redis cache mensageria",
+                            n_results=2)
+    # Mesma relevância/lexical → o verificado sobe por causa do w_verified fixo em recall().
+    assert out[0]["title"] == "Verificado"
+    assert {c["title"]: c["verified"] for c in out} == \
+        {"Verificado": "verified", "Reprovado": "failed"}
+
+
+def test_recall_sem_verified_no_metadata_fica_none():
+    docs = ["# Tema\nFonte: u\n\ncorpo qualquer sobre python"]
+    out = RAGManager.recall(_rag_with(docs, [0.3], [None]), "python", n_results=1)
+    assert out[0]["verified"] is None

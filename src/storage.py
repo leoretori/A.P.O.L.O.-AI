@@ -52,6 +52,9 @@ class DatabaseManager(ConversationsMixin, LearningMixin, AnalyticsMixin,
         "self_projects": [                      # M19.3: baseline p/ o antes→depois
             ("baseline_json", "TEXT DEFAULT ''"),
         ],
+        "learned_topics": [                     # P2.1: amostra de fidelidade à fonte
+            ("verified", "TEXT DEFAULT NULL"),
+        ],
     }
 
     def _migrate(self) -> None:

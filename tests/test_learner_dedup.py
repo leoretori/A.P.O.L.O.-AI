@@ -366,3 +366,112 @@ def test_learn_from_web_falha_sintese_nao_grava(monkeypatch, tmp_path):
     ok = asyncio.run(eng.learn_from_web("kafka partições", "conteúdo real " * 20))
     assert ok is False
     assert db.get_learning_history(10) == []   # nada cru salvo
+
+
+# ── P2.1: amostra de verificação factual (1 em cada VERIFY_SAMPLE_EVERY) ──
+async def _drain_pending(coro):
+    """`_process_item` dispara `_save_and_record` via create_task (fire-and-
+    forget de propósito, evita mais uma fila) — aguarda essa task terminar
+    antes do teste inspecionar o resultado."""
+    await coro
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.gather(*pending)
+
+
+def test_process_item_amostra_1_em_cada_n(eng, monkeypatch):
+    async def fake_summarize(*a, **k):
+        return "resumo válido " * 10
+
+    verify_calls = []
+
+    async def fake_verify(summary, source):
+        verify_calls.append((summary, source))
+        return "verified"
+
+    saved = []
+
+    async def fake_save_and_record(item):
+        saved.append(item)
+
+    monkeypatch.setattr(eng, "_summarize", fake_summarize)
+    monkeypatch.setattr(eng, "_verify_summary", fake_verify)
+    monkeypatch.setattr(eng, "_save_and_record", fake_save_and_record)
+    monkeypatch.setattr("src.learner.VERIFY_SAMPLE_EVERY", 3)
+
+    async def run():
+        for i in range(6):
+            await _drain_pending(eng._process_item(_item(f"tema {i}")))
+
+    asyncio.run(run())
+    assert len(saved) == 6
+    assert [item.verified for item in saved] == \
+        [None, None, "verified", None, None, "verified"]
+    assert len(verify_calls) == 2   # só 2 dos 6 foram auditados (1 em cada 3)
+
+
+def test_process_item_verify_falso_nao_impede_o_save(eng, monkeypatch):
+    """'failed' na auditoria é um SINAL, não um bloqueio — o resumo ainda é
+    salvo (com a marca), não é descartado como se fosse lixo de ingestão."""
+    async def fake_summarize(*a, **k):
+        return "resumo válido " * 10
+
+    async def fake_verify(summary, source):
+        return "failed"
+
+    saved = []
+
+    async def fake_save_and_record(item):
+        saved.append(item)
+
+    monkeypatch.setattr(eng, "_summarize", fake_summarize)
+    monkeypatch.setattr(eng, "_verify_summary", fake_verify)
+    monkeypatch.setattr(eng, "_save_and_record", fake_save_and_record)
+    monkeypatch.setattr("src.learner.VERIFY_SAMPLE_EVERY", 1)  # audita sempre
+
+    asyncio.run(_drain_pending(eng._process_item(_item("tema x"))))
+    assert len(saved) == 1
+    assert saved[0].verified == "failed"
+
+
+def test_persist_propaga_verified_pro_db_e_pro_rag():
+    captured_db, captured_rag = {}, {}
+
+    class _DB:
+        def save_learned_topic(self, topic, url, summary, category, verified):
+            captured_db["verified"] = verified
+
+    class _Rag:
+        def add_example(self, content, doc_id, metadata=None):
+            captured_rag["metadata"] = metadata
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = _DB()
+    eng.knowledge_db = None
+    eng.rag = _Rag()
+
+    item = LearnedItem(topic="X", url="u", summary="s" * 200,
+                       category="web", agent_name="a", verified="verified")
+    asyncio.run(eng._persist(item))
+    assert captured_db["verified"] == "verified"
+    assert captured_rag["metadata"]["verified"] == "verified"
+
+
+def test_persist_verified_none_vira_unchecked_no_rag():
+    """None no dado (maioria — só ~10% é amostrado) não pode virar string
+    'None' feia no metadata; a fonte da verdade do rótulo é 'unchecked'."""
+    captured_rag = {}
+
+    class _Rag:
+        def add_example(self, content, doc_id, metadata=None):
+            captured_rag["metadata"] = metadata
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = None
+    eng.knowledge_db = None
+    eng.rag = _Rag()
+
+    item = LearnedItem(topic="X", url="u", summary="s" * 200,
+                       category="web", agent_name="a", verified=None)
+    asyncio.run(eng._persist(item))
+    assert captured_rag["metadata"]["verified"] == "unchecked"

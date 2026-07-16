@@ -31,9 +31,11 @@ def _review_dict(r) -> dict:
 
 class LearningMixin:
     # ── Tópicos aprendidos ────────────────────────────────────
-    def save_learned_topic(self, topic: str, url: str, summary: str, category: str = "web") -> None:
+    def save_learned_topic(self, topic: str, url: str, summary: str, category: str = "web",
+                           verified: str | None = None) -> None:
         with Session(self.engine) as s:
-            s.add(LearnedTopic(topic=topic, url=url, summary=summary, category=category))
+            s.add(LearnedTopic(topic=topic, url=url, summary=summary, category=category,
+                               verified=verified))
             s.commit()
 
     # ── Repetição espaçada (M8 8.1) ───────────────────────────
@@ -210,7 +212,7 @@ class LearningMixin:
             seen.add(key)
             out.append({"id": r.id, "topic": r.topic, "url": r.url,
                         "summary": r.summary, "category": r.category,
-                        "studied_at": r.studied_at.isoformat()})
+                        "studied_at": r.studied_at.isoformat(), "verified": r.verified})
             if len(out) >= limit:
                 break
         return out
@@ -360,6 +362,22 @@ class LearningMixin:
         return {"total": total, "structured": structured, "raw": raw,
                 "short": total - structured - raw,
                 "pct_structured": round(100 * structured / total) if total else None}
+
+    def get_verification_stats(self) -> dict:
+        """P2.1: quantos resumos já foram auditados contra a fonte (amostra de
+        ~10%) e quantos passaram. A maioria fica `None` de propósito — não é
+        'não verificado ainda' = 'ruim', é 'não sorteado'."""
+        from sqlalchemy import func
+        with Session(self.engine) as s:
+            total = s.query(func.count(LearnedTopic.id)).scalar() or 0
+            verified = (s.query(func.count(LearnedTopic.id))
+                       .filter(LearnedTopic.verified == "verified").scalar() or 0)
+            failed = (s.query(func.count(LearnedTopic.id))
+                     .filter(LearnedTopic.verified == "failed").scalar() or 0)
+        sampled = verified + failed
+        return {"total": total, "sampled": sampled, "verified": verified, "failed": failed,
+                "pct_sampled": round(100 * sampled / total) if total else None,
+                "pct_faithful_of_sampled": round(100 * verified / sampled) if sampled else None}
 
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct

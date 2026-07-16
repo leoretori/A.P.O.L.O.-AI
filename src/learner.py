@@ -37,7 +37,7 @@ SYNTHESIS_MAX_TOKENS = int(os.getenv("SYNTHESIS_MAX_TOKENS", 1000))
 
 from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
     FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
-    PERSIST_TIMEOUT,
+    PERSIST_TIMEOUT, VERIFY_SAMPLE_EVERY,
     FetchedItem, LearnedItem,
     SUMMARIZE_PROMPT, SUMMARIZE_PROMPT_GERAL, GENERAL_CATEGORIES,
 )
@@ -118,6 +118,12 @@ class LearningEngine:
         # (thrash de RAM/CPU) e TODO tópico estoura o timeout. O lock garante um de
         # cada vez — cada chamada roda a plena velocidade em vez de as duas patinarem.
         self._llm_lock = asyncio.Lock()
+
+        # P2.1: amostra ~10% dos resumos salvos e audita contra a fonte (a fonte
+        # só existe em memória NESTA sessão — `item.content` some depois do save).
+        # Contador determinístico (não aleatório) — mesma disciplina do resto do
+        # projeto: reproduzível, fácil de testar.
+        self._verify_counter = 0
 
         # Filas do pipeline
         # (acessor público abaixo — quem mais fala com o Ollama, ex.: o harness de
@@ -523,9 +529,19 @@ class LearningEngine:
                 logger.warning(f"[summarizer] desistiu de '{item.topic[:50]}' nesta sessão "
                                f"(síntese falhou {item.retries + 1}×; nada foi salvo)")
                 return
+            # P2.1: 1 em cada VERIFY_SAMPLE_EVERY resumos é auditado contra a
+            # fonte AQUI — é a última chance, `item.content` não é persistido.
+            self._verify_counter += 1
+            verified = None
+            if self._verify_counter % VERIFY_SAMPLE_EVERY == 0:
+                verified = await self._verify_summary(summary, item.content)
+                if verified == "failed":
+                    logger.warning(f"[verify] resumo pode não ser fiel à fonte: "
+                                   f"{item.topic[:50]}")
             learned = LearnedItem(
                 topic=item.topic, url=item.url, summary=summary,
                 category=item.category, agent_name=item.agent_name,
+                verified=verified,
             )
             # Passa para o saver via atributo (evita mais uma fila)
             asyncio.create_task(self._save_and_record(learned))
@@ -946,6 +962,30 @@ class LearningEngine:
             logger.warning(f"[summarizer] erro — {e}")
             return None
 
+    async def _verify_summary(self, summary: str, source: str) -> str | None:
+        """P2.1: audita o resumo contra a FONTE crua (ainda em memória nesta
+        sessão) — 'verified'/'failed'/None (indisponível/inconclusivo, nunca
+        derruba o pipeline). Mesma disciplina de lock/gate/timeout do
+        `_summarize` — não pode competir com ele pelo motor."""
+        try:
+            if self.gpu_gate:
+                await self.gpu_gate.wait_for_idle()
+            prompt = factcheck.GROUNDEDNESS_PROMPT.format(
+                source=source[:2000], summary=summary[:1000])
+            async with self._llm_lock:
+                out = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        chat_resilient, self.summarize_model,
+                        [{"role": "user", "content": prompt}],
+                        keep_alive=KEEP_ALIVE, options={"num_predict": 4},
+                    ),
+                    timeout=60.0,
+                )
+            return factcheck.parse_groundedness(out)
+        except Exception as e:
+            logger.debug(f"[verify] falhou (segue sem marcar): {e}")
+            return None
+
     # ── Persistência ──────────────────────────────────────────
 
     async def _persist(self, item: LearnedItem) -> None:
@@ -962,6 +1002,7 @@ class LearningEngine:
             tasks.append(asyncio.to_thread(
                 self.db.save_learned_topic,
                 item.topic, item.url, item.summary[:2000], item.category,
+                item.verified,
             ))
         if self.knowledge_db:
             sector = classify_sector(item.topic)
@@ -992,6 +1033,7 @@ class LearningEngine:
                 await asyncio.wait_for(asyncio.to_thread(
                     self.rag.add_example,
                     f"# {item.topic}\nFonte: {item.url}\n\n{item.summary}", doc_id,
+                    {"verified": item.verified or "unchecked"},
                 ), timeout=PERSIST_TIMEOUT)
             except Exception as e:
                 logger.debug(f"rag error: {e}")

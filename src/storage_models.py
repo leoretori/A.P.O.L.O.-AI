@@ -95,6 +95,9 @@ class LearnedTopic(Base):
     summary    = Column(Text)          # síntese gerada pelo LLM
     category   = Column(String(50), default="web")
     studied_at = Column(DateTime, default=_now)
+    # "verified" | "failed" | NULL (P2.1: amostra auditada contra a fonte;
+    # NULL = não sorteado desta vez — não é "reprovado").
+    verified   = Column(String(10))
 
 
 class ReviewSchedule(Base):
