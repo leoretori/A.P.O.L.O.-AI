@@ -4183,15 +4183,35 @@
     }
   }
 
+  function renderProgressoFlywheel(label, disponivel, faltam) {
+    // P3.2: o gargalo do Pilar 1 (volume real) vira barra visível, em vez de
+    // exigir conta de cabeça olhando o funil cru.
+    const minP = disponivel + faltam;
+    const pct = minP > 0 ? Math.min(100, Math.round(100 * disponivel / minP)) : 0;
+    const cor = faltam === 0 ? '#4ade80' : '#fbbf24';
+    const txt = faltam === 0 ? 'pronto para o próximo treino automático' : `faltam ${faltam}`;
+    return `<div style="margin-top:9px">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;color:#aaa;margin-bottom:3px">
+        <span>${label}</span><span style="color:${cor}">${txt}</span>
+      </div>
+      <div style="background:#1c1c24;border-radius:6px;height:6px;overflow:hidden">
+        <div class="brain-bar-fill" data-w="${pct}" style="width:0%;height:100%;background:${cor};transition:width .6s ease"></div>
+      </div>
+    </div>`;
+  }
+
   function renderFunilSourcing(diag) {
     if (!diag || !diag.enabled) return '';
     const d = diag;
+    const temLimiar = typeof d.faltam_titulo === 'number' && typeof d.faltam_reacoes === 'number';
     return `<div style="background:#0d0d12;border:1px solid #1c1c24;border-radius:12px;padding:13px 15px;margin-bottom:12px">
       <div style="color:#ddd;font-weight:600;margin-bottom:6px;font-size:12.5px">📊 Funil de conversas → pares</div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Sessões (conversas distintas)</span><span style="color:#cdd">${d.total_sessoes}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Com 1ª mensagem válida</span><span style="color:#4ade80">${d.com_1a_mensagem_valida}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Descartadas (curtas demais)</span><span style="color:#fbbf24">${d.descartadas_curtas_demais}</span></div>
       <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px"><span style="color:#888">Pares de 👍 (rótulo direto, sem professor)</span><span style="color:#4ade80">${d.pares_de_reacoes_up ?? 0}</span></div>
+      ${temLimiar ? renderProgressoFlywheel('🗨️ Pares de título (limiar ' + d.min_pairs + ')', d.com_1a_mensagem_valida, d.faltam_titulo) : ''}
+      ${temLimiar ? renderProgressoFlywheel('👍 Pares de reação (limiar ' + d.min_pairs + ')', d.pares_de_reacoes_up ?? 0, d.faltam_reacoes) : ''}
       <div style="margin-top:8px;font-size:11px;color:#79798a;line-height:1.5">${escHtml(d.nota || '')}</div>
     </div>`;
   }

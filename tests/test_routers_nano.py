@@ -37,3 +37,32 @@ def test_flywheel_run_min_pairs_padrao_usa_env(monkeypatch):
     from routers.nano import FlywheelRunRequest
     monkeypatch.setenv("FLYWHEEL_MIN_PAIRS", "7")
     assert FlywheelRunRequest().min_pairs == 7
+
+
+# ── P3.2: "faltam X" contra o limiar real (visibilidade do gargalo) ──
+def test_diagnose_calcula_faltam_contra_o_limiar(monkeypatch):
+    class _FakeDB:
+        def diagnose_pair_sourcing(self):
+            return {"total_sessoes": 5, "com_1a_mensagem_valida": 3,
+                    "descartadas_curtas_demais": 2, "min_len": 8,
+                    "amostra_descartadas": [], "pares_de_reacoes_up": 1, "nota": "..."}
+    rt.configure(db=_FakeDB())
+    monkeypatch.setenv("FLYWHEEL_MIN_PAIRS", "5")
+    d = _client().get("/api/nano/flywheel/diagnose").json()
+    assert d["min_pairs"] == 5
+    assert d["faltam_titulo"] == 2     # 5 - 3
+    assert d["faltam_reacoes"] == 4    # 5 - 1
+
+
+def test_diagnose_faltam_nunca_fica_negativo(monkeypatch):
+    """Já passou do limiar — 'faltam' é 0, não um número negativo confuso."""
+    class _FakeDB:
+        def diagnose_pair_sourcing(self):
+            return {"total_sessoes": 20, "com_1a_mensagem_valida": 30,
+                    "descartadas_curtas_demais": 0, "min_len": 8,
+                    "amostra_descartadas": [], "pares_de_reacoes_up": 50, "nota": "..."}
+    rt.configure(db=_FakeDB())
+    monkeypatch.setenv("FLYWHEEL_MIN_PAIRS", "5")
+    d = _client().get("/api/nano/flywheel/diagnose").json()
+    assert d["faltam_titulo"] == 0
+    assert d["faltam_reacoes"] == 0

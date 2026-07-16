@@ -54,10 +54,18 @@ async def nano_flywheel_diagnose():
     """Por que 'poucos pares' persiste mesmo com conversas novas? Mostra o funil
     real de sourcing (sessões → 1ª mensagem válida), sem chamar o professor —
     só leitura. Dúvida real do Leo (2026-07-14): achava que dar 👍/👎 ou
-    continuar conversando contava como novo par; só sessão NOVA conta."""
+    continuar conversando contava como novo par; só sessão NOVA conta.
+
+    P3.2: soma o "faltam X" contra o limiar real (FLYWHEEL_MIN_PAIRS) — o
+    gargalo do Pilar 1 inteiro vira número visível, não precisa fazer conta
+    de cabeça olhando o funil cru."""
     if not rt.db:
         return {"enabled": False}
     diag = await asyncio.to_thread(rt.db.diagnose_pair_sourcing)
+    min_pairs = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
+    diag["min_pairs"] = min_pairs
+    diag["faltam_titulo"] = max(0, min_pairs - diag["com_1a_mensagem_valida"])
+    diag["faltam_reacoes"] = max(0, min_pairs - diag["pares_de_reacoes_up"])
     return {"enabled": True, **diag}
 
 

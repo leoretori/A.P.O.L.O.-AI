@@ -267,12 +267,19 @@ depois.
 está bloqueado por volume real de uso — medição de 15/07: 5 primeiras-mensagens, 0 reações 👍
 dadas até agora. Isso não é código, é processo.
 
-- 🔲 **P3.1 — Ritual de uso diário.** Usar o chat normalmente no dia a dia (não só para testar
-  features) e dar 👍/👎 quando fizer sentido — os dois flywheels (título e reações) já rodam
-  sozinhos de madrugada assim que houver volume suficiente.
-- 🔲 **P3.2 — Painel de progresso do volume.** Expor no dashboard (ver Pilar 5) uma barra clara
-  "faltam X conversas/reações para o próximo treino automático disparar", pra tornar o gargalo
-  visível em vez de descoberto via log.
+- ⏭️ **P3.1 — Ritual de uso diário.** Não é código — é usar o chat normalmente no dia a dia e dar
+  👍/👎 quando fizer sentido. Só o Leo pode fazer isso; registrado aqui como lembrete, não como
+  tarefa de engenharia (não marco 🏁 em algo que não fiz).
+- 🏁 **P3.2 — Painel de progresso do volume (2026-07-16).** `/api/nano/flywheel/diagnose` ganha
+  `min_pairs`/`faltam_titulo`/`faltam_reacoes` (contra `FLYWHEEL_MIN_PAIRS`, nunca negativo). O
+  painel "Cérebro Próprio" (já existente) ganha 2 barras de progresso reaproveitando o
+  `.brain-bar-fill` que já animava a Soberania — "faltam X" fica visível sem precisar ler log.
+  **Verificado ao vivo** no preview (não só teste): rodei o app de verdade e o funil mostrou
+  "🗨️ Pares de título (limiar 5) → pronto para o próximo treino automático" (5/5) e "👍 Pares de
+  reação (limiar 5) → faltam 5" (0/5) — exatamente o esperado. Bônus não planejado: essa mesma
+  rodada confirmou ao vivo que os ciclos noturnos dos P2.4/P2.5/P2.6 (dedup, qualidade, gate de
+  recall) já estão rodando de verdade em produção — "[quality] amostra noturna: 15/15 passaram",
+  "[recall-gate] 19/19 tópicos achados". 2 testes novos em `test_routers_nano.py`.
 
 ---
 
