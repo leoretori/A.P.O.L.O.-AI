@@ -9,14 +9,35 @@ Lê os singletons de `src.runtime` em tempo de requisição.
 """
 import asyncio
 import base64
+from urllib.parse import urlparse
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from src import runtime as rt
 from src import vision_read as V
 
 router = APIRouter()
+
+
+def _require_same_origin(request: Request) -> None:
+    """Barra CSRF em captura de tela/câmera (achado na auditoria de
+    segurança 2026-07-15): esses dois endpoints não têm outro gate — "seu
+    clique no botão = consentimento" só vale se a requisição de fato veio da
+    própria página do app, não de um `fetch()` disparado por outra aba/site
+    (CORS aqui é `allow_origins=["*"]`, então sem isso qualquer página
+    conseguia te fotografar/capturar a tela silenciosamente).
+
+    Só bloqueia quando `Origin`/`Referer` EXISTE e aponta pra outro host —
+    navegadores sempre mandam `Origin` em POST cross-origin (não dá pra
+    a página maliciosa omitir), então isso barra o ataque sem quebrar
+    chamadas legítimas de ferramentas locais (curl, apps nativos) que
+    tipicamente não mandam esses headers."""
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    if not origin:
+        return
+    if urlparse(origin).netloc != request.headers.get("host", ""):
+        raise HTTPException(403, "requisição de origem cruzada bloqueada")
 
 
 class ScreenRequest(BaseModel):
@@ -46,8 +67,9 @@ async def vision_status():
 
 
 @router.post("/api/vision/screen")
-async def vision_screen(req: ScreenRequest):
+async def vision_screen(req: ScreenRequest, request: Request):
     """Captura a tela; se `describe` e houver modelo de visão, descreve o que vê."""
+    _require_same_origin(request)
     cap = await asyncio.to_thread(V.capture_screen)
     if not cap.get("ok"):
         return cap
@@ -61,9 +83,12 @@ async def vision_screen(req: ScreenRequest):
 
 
 @router.post("/api/vision/camera")
-async def vision_camera(req: ScreenRequest):
+async def vision_camera(req: ScreenRequest, request: Request):
     """Tira uma foto da câmera (M22.3); se `describe` e houver modelo de
-    visão, descreve o que vê. Clique seu = consentimento, como o 22.1."""
+    visão, descreve o que vê. Clique seu = consentimento, como o 22.1 — mas
+    isso só protege quando a requisição vem mesmo da nossa página (ver
+    `_require_same_origin`)."""
+    _require_same_origin(request)
     cap = await asyncio.to_thread(V.capture_camera)
     if not cap.get("ok"):
         return cap

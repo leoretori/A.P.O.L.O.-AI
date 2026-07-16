@@ -117,18 +117,33 @@ def run(steps: list[dict], driver, allowed: list[str], on_step=None) -> dict:
             except Exception:
                 pass
 
+    def _guard(url: str, op: str) -> dict | None:
+        if not domain_allowed(url, allowed):
+            _record(op, f"bloqueado (fora da sandbox): {url}", ok=False)
+            return {"ok": False, "error": f"navegação fora da sandbox: {url}",
+                    "results": results, "trace": trace, "visited": visited}
+        return None
+
     try:
         for st in steps:
             op = st.get("op")
             if op == "open":
                 url = st["url"]
-                if not domain_allowed(url, allowed):
-                    _record("open", f"bloqueado (fora da sandbox): {url}", ok=False)
-                    return {"ok": False, "error": f"navegação bloqueada: {url}",
-                            "results": results, "trace": trace, "visited": visited}
+                blocked = _guard(url, "open")
+                if blocked:
+                    return blocked
                 page = driver.open(url)
-                visited.append(page.get("url", url))
-                _record("open", page.get("url", url))
+                # O driver pode ter seguido REDIRECTS (follow_redirects=True) pra
+                # fora da allowlist — checar a URL só ANTES de abrir não basta;
+                # reconfere o destino FINAL (mesma disciplina do click/submit
+                # abaixo, que já faziam isso). Achado na auditoria de segurança
+                # 2026-07-15: um 302 escapava a sandbox de domínios.
+                final_url = page.get("url", url)
+                blocked = _guard(final_url, "open")
+                if blocked:
+                    return blocked
+                visited.append(final_url)
+                _record("open", final_url)
             elif op == "follow":
                 if not page:
                     return {"ok": False, "error": "'follow' sem página aberta",
@@ -140,13 +155,16 @@ def run(steps: list[dict], driver, allowed: list[str], on_step=None) -> dict:
                     _record("follow", f"nenhum link com '{sub}'", ok=False)
                     return {"ok": False, "error": f"link não encontrado: '{sub}'",
                             "results": results, "trace": trace, "visited": visited}
-                if not domain_allowed(link["url"], allowed):
-                    _record("follow", f"bloqueado (fora da sandbox): {link['url']}", ok=False)
-                    return {"ok": False, "error": f"link fora da sandbox: {link['url']}",
-                            "results": results, "trace": trace, "visited": visited}
+                blocked = _guard(link["url"], "follow")
+                if blocked:
+                    return blocked
                 page = driver.open(link["url"])
-                visited.append(page.get("url", link["url"]))
-                _record("follow", page.get("url", link["url"]))
+                final_url = page.get("url", link["url"])
+                blocked = _guard(final_url, "follow")
+                if blocked:
+                    return blocked
+                visited.append(final_url)
+                _record("follow", final_url)
             elif op == "extract":
                 if not page:
                     return {"ok": False, "error": "'extract' sem página aberta",
@@ -189,20 +207,45 @@ def parse_page(html: str, base_url: str) -> dict:
     return {"url": base_url, "title": title, "text": text, "links": links}
 
 
+_MAX_REDIRECTS = 5
+
+
 class HttpDriver:
     """Driver embutido read-only: baixa a página via httpx e parseia. Soberano
     (sem navegador). Para sites que exigem JS/clique, use um driver interativo
-    (🔒 opt-in). Síncrono de propósito — o router o chama via to_thread."""
-    def __init__(self, timeout: float = 8.0):
+    (🔒 opt-in). Síncrono de propósito — o router o chama via to_thread.
+
+    `allowed`, se dado, confina TAMBÉM os redirects: um 30x pra fora da
+    allowlist nunca é seguido (achado na auditoria de segurança 2026-07-15 —
+    `follow_redirects=True` sem re-checar o destino furava a sandbox de
+    domínios; a validação do chamador acontece ANTES da 1ª requisição, mas um
+    redirect é uma requisição NOVA que ele nunca via). Sem `allowed`, segue
+    redirects livremente (uso fora do webtask, ex.: scripts avulsos)."""
+    def __init__(self, timeout: float = 8.0, allowed: list[str] | None = None):
         self._timeout = timeout
+        self._allowed = allowed
 
     def open(self, url: str) -> dict:
         import httpx
-        with httpx.Client(timeout=self._timeout, follow_redirects=True,
-                          headers={"User-Agent": "Mozilla/5.0 (compatible; ApoloAI/1.0; automation)"}) as c:
-            resp = c.get(url)
-            resp.raise_for_status()
-            return parse_page(resp.text, str(resp.url))
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; ApoloAI/1.0; automation)"}
+        if self._allowed is None:
+            with httpx.Client(timeout=self._timeout, follow_redirects=True,
+                              headers=headers) as c:
+                resp = c.get(url)
+                resp.raise_for_status()
+                return parse_page(resp.text, str(resp.url))
+        with httpx.Client(timeout=self._timeout, follow_redirects=False,
+                          headers=headers) as c:
+            for _ in range(_MAX_REDIRECTS):
+                if not domain_allowed(url, self._allowed):
+                    raise ValueError(f"redirecionamento bloqueado (fora da sandbox): {url}")
+                resp = c.get(url)
+                if resp.is_redirect:
+                    url = str(resp.next_request.url)
+                    continue
+                resp.raise_for_status()
+                return parse_page(resp.text, str(resp.url))
+        raise ValueError(f"redirecionamentos demais (máx {_MAX_REDIRECTS}): {url}")
 
 
 EXAMPLE_RECIPE = [
@@ -365,7 +408,7 @@ def run_interactive(steps: list[dict], driver, allowed: list[str], *,
     def _guard(url: str, op: str) -> dict | None:
         if not domain_allowed(url, allowed):
             _record(op, f"bloqueado (fora da sandbox): {url}", ok=False)
-            return {"ok": False, "error": f"navegação bloqueada: {url}",
+            return {"ok": False, "error": f"navegação fora da sandbox: {url}",
                     "results": results, "trace": trace, "visited": visited, "ledger": ledger}
         return None
 
@@ -378,8 +421,15 @@ def run_interactive(steps: list[dict], driver, allowed: list[str], *,
                 if blocked:
                     return blocked
                 page = driver.open(url)
-                visited.append(page.get("url", url))
-                _record("open", page.get("url", url))
+                # Redirect (30x) pode ter levado pra fora da allowlist mesmo
+                # com a URL inicial autorizada — reconfere o destino FINAL
+                # (achado na auditoria de segurança 2026-07-15).
+                final_url = page.get("url", url)
+                blocked = _guard(final_url, "open")
+                if blocked:
+                    return blocked
+                visited.append(final_url)
+                _record("open", final_url)
             elif op == "follow":
                 if not page:
                     return {"ok": False, "error": "'follow' sem página aberta",
@@ -395,8 +445,12 @@ def run_interactive(steps: list[dict], driver, allowed: list[str], *,
                 if blocked:
                     return blocked
                 page = driver.open(link["url"])
-                visited.append(page.get("url", link["url"]))
-                _record("follow", page.get("url", link["url"]))
+                final_url = page.get("url", link["url"])
+                blocked = _guard(final_url, "follow")
+                if blocked:
+                    return blocked
+                visited.append(final_url)
+                _record("follow", final_url)
             elif op == "extract":
                 if not page:
                     return {"ok": False, "error": "'extract' sem página aberta",

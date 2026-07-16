@@ -56,6 +56,14 @@ async def undo(payload: dict):
 
 @router.get("/api/actions/undo")
 async def undo_ledger(limit: int = 30, pending: bool = False):
-    """Trilha de ações reversíveis (para o painel), mais recentes primeiro."""
+    """Trilha de ações reversíveis (para o painel), mais recentes primeiro.
+
+    NÃO devolve `undo_data` — pra `files.write` isso inclui `old_content`, o
+    conteúdo ANTERIOR do arquivo (achado na auditoria de segurança
+    2026-07-15: essa listagem vazava conteúdo de arquivo sem checar escopo
+    nenhum). O painel só usa description/kind/created_at/undone; quem
+    precisa mesmo do undo_data é o próprio `undo_action`, que já lê pelo id
+    direto (`db.get_undo`), não por aqui."""
     items = await asyncio.to_thread(rt.db.list_undo, limit, not pending)
+    items = [{k: v for k, v in it.items() if k != "undo_data"} for it in items]
     return {"count": len(items), "items": items}

@@ -35,6 +35,40 @@ def test_status_com_modelo_de_visao():
     assert body["vision"] is True and body["vision_model"] == "llava"
 
 
+# ── CSRF: Origin/Referer de outro host é bloqueado (2026-07-15) ──
+def test_screen_origem_cruzada_e_bloqueada(monkeypatch):
+    """Achado da auditoria de segurança: sem isso, qualquer página web podia
+    disparar um fetch() cross-origin e roubar um screenshot silenciosamente."""
+    from PIL import Image
+    monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (10, 10)))
+    r = _client().post("/api/vision/screen", json={"describe": False},
+                       headers={"Origin": "https://malicioso.example"})
+    assert r.status_code == 403
+
+
+def test_camera_origem_cruzada_e_bloqueada():
+    r = _client().post("/api/vision/camera", json={"describe": False},
+                       headers={"Origin": "https://malicioso.example"})
+    assert r.status_code == 403
+
+
+def test_screen_mesma_origem_passa(monkeypatch):
+    from PIL import Image
+    monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (10, 10)))
+    r = _client().post("/api/vision/screen", json={"describe": False},
+                       headers={"Origin": "http://testserver"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_screen_sem_origin_nem_referer_ainda_funciona(monkeypatch):
+    """Requisições sem Origin/Referer (curl, apps nativos locais) não são
+    barradas — só quando o header EXISTE e aponta pra outro host."""
+    from PIL import Image
+    monkeypatch.setattr("PIL.ImageGrab.grab", lambda: Image.new("RGB", (10, 10)))
+    r = _client().post("/api/vision/screen", json={"describe": False})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
 # ── POST /api/vision/screen ─────────────────────────────────────
 def test_screen_sem_descrever_nao_chama_modelo(monkeypatch):
     from PIL import Image

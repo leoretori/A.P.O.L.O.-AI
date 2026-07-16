@@ -68,3 +68,33 @@ def test_lista_acoes_disponiveis(client_root):
 def test_undo_sem_id(client_root):
     client, _ = client_root
     assert client.post("/api/actions/undo", json={}).json()["ok"] is False
+
+
+def test_ledger_nao_vaza_conteudo_antigo_do_arquivo(client_root):
+    """Achado da auditoria de segurança (2026-07-15): GET /api/actions/undo
+    devolvia undo_data (old_content) sem checar escopo — qualquer cliente na
+    rede lia conteúdo histórico de arquivos. Agora a listagem nunca traz isso."""
+    client, d = client_root
+    alvo = d / "segredo.txt"
+    alvo.write_text("CONTEUDO SENSIVEL ORIGINAL", encoding="utf-8")
+    body = {"kind": "files.write", "args": {"path": str(alvo), "content": "novo"}}
+    client.post("/api/actions/confirm", json=body)
+
+    ledger = client.get("/api/actions/undo").json()
+    assert ledger["count"] == 1
+    item = ledger["items"][0]
+    assert "undo_data" not in item
+    assert "CONTEUDO SENSIVEL ORIGINAL" not in str(item)   # não vaza em nenhum campo
+
+
+def test_undo_negado_apos_revogar_permissao(client_root):
+    """Revogar files.write DEPOIS de aplicar uma ação bloqueia o undo dela."""
+    client, d = client_root
+    alvo = d / "f.txt"
+    body = {"kind": "files.write", "args": {"path": str(alvo), "content": "y"}}
+    undo_id = client.post("/api/actions/confirm", json=body).json()["undo_id"]
+
+    rt.db.revoke_permission("files.write")
+    un = client.post("/api/actions/undo", json={"undo_id": undo_id}).json()
+    assert un["ok"] is False and un.get("denied") is True
+    assert alvo.exists() and alvo.read_text(encoding="utf-8") == "y"

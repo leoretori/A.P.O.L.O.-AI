@@ -147,7 +147,11 @@ def apply_action(kind: str, args: dict | None, db=None) -> dict:
 
 def undo_action(undo_id: int, db=None) -> dict:
     """Desfaz uma ação aplicada, pelo registro do ledger. Idempotente: um id já
-    desfeito não é reaplicado."""
+    desfeito não é reaplicado. Exige o MESMO escopo de preview/apply — sem
+    isso, revogar uma permissão não impedia desfazer ações antigas dela
+    (achado na auditoria de segurança 2026-07-15: `note`/allowlist do grant
+    sobrevive à revogação, então o undo continuava escrevendo/apagando
+    arquivos mesmo depois do Leo tirar a permissão)."""
     if db is None:
         return {"ok": False, "error": "sem banco para reverter"}
     entry = db.get_undo(undo_id)
@@ -158,6 +162,9 @@ def undo_action(undo_id: int, db=None) -> dict:
     action = get(entry["kind"])
     if not action:
         return {"ok": False, "error": f"ação desconhecida: {entry['kind']}"}
+    if not _granted(action, db):
+        _audit(db, f"{entry['kind']}:undo", action.scope, False, {"undo_id": undo_id}, "denied")
+        return _denied(action)
     try:
         result = action.undo(entry["undo_data"], _context(action, db))
     except Exception as e:

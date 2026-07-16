@@ -148,3 +148,22 @@ def test_engine_undo_idempotente(root):
 
 def test_engine_acao_desconhecida():
     assert actions.preview_action("nope", {}, None)["ok"] is False
+
+
+def test_engine_undo_negado_apos_revogar_permissao(root):
+    """Achado da auditoria de segurança (2026-07-15): revogar a permissão
+    DEPOIS de aplicar uma ação não impedia desfazê-la — undo_action não
+    checava o grant. `note` (allowlist) sobrevive à revogação, então sem essa
+    checagem o undo continuava escrevendo/apagando arquivos sem consentimento."""
+    db = FakeDB(granted=True, note=str(root))
+    alvo = root / "f.txt"
+    ap = actions.apply_action("files.write", {"path": str(alvo), "content": "y"}, db)
+    assert ap["ok"] and alvo.exists()
+
+    db._granted = False   # revoga files.write
+    un = actions.undo_action(ap["undo_id"], db)
+    assert un["ok"] is False and un["denied"] is True
+    assert alvo.exists() and alvo.read_text(encoding="utf-8") == "y"   # intacto
+    assert db.audit[-1] == ("files.write:undo", "files.write", False,
+                            actions._summarize({"undo_id": ap["undo_id"]}),
+                            actions._summarize("denied"))

@@ -19,7 +19,7 @@ def _tool_browser_run(args: dict, ctx) -> dict:
             "nenhum domínio autorizado — abra 🔐 Permissões, autorize 'browser.control' "
             "e informe os domínios que o A.P.O.L.O. pode automatizar")
     steps = (args or {}).get("steps") or []
-    return webtask.run(steps, webtask.HttpDriver(), allowed)
+    return webtask.run(steps, webtask.HttpDriver(allowed=allowed), allowed)
 
 
 register(Tool(name="browser.run", scope="browser.control",

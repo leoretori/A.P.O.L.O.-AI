@@ -112,6 +112,19 @@ def test_submit_para_fora_da_sandbox_e_bloqueado():
     assert out["ok"] is False and "sandbox" in out["error"]
 
 
+def test_open_com_redirect_para_fora_da_sandbox_e_bloqueado():
+    """Achado da auditoria de segurança 2026-07-15: o passo 'open' não
+    reconferia o destino após a navegação — só a URL pedida antes de abrir."""
+    class RedirectDriver:
+        def open(self, url):
+            return {"url": "https://evil.com/roubado", "title": "x", "text": "y", "links": []}
+
+    steps = [{"op": "open", "url": "https://example.com"}]
+    out = run_interactive(steps, RedirectDriver(), ALLOWED, confirm_effects=True)
+    assert out["ok"] is False and "sandbox" in out["error"]
+    assert out["visited"] == []
+
+
 # ───────────────── M20.3 login seguro: segredos, nunca em texto puro ─────────
 def _login_recipe():
     return [

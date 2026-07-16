@@ -101,6 +101,101 @@ def test_run_bloqueia_link_fora_da_sandbox_em_runtime():
     assert r["ok"] is False and "fora da sandbox" in r["error"]
 
 
+def test_run_bloqueia_redirect_para_fora_da_sandbox():
+    """Achado da auditoria de segurança 2026-07-15: um driver que segue
+    redirect (30x) pode devolver uma página de um host DIFERENTE do pedido —
+    a URL inicial batia na allowlist, mas o destino final não. `run()` tinha
+    que reconferir o destino, não só a URL pedida."""
+    class RedirectDriver:
+        def open(self, url):
+            # pediu example.com, mas o "servidor" redirecionou pra fora
+            return {"url": "https://evil.com/roubado", "title": "x",
+                   "text": "y", "links": []}
+
+    steps = [{"op": "open", "url": "https://example.com"}]
+    r = W.run(steps, RedirectDriver(), ["example.com"])
+    assert r["ok"] is False and "fora da sandbox" in r["error"]
+    assert r["visited"] == []   # nunca contou como visitado
+
+
+# ── HttpDriver: redirects não escapam a sandbox (2026-07-15) ────
+class _FakeResp:
+    def __init__(self, url, redirect_to=None):
+        self.url = url
+        self.is_redirect = redirect_to is not None
+        self.text = "<html><title>T</title><body>conteudo bem longo o suficiente aqui</body></html>"
+        if redirect_to:
+            self.next_request = type("Req", (), {"url": redirect_to})()
+
+    def raise_for_status(self):
+        pass
+
+
+class _FakeHttpxClient:
+    def __init__(self, *a, **kw):
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
+    def get(self, url):
+        self.calls.append(url)
+        if url == "https://example.com/start":
+            return _FakeResp(url, redirect_to="https://evil.com/final")
+        return _FakeResp(url)
+
+
+def test_httpdriver_bloqueia_redirect_para_fora_da_allowlist(monkeypatch):
+    monkeypatch.setattr("httpx.Client", _FakeHttpxClient)
+    driver = W.HttpDriver(allowed=["example.com"])
+    try:
+        driver.open("https://example.com/start")
+        assert False, "deveria ter levantado ValueError"
+    except ValueError as e:
+        assert "bloqueado" in str(e) and "evil.com" in str(e)
+
+
+def test_httpdriver_redirect_dentro_da_allowlist_segue_normal(monkeypatch):
+    class _OkClient(_FakeHttpxClient):
+        def get(self, url):
+            self.calls.append(url)
+            if url == "https://example.com/start":
+                return _FakeResp(url, redirect_to="https://example.com/final")
+            return _FakeResp(url)
+
+    monkeypatch.setattr("httpx.Client", _OkClient)
+    driver = W.HttpDriver(allowed=["example.com"])
+    page = driver.open("https://example.com/start")
+    assert page["url"] == "https://example.com/final"
+
+
+def test_httpdriver_sem_allowed_segue_redirects_livremente(monkeypatch):
+    """Sem `allowed` (uso fora do webtask), comportamento antigo preservado:
+    segue redirect via follow_redirects=True, sem checagem de sandbox."""
+    calls = []
+
+    class _LegacyClient:
+        def __init__(self, *a, **kw):
+            calls.append(kw.get("follow_redirects"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def get(self, url):
+            return _FakeResp("https://anywhere.example/final")
+
+    monkeypatch.setattr("httpx.Client", _LegacyClient)
+    page = W.HttpDriver().open("https://example.com/start")
+    assert calls == [True]
+    assert page["url"] == "https://anywhere.example/final"
+
+
 def test_run_rejeita_receita_invalida_antes_de_navegar():
     drv = FakeDriver(_pages())
     r = W.run([{"op": "open", "url": "https://evil.com"}], drv, ["example.com"])
