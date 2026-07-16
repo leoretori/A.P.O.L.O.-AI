@@ -230,9 +230,19 @@ depois.
   `data/learner/quality_history.jsonl` (append-only, mesmo desenho do `blind_eval_history` do P1.4).
   21 testes novos entre `test_factcheck.py`, `test_storage_learning.py`, `test_quality_sampler.py`,
   `test_quality_scheduler.py`.
-- 🔲 **P2.6 — Formalizar `recall_calibration.py`.** Hoje é ferramenta manual; virar gate de
-  qualidade agendado testando recall contra um conjunto fixo de perguntas com resposta conhecida,
-  pra pegar regressão de RAG antes que você perceba no uso real.
+- 🏁 **P2.6 — Gate de regressão do recall agendado (2026-07-16).** `recall_calibration.py`
+  (antes só `calibrate()`, ferramenta manual) ganha `freeze_ground_truth` + `evaluate_recall_gate`
+  + `run_tracked_recall_gate`: congela N títulos de tópicos JÁ ESTUDADOS (idempotente, mesmo
+  padrão do `freeze_questions` do P1.4) e testa — teste de ida-e-volta — se buscar pelo próprio
+  título ainda traz o próprio tópico de volta no recall. Cair é regressão REAL de índice/embedding,
+  não hipótese. `app.py::_run_recall_gate_cycle` agendado 1×/dia (`RECALL_GATE_HOUR`, padrão 6h) —
+  mesmo padrão do flywheel/dedup/qualidade — grava `recall_gate_history.jsonl` e **notifica** se o
+  hit-rate cair abaixo de 70%.
+  **Refactor de bônus, não escondido:** essa é a 3ª cópia quase idêntica do padrão "placar JSONL
+  append-only" (depois de `blind_eval` P1.4 e `quality_sampler` P2.5) — extraído `src/jsonl_history.py`
+  compartilhado; os dois módulos antigos foram refatorados pra usá-lo por dentro, API pública
+  intacta (testes antigos continuam passando sem alteração). 17 testes novos entre
+  `test_jsonl_history.py`, `test_recall_calibration.py`, `test_recall_gate_scheduler.py`.
 - 🔲 **P2.7 — Re-verificação priorizada.** Tópicos ligados a projetos/metas ativas devem
   re-verificar mais cedo que os 21 dias padrão; tópicos de áreas voláteis (tech) mais cedo que
   áreas estáveis (ciência básica).

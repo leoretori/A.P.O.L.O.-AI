@@ -158,30 +158,22 @@ def freeze_questions(db, path: str | Path, limit: int = 30,
 
 def append_history(path: str | Path, result: dict, seed: int) -> None:
     """Acrescenta 1 linha ao placar histórico (JSONL — append-only, nunca
-    reescreve o passado). Só grava rodadas com resultado real (`status=ok`);
-    pular por falta de checkpoint/perguntas não é um ponto da série."""
+    reescreve o passado, via `src.jsonl_history`). Só grava rodadas com
+    resultado real (`status=ok`); pular por falta de checkpoint/perguntas
+    não é um ponto da série."""
     if result.get("status") != "ok":
         return
-    from datetime import datetime, timezone
-
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+    from src.jsonl_history import append_entry
+    append_entry(path, {
         "n": result["n"], "wins": result["wins"],
         "nano_win_rate": result["nano_win_rate"], "seed": seed,
-    }
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    })
 
 
 def read_history(path: str | Path, limit: int = 50) -> list[dict]:
     """Lê o placar histórico, mais recente por último (ordem de gravação)."""
-    p = Path(path)
-    if not p.exists():
-        return []
-    lines = p.read_text(encoding="utf-8").strip().splitlines()
-    return [json.loads(line) for line in lines[-limit:]]
+    from src.jsonl_history import read_entries
+    return read_entries(path, limit)
 
 
 def run_tracked_blind_eval(db, nano_engine, *, questions_path: str | Path,

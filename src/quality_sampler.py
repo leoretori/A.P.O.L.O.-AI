@@ -11,7 +11,6 @@ princípio de nunca inflar o número e sempre registrar de verdade.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Callable
@@ -77,32 +76,23 @@ def make_llm_quality_judge(model: str | None = None, *, temperature: float = 0.0
     return judge_fn
 
 
-# ── Placar histórico (mesmo padrão do blind_eval, P1.4) ────────────
+# ── Placar histórico (src.jsonl_history, extraído no P2.6) ────────
 def append_quality_history(path: str | Path, result: dict) -> None:
     """1 linha JSONL por rodada — append-only, nunca reescreve o passado.
     Só registra rodadas com resultado real (`status=ok`)."""
     if result.get("status") != "ok":
         return
-    from datetime import datetime, timezone
-
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+    from src.jsonl_history import append_entry
+    append_entry(path, {
         "n": result["n"], "decided": result["decided"],
         "passed": result["passed"], "pass_rate": result["pass_rate"],
-    }
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    })
 
 
 def read_quality_history(path: str | Path, limit: int = 50) -> list[dict]:
     """Lê o placar histórico, mais recente por último (ordem de gravação)."""
-    p = Path(path)
-    if not p.exists():
-        return []
-    lines = p.read_text(encoding="utf-8").strip().splitlines()
-    return [json.loads(line) for line in lines[-limit:]]
+    from src.jsonl_history import read_entries
+    return read_entries(path, limit)
 
 
 def run_tracked_quality_sample(db, judge_fn: Callable[[str, str], str], *,

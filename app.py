@@ -168,6 +168,17 @@ QUALITY_SAMPLE_N = int(os.getenv("QUALITY_SAMPLE_N", 15))
 QUALITY_HISTORY_PATH = os.getenv("QUALITY_HISTORY_PATH", "data/learner/quality_history.jsonl")
 _last_quality_date = None
 
+# Gate de regressão do recall (P2.6): recall_calibration.py era ferramenta
+# manual — 1x/dia a partir de RECALL_GATE_HOUR, testa um conjunto FIXO de
+# tópicos já estudados contra o índice de recall (busca o próprio título de
+# volta). Cai = regressão de índice/embedding, pega antes do uso real. -1 desliga.
+RECALL_GATE_HOUR = int(os.getenv("RECALL_GATE_HOUR", 6))
+RECALL_GATE_N = int(os.getenv("RECALL_GATE_N", 30))
+RECALL_GATE_TRUTH_PATH = os.getenv("RECALL_GATE_TRUTH_PATH", "data/learner/recall_gate_truth.json")
+RECALL_GATE_HISTORY_PATH = os.getenv("RECALL_GATE_HISTORY_PATH",
+                                     "data/learner/recall_gate_history.jsonl")
+_last_recall_gate_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -321,6 +332,33 @@ async def _run_quality_sample_cycle() -> None:
         logger.warning(f"[quality] ciclo falhou: {e}")
 
 
+async def _run_recall_gate_cycle() -> None:
+    """Uma rodada do gate de regressão do recall (P2.6) — testa o conjunto
+    congelado de tópicos contra o índice de verdade. Nunca derruba o
+    scheduler se falhar (mesma disciplina do flywheel/dedup/qualidade)."""
+    if not db or not rag:
+        return
+    from src.recall_calibration import run_tracked_recall_gate
+    try:
+        res = await asyncio.to_thread(
+            run_tracked_recall_gate, db, rag,
+            ground_truth_path=RECALL_GATE_TRUTH_PATH,
+            history_path=RECALL_GATE_HISTORY_PATH, n=RECALL_GATE_N)
+        if res.get("status") == "ok":
+            logger.info(f"[recall-gate] {res['hits']}/{res['n']} tópicos achados "
+                        f"({res['hit_rate']}%)")
+            if res["hit_rate"] is not None and res["hit_rate"] < 70 and db:
+                db.add_notification(
+                    f"⚠️ Recall pode estar degradado: só {res['hit_rate']}% dos "
+                    f"tópicos conhecidos voltam na busca. Verifique.", kind="info")
+        else:
+            logger.info(f"[recall-gate] pulado: {res.get('reason')}")
+    except ValueError as e:
+        logger.info(f"[recall-gate] pulado: {e}")
+    except Exception as e:
+        logger.warning(f"[recall-gate] ciclo falhou: {e}")
+
+
 async def _scheduler_loop():
     """Dispara estudos agendados e ativa aprendizado idle.
 
@@ -419,6 +457,14 @@ async def _scheduler_loop():
                 if _tq.hour >= QUALITY_SAMPLE_HOUR and _last_quality_date != _tq.date():
                     _last_quality_date = _tq.date()
                     await _run_quality_sample_cycle()
+
+            # Gate de regressão do recall (P2.6): 1x/dia a partir de RECALL_GATE_HOUR.
+            global _last_recall_gate_date
+            if RECALL_GATE_HOUR >= 0:
+                _tr = datetime.now()
+                if _tr.hour >= RECALL_GATE_HOUR and _last_recall_gate_date != _tr.date():
+                    _last_recall_gate_date = _tr.date()
+                    await _run_recall_gate_cycle()
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:
