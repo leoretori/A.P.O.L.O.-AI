@@ -249,7 +249,11 @@
   // ── Sessões ──────────────────────────────────────────────────
   function newChat() {
     closeCoder();
-    fetch(`/api/session/${sessionId}`, { method: 'DELETE' });
+    // só apaga a sessão atual se ela nunca recebeu mensagem (empty-state
+    // ainda no DOM) — apagar sessões com conversa real é o bug relatado.
+    if (document.getElementById('empty-state')) {
+      fetch(`/api/session/${sessionId}`, { method: 'DELETE' });
+    }
     sessionId = crypto.randomUUID();
     localStorage.setItem('apoloSessionId', sessionId);
     document.getElementById('messages').innerHTML = '';
