@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from src.nanollm.distill import make_llm_teacher, run_distillation
+from src.nanollm.distill import make_llm_teacher, run_distillation, run_reaction_distillation
 
 logger = logging.getLogger("apolo.nano.flywheel")
 
@@ -82,6 +82,7 @@ def run_nightly_flywheel(
     *,
     live_ckpt: str | Path | None = None,
     work_root: str | Path = DEFAULT_WORK_ROOT,
+    source: str = "title",
     teacher_fn: Callable[[str], str] | None = None,
     train_fn: Callable[..., dict] | None = None,
     eval_fn: Callable[..., dict] | None = None,
@@ -94,24 +95,39 @@ def run_nightly_flywheel(
 ) -> dict:
     """Roda um ciclo do flywheel. Retorna um resumo (também gravado no ledger).
 
+    `source` escolhe a FONTE dos pares (tarefas isoladas de propósito — lição
+    do M14.2, nunca misturar distribuições):
+    - "title" (padrão): o professor (Qwen) rotula as conversas reais.
+    - "reactions": os 👍 do Leo já são o rótulo — sem chamar o professor.
+
     `status`: "skipped" (pouco dado / sem titular), "rejected" (candidato não
     superou) ou "promoted". A decisão é sempre medida, nunca cega."""
     live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
-    work = Path(work_root) / stamp
+    # A fonte entra no nome da pasta: duas rodadas na MESMA noite (título +
+    # reações, chamadas em sequência) caem no mesmo segundo com frequência —
+    # sem isso, colidiriam no mesmo diretório de trabalho e uma sobrescreveria
+    # o dataset/candidato da outra.
+    work = Path(work_root) / f"{stamp}_{source}"
     tokenizer = live / "tokenizer.json"
 
-    summary: dict = {"quando": stamp, "status": "skipped", "live_ckpt": str(live)}
+    summary: dict = {"quando": stamp, "status": "skipped", "live_ckpt": str(live),
+                     "source": source}
 
     if not tokenizer.exists():
         summary["reason"] = f"sem tokenizer em {tokenizer} — treine o Nano v1 primeiro"
         return _log(work_root, summary)
 
-    # 1) Destila as entradas reais (professor Qwen por padrão) no formato do fine-tune.
+    # 1) Destila as entradas reais no formato do fine-tune — a fonte depende
+    #    de `source`: "title" chama o professor; "reactions" não precisa (o
+    #    veredito do Leo já é o rótulo).
     dataset = work / "dataset"
-    teacher = teacher_fn or make_llm_teacher()
     try:
-        meta = run_distillation(db, tokenizer, dataset, teacher_fn=teacher, limit=limit)
+        if source == "reactions":
+            meta = run_reaction_distillation(db, tokenizer, dataset, limit=limit)
+        else:
+            teacher = teacher_fn or make_llm_teacher()
+            meta = run_distillation(db, tokenizer, dataset, teacher_fn=teacher, limit=limit)
     except ValueError as e:
         summary["reason"] = str(e)
         return _log(work_root, summary)
@@ -174,6 +190,8 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(description="Roda uma volta do flywheel do Nano (M25.3)")
+    p.add_argument("--source", choices=("title", "reactions"), default="title",
+                   help="title → o professor rotula; reactions → os 👍 do Leo já são o rótulo")
     p.add_argument("--steps", type=int, default=400, help="passos de treino do candidato")
     p.add_argument("--min-pairs", type=int, default=12, help="mínimo de pares p/ treinar")
     p.add_argument("--limit", type=int, default=300, help="máx. de conversas a destilar")
@@ -182,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from src.storage import DatabaseManager
 
-    res = run_nightly_flywheel(DatabaseManager(), steps=args.steps,
+    res = run_nightly_flywheel(DatabaseManager(), source=args.source, steps=args.steps,
                                min_pairs=args.min_pairs, limit=args.limit)
     st = res.get("status")
     if st == "promoted":

@@ -4,6 +4,7 @@ Núcleo DETERMINÍSTICO — treino/avaliação/professor são fakes injetados. N
 NumPy pesado, nenhuma LLM: os testes exercitam TODA a decisão de promoção.
 """
 import json
+from pathlib import Path
 
 import pytest
 
@@ -18,11 +19,15 @@ PT = "Como criar a própria LLM soberana em Python do zero. Título curto de con
 
 
 class _FakeDB:
-    def __init__(self, n):
+    def __init__(self, n, reaction_pairs=None):
         self._msgs = [f"Pergunta numero {i} sobre um tema tecnico do projeto" for i in range(n)]
+        self._reaction_pairs = reaction_pairs or []
 
     def first_user_messages(self, limit=300, min_len=8):
         return self._msgs[:limit]
+
+    def positive_reaction_pairs(self, limit=300, min_len=8):
+        return self._reaction_pairs[:limit]
 
 
 def _good_teacher(prompt):
@@ -115,6 +120,61 @@ def test_backup_e_revert(live_ckpt, tmp_path):
     # backup guardou o titular anterior → revert restaura
     revert_promotion(live_ckpt, res["backup_dir"])
     assert (live_ckpt / "model_best.npz").read_bytes() == b"MODELO_TITULAR"
+
+
+# ── source="reactions" (M5.3): os 👍 do Leo já são o rótulo ─────────────
+_REACTION_PAIRS = [
+    (f"Pergunta real numero {i} bem longa o suficiente", f"Resposta aprovada numero {i} bem longa")
+    for i in range(20)
+]
+
+
+def test_reactions_nao_chama_o_professor(live_ckpt, tmp_path):
+    train_fn, _ = _fake_train_factory()
+
+    def _teacher_nunca_chamado(prompt):
+        pytest.fail("source=reactions não deveria chamar o professor")
+
+    res = run_nightly_flywheel(
+        _FakeDB(0, reaction_pairs=_REACTION_PAIRS), live_ckpt=live_ckpt,
+        work_root=tmp_path / "fw", source="reactions",
+        teacher_fn=_teacher_nunca_chamado, train_fn=train_fn,
+        eval_fn=_eval_fn(cand_val=3.0, base_val=5.0), steps=120)
+    assert res["status"] == "promoted"
+    assert res["source"] == "reactions"
+
+
+def test_reactions_pula_com_poucos_pares(live_ckpt, tmp_path):
+    res = run_nightly_flywheel(
+        _FakeDB(0, reaction_pairs=_REACTION_PAIRS[:3]), live_ckpt=live_ckpt,
+        work_root=tmp_path / "fw", source="reactions",
+        train_fn=lambda *a, **k: pytest.fail("não devia treinar"),
+        eval_fn=_eval_fn(1, 1), min_pairs=12)
+    assert res["status"] == "skipped" and "poucos pares" in res["reason"]
+
+
+def test_reactions_sem_pares_pula_sem_treinar(live_ckpt, tmp_path):
+    res = run_nightly_flywheel(
+        _FakeDB(0, reaction_pairs=[]), live_ckpt=live_ckpt,
+        work_root=tmp_path / "fw", source="reactions",
+        train_fn=lambda *a, **k: pytest.fail("não devia treinar"),
+        eval_fn=_eval_fn(1, 1))
+    assert res["status"] == "skipped"
+
+
+def test_title_e_reactions_sao_datasets_isolados(live_ckpt, tmp_path):
+    """Mesma noite, DUAS fontes — cada uma no seu diretório de trabalho,
+    nunca misturadas (lição do M14.2)."""
+    train_fn, _ = _fake_train_factory()
+    db = _FakeDB(20, reaction_pairs=_REACTION_PAIRS)
+    r1 = run_nightly_flywheel(db, live_ckpt=live_ckpt, work_root=tmp_path / "fw",
+                              source="title", teacher_fn=_good_teacher, train_fn=train_fn,
+                              eval_fn=_eval_fn(cand_val=3.0, base_val=5.0), steps=120)
+    r2 = run_nightly_flywheel(db, live_ckpt=live_ckpt, work_root=tmp_path / "fw",
+                              source="reactions", train_fn=train_fn,
+                              eval_fn=_eval_fn(cand_val=3.0, base_val=5.0), steps=120)
+    assert r1["source"] == "title" and r2["source"] == "reactions"
+    assert Path(r1["candidate_dir"]).parent != Path(r2["candidate_dir"]).parent
 
 
 def test_ledger_registra_cada_noite(live_ckpt, tmp_path):

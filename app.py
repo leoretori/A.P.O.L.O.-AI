@@ -237,6 +237,35 @@ def _init_knowledge():
     logger.info(f"LocalKnowledge ativo (SQLite FTS5) em {local_path}")
 
 
+async def _run_flywheel_cycle(source: str) -> None:
+    """Uma rodada do flywheel noturno do Nano PARA UMA FONTE (M25.3 título /
+    M5.3 reações do Leo). Nunca derruba o scheduler se falhar — a rede de
+    segurança do tick já cobre isto, mas cada fonte também se protege sozinha
+    para uma não impedir a outra de rodar."""
+    from src.nanollm.flywheel import run_nightly_flywheel
+    try:
+        logger.info(f"[flywheel] iniciando ciclo noturno do Nano ({source})…")
+        res = await asyncio.to_thread(
+            run_nightly_flywheel, db, source=source, steps=FLYWHEEL_STEPS,
+            min_pairs=FLYWHEEL_MIN_PAIRS)
+        st = res.get("status")
+        if st == "promoted":
+            if rt.nano:            # serve o cérebro novo já
+                rt.nano.reload()
+            db.add_notification(
+                f"🌀 Nano evoluiu de madrugada ({source}): perplexidade "
+                f"{res['incumbent_val']:.2f} → {res['candidate_val']:.2f} "
+                f"(ganho {res.get('gain')}, {res.get('pairs')} pares). "
+                f"Já estou servindo o novo cérebro.", kind="info")
+            logger.info(f"[flywheel] promovido ({source}): {res}")
+        elif st == "rejected":
+            logger.info(f"[flywheel] candidato rejeitado ({source}): {res.get('reason')}")
+        else:
+            logger.info(f"[flywheel] pulado ({source}): {res.get('reason')}")
+    except Exception as e:
+        logger.warning(f"[flywheel] ciclo ({source}) falhou: {e}")
+
+
 async def _scheduler_loop():
     """Dispara estudos agendados e ativa aprendizado idle.
 
@@ -416,28 +445,11 @@ async def _scheduler_loop():
                     from src.nanollm.engine import NanoEngine
                     if NanoEngine().available():
                         _last_flywheel_date = _tf.date()  # marca antes p/ não repetir
-                        try:
-                            from src.nanollm.flywheel import run_nightly_flywheel
-                            logger.info("[flywheel] iniciando ciclo noturno do Nano…")
-                            res = await asyncio.to_thread(
-                                run_nightly_flywheel, db, steps=FLYWHEEL_STEPS,
-                                min_pairs=FLYWHEEL_MIN_PAIRS)
-                            st = res.get("status")
-                            if st == "promoted":
-                                if rt.nano:            # serve o cérebro novo já
-                                    rt.nano.reload()
-                                db.add_notification(
-                                    f"🌀 Nano evoluiu de madrugada: perplexidade "
-                                    f"{res['incumbent_val']:.2f} → {res['candidate_val']:.2f} "
-                                    f"(ganho {res.get('gain')}, {res.get('pairs')} pares). "
-                                    f"Já estou servindo o novo cérebro.", kind="info")
-                                logger.info(f"[flywheel] promovido: {res}")
-                            elif st == "rejected":
-                                logger.info(f"[flywheel] candidato rejeitado: {res.get('reason')}")
-                            else:
-                                logger.info(f"[flywheel] pulado: {res.get('reason')}")
-                        except Exception as e:
-                            logger.warning(f"[flywheel] ciclo falhou: {e}")
+                        # M5.3 do Nano: título (professor rotula) e reações do
+                        # Leo (👍 já é o rótulo) são fontes SEPARADAS — nunca
+                        # misturadas (lição do M14.2) — cada uma no seu ciclo.
+                        await _run_flywheel_cycle("title")
+                        await _run_flywheel_cycle("reactions")
         except Exception as e:
             # warning (não debug): esta é a rede de segurança de TODA a tick do
             # scheduler (agenda/rotinas/backup/idle/sono/lembretes/briefing/flywheel).
