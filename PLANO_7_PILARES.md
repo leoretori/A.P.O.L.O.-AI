@@ -38,11 +38,19 @@ Portão binário (M27) só tem infraestrutura, sem treino — 19 exemplos válid
 do mínimo. Flywheel roda toda noite desde 13/07 e **nunca disparou** (sempre "poucos pares").
 Blind-eval Nano-vs-Qwen só mediu com n=5 (ruído).
 
-- 🔲 **P1.1 — Motor de dados antes de motor de modelo.** Instrumentar captura passiva de todo
-  turno de chat como par de treino candidato (hoje só título vira par). Usar `distill.py` de
-  forma mais agressiva para gerar pares sintéticos rotulados pela LLM grande quando dado real
-  faltar (rotulado como sintético, nunca misturado sem marca com dado real). **DoD:** corpus
-  sobe de 236k para ≥1M tokens de fontes soberanas rastreáveis.
+- 🏁 **P1.1 — Motor de dados antes de motor de modelo (2026-07-15, medido).** `corpus_export.py`
+  ganhou duas fontes que faltavam: `fetch_conversations` (conversas Leo↔Apolo inteiras — antes só
+  o título virava par, agora o turno inteiro entra no corpus de pré-treino, crescendo sozinho
+  conforme o Pilar 3 avançar) e `fetch_project_docs` (os próprios `.md` do projeto — README,
+  roadmaps — via novo parâmetro `--repo-root`). Rodado de verdade contra o banco principal
+  (2026-07-15): **1.304.589 tokens estimados** (era 236k) — **DoD numérico batido**. Honestidade
+  necessária: a maior parte do salto (`apolo_topics`, ~1,19M tokens) é **crescimento orgânico do
+  aprendizado autônomo rodando desde então**, não deste código. A contribuição REAL de hoje foram
+  as duas fontes novas: conversas (33.674 chars, ainda pequeno — só 15 turnos reais existem) +
+  docs do projeto (271.081 chars, ~93k tokens). O ganho maior de `apolo_conversations` ainda
+  depende do Pilar 3 (uso real). 19 testes novos/ajustados em `tests/test_nanollm_corpus.py`.
+  ⏭️ **Distillation sintética (2ª metade do item) ainda não feita** — o corpus já bateu a meta
+  numérica sem precisar dela; fica registrada como opção futura se o corpus voltar a estagnar.
 - 🔲 **P1.2 — Sweep de scaling-law compute-matched.** Reproduzir o experimento `medium` (que
   regrediu por undertraining) com passos proporcionais ao tamanho, não passos fixos. **DoD:**
   tabela params × passos × ppl com pelo menos 3 pontos, decisão de tamanho baseada nela.

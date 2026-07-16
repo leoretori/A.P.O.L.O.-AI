@@ -10,6 +10,7 @@ from src.nanollm.corpus_export import (
     Deduper,
     clean_text,
     export_corpus,
+    fetch_project_docs,
     has_secret,
     is_portuguese,
 )
@@ -39,6 +40,12 @@ def bancos(tmp_path):
                 ("Vazio", "", "web"))
     con.execute("INSERT INTO episodes (occurred_at, title, summary) VALUES (?,?,?)",
                 ("2026-07-06 10:00:00", "fechamos o Épico 2.1", PT * 2))
+    con.execute("CREATE TABLE session_messages (id INTEGER PRIMARY KEY, session_id TEXT, "
+                "role TEXT, content TEXT, timestamp TEXT)")
+    con.execute("INSERT INTO session_messages (session_id, role, content, timestamp) "
+                "VALUES ('s1','user',?,'2026-07-15 10:00:00')", (PT,))
+    con.execute("INSERT INTO session_messages (session_id, role, content, timestamp) "
+                "VALUES ('s1','assistant',?,'2026-07-15 10:00:05')", (PT * 3,))
     con.commit()
     con.close()
 
@@ -70,10 +77,14 @@ def test_export_end_to_end(bancos, tmp_path):
     assert "API_KEY" not in know  # segredo NUNCA sai
     assert "Duplicado" not in know or report["paragrafos_duplicados_removidos"] > 0
 
+    conv = (out / "apolo_conversations.txt").read_text(encoding="utf-8")
+    assert "Você:" in conv and "A.P.O.L.O.:" in conv
+
     r = report["sources"]
     assert r["apolo_topics"]["registros"] == 2  # o summary vazio nem sai do SQL
     assert r["apolo_topics"]["mantidos"] == 1
     assert r["apolo_topics"]["descartados_idioma"] == 1
+    assert r["apolo_conversations"]["mantidos"] == 1  # 1 sessão = 1 doc
     assert report["chars_total"] > 0 and report["tokens_estimados"] > 0
     assert json.loads((out / "report.json").read_text(encoding="utf-8"))
 
@@ -128,6 +139,34 @@ def test_is_portuguese():
     assert is_portuguese(PT)
     assert not is_portuguese(EN)
     assert not is_portuguese("")
+
+
+def test_fetch_project_docs(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    (repo / "README.md").write_text(PT * 3, encoding="utf-8")
+    (repo / "docs" / "GUIA.md").write_text(PT * 3, encoding="utf-8")
+    (repo / "nao_e_md.txt").write_text(PT * 3, encoding="utf-8")
+    docs = fetch_project_docs(repo)
+    assert len(docs) == 2  # só os .md (raiz + docs/), o .txt fica de fora
+
+
+def test_export_com_repo_root(bancos, tmp_path):
+    db, kdb = bancos
+    repo = tmp_path / "repo2"
+    (repo / "docs").mkdir(parents=True)
+    outro = ("O Apolo é um projeto de inteligência artificial soberana que roda "
+             "inteiramente no computador do usuário sem depender de nuvem alguma. " * 3)
+    (repo / "README.md").write_text(outro, encoding="utf-8")
+    report = export_corpus(db, kdb, tmp_path / "c2", min_chars=100, repo_root=repo)
+    assert "apolo_docs" in report["sources"]
+    assert report["sources"]["apolo_docs"]["mantidos"] == 1  # texto inédito, não dedupado
+
+
+def test_export_sem_repo_root_nao_inclui_docs(bancos, tmp_path):
+    db, kdb = bancos
+    report = export_corpus(db, kdb, tmp_path / "c3", min_chars=100)
+    assert "apolo_docs" not in report["sources"]
 
 
 def test_fetch_supabase_sem_credenciais(monkeypatch):

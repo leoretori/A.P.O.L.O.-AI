@@ -157,6 +157,34 @@ def fetch_knowledge(db: Path) -> list[str]:
     return [f"{t}\n\n{c}" for t, c in rows]
 
 
+def fetch_conversations(db: Path) -> list[str]:
+    """Conversas reais (Leo ↔ Apolo) — antes só o TÍTULO de uma conversa virava
+    par de treino (M14.2); a conversa inteira nunca entrava no corpus de
+    pré-treino. Um doc por sessão, turnos em ordem cronológica. Cresce sozinho
+    conforme o uso real aumenta (Pilar 3 do PLANO_7_PILARES)."""
+    rows = _fetch(db, "SELECT session_id, role, content FROM session_messages "
+                      "WHERE content IS NOT NULL AND content != '' "
+                      "ORDER BY session_id, timestamp")
+    sessions: dict[str, list[tuple[str, str]]] = {}
+    for sid, role, content in rows:
+        sessions.setdefault(sid, []).append((role, content))
+    docs = []
+    for turns in sessions.values():
+        lines = [f"{'Você' if role == 'user' else 'A.P.O.L.O.'}: {content}"
+                 for role, content in turns]
+        docs.append("\n\n".join(lines))
+    return docs
+
+
+def fetch_project_docs(repo_root: Path) -> list[str]:
+    """Os próprios documentos do projeto (roadmaps, README, docs/) — texto real,
+    em português, sobre o que o Apolo É e como foi construído. O corpus sabia o
+    que o Apolo aprendeu mas não sabia o que o Apolo é — fonte soberana óbvia
+    que faltava."""
+    paths = sorted(repo_root.glob("*.md")) + sorted((repo_root / "docs").glob("*.md"))
+    return [p.read_text(encoding="utf-8", errors="ignore") for p in paths if p.is_file()]
+
+
 def fetch_supabase(env_file: str | Path | None = None, limit: int = 5000) -> list[str]:
     """Base de conhecimento no Supabase (dados do Leo na nuvem), leitura só.
 
@@ -190,6 +218,7 @@ def export_corpus(
     require_pt: bool = True,
     extra_dirs: list[str | Path] | None = None,
     supabase_env: str | Path | None = None,
+    repo_root: str | Path | None = None,
 ) -> dict:
     """Exporta todas as fontes. Retorna o relatório de composição."""
     out = Path(out_dir)
@@ -201,12 +230,16 @@ def export_corpus(
         ("apolo_topics", fetch_topics(Path(db))),
         ("apolo_episodes", fetch_episodes(Path(db))),
         ("apolo_knowledge", fetch_knowledge(Path(knowledge_db))),
+        ("apolo_conversations", fetch_conversations(Path(db))),
     ]
     if supabase_env is not None:
         sources.append(("apolo_supabase", fetch_supabase(supabase_env)))
+    if repo_root is not None:
+        sources.append(("apolo_docs", fetch_project_docs(Path(repo_root))))
     for d in extra_dirs or []:
         docs = [p.read_text(encoding="utf-8", errors="ignore")
-                for p in sorted(Path(d).rglob("*.txt")) if p.is_file()]
+                for p in sorted(list(Path(d).rglob("*.txt")) + list(Path(d).rglob("*.md")))
+                if p.is_file()]
         sources.append((f"docs_{Path(d).name}", docs))
 
     total_chars = 0
@@ -256,10 +289,13 @@ def main() -> None:
                     help="pastas extras com .txt do usuário")
     ap.add_argument("--supabase-env", default=None,
                     help="caminho do .env com SUPABASE_URL/KEY p/ exportar a base da nuvem")
+    ap.add_argument("--repo-root", default=".",
+                    help="raiz do repo p/ exportar os próprios docs (.md); vazio desliga")
     args = ap.parse_args()
     report = export_corpus(args.db, args.knowledge, args.out, args.min_chars,
                            require_pt=not args.keep_non_pt, extra_dirs=args.docs,
-                           supabase_env=args.supabase_env)
+                           supabase_env=args.supabase_env,
+                           repo_root=args.repo_root or None)
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
 
