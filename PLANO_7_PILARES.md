@@ -113,9 +113,32 @@ Blind-eval Nano-vs-Qwen só mediu com n=5 (ruído).
   testado ao vivo via CLI). Mesmo padrão do M27 antes do banco crescer: infraestrutura pronta e
   testada, medição real adiada até o Pilar 3 (uso real) produzir volume suficiente — não é tarefa
   de código pendente, é dado que ainda não existe.
-- 🔲 **P1.5 — Contexto e arquitetura baratos em CPU.** Avaliar RoPE/ALiBi para contexto maior que
-  192 tokens, tying embedding/unembedding, vocabulário do tokenizer. Cada mudança validada pelo
-  harness de eval do P1.4 antes/depois — só entra se medir melhora.
+- 🏁 **P1.5 — ALiBi medido e vence nos dois eixos (2026-07-16).** `layers.py`/`model.py` ganham
+  `pos_encoding: "learned" | "alibi"` em `GPTConfig` — ALiBi (Press et al.) é um viés relativo
+  SOMADO aos scores de atenção, sem parâmetro treinável (`wpe` some do modelo inteiro quando
+  ativado); como não tem tabela de posição, o mesmo checkpoint aceita qualquer T, inclusive além
+  do `block_size` de treino (o "contexto maior" do item, de graça). Backward não muda: viés
+  constante não altera o gradiente dos scores — provado por checagem numérica (gradcheck) igual
+  ao caminho `learned`. 8 testes novos em `test_nanollm_grad.py` (gradcheck completo, sem-wpe,
+  causalidade, extrapolação além do block_size, `pos_encoding` inválido barrado).
+
+  **Experimento real compute-matched** (preset `mini`, ~437-441 passos, mesmo dataset de
+  1.034.551 tokens do P1.2, mesma semente): usei o harness de PPL do `eval.py` em vez do
+  blind-eval do P1.4 (seu DoD ainda não foi batido — só 14 perguntas reais, ver P1.4).
+
+  | pos_encoding | ppl @ 192 (treinado) | ppl @ 384 (2× extrapolado) |
+  |---|---|---|
+  | `learned` | 293,03 | ❌ quebra (erro de broadcast — não processa) |
+  | `alibi` | **233,12** | **235,24** (só +0,9% de perda) |
+
+  ALiBi venceu nos dois eixos ao mesmo tempo: ppl in-distribution melhor (233 vs 293, não é
+  empate) **e** extrapola pra 2× o contexto treinado quase sem degradar. Passa a regra do próprio
+  item ("só entra se medir melhora") sem ressalva. Ressalva honesta: 1 rodada compute-matched, não
+  múltiplas sementes — direcional, não estatisticamente blindado; ALiBi treinou ~1,7× mais lento
+  no CPU nesta rodada (1505s vs 878s, poss. ruído de máquina, não perfilado a fundo). **Decisão
+  registrada, não executada aqui:** candidato forte pra virar o padrão no próximo treino de
+  produção real (ckpt_v1 e o portão binário do P1.3 continuam em `learned` por ora — trocar o
+  checkpoint vivo é uma decisão de promoção separada, mesmo espírito do P1.3).
 
 **Referência:** este pilar continua o trabalho já registrado em `JARVIS_ROADMAP_ANO2.md` §10
 (M25–M28); os itens acima começam em cima daquilo, não o duplicam. GPU dedicada continua sendo

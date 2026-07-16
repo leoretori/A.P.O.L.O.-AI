@@ -8,7 +8,7 @@ embeddings, cross-entropy...) tiver backward errado, esses testes quebram.
 import numpy as np
 import pytest
 
-from src.nanollm.layers import gelu, gelu_backward
+from src.nanollm.layers import alibi_slopes, gelu, gelu_backward
 from src.nanollm.model import GPT, GPTConfig
 
 
@@ -112,3 +112,97 @@ def test_backward_sem_targets_falha():
     model.forward(np.array([[1, 2, 3]]))
     with pytest.raises(RuntimeError):
         model.backward()
+
+
+def test_alibi_slopes_decrescem_e_somam_a_faixa_padrao():
+    s = alibi_slopes(8)
+    assert len(s) == 8
+    assert all(s[i] > s[i + 1] for i in range(len(s) - 1))  # estritamente decrescente
+    assert s[0] == pytest.approx(2 ** (-1.0), rel=1e-9)     # cabeça 0: 2^(-8/8·1)
+
+
+# ── ALiBi (P1.5): viés relativo sem parâmetro, backward tem que continuar correto ──
+@pytest.fixture(scope="module")
+def setup_alibi():
+    config = GPTConfig(
+        vocab_size=17, block_size=8, n_layer=1, n_head=2, n_embd=8,
+        dtype="float64", seed=7, pos_encoding="alibi",
+    )
+    model = GPT(config)
+    rng = np.random.default_rng(3)
+    x = rng.integers(0, 17, (2, 6))
+    y = rng.integers(0, 17, (2, 6))
+    model.zero_grad()
+    _, _ = model.forward(x, y)
+    model.backward()
+    analytic = {p.name: p.grad.copy() for p in model.params()}
+    return model, x, y, analytic
+
+
+def test_gradcheck_alibi_todos_os_params(setup_alibi):
+    """Mesma prova numérica do backprop, agora no caminho ALiBi — o viés é
+    constante (sem grad próprio), mas isso não pode quebrar o resto da cadeia."""
+    model, x, y, analytic = setup_alibi
+    h = 1e-5
+    rng = np.random.default_rng(11)
+    for p in model.params():
+        flat = p.data.reshape(-1)
+        gflat = analytic[p.name].reshape(-1)
+        idxs = rng.choice(flat.size, size=min(5, flat.size), replace=False)
+        for i in idxs:
+            orig = flat[i]
+            flat[i] = orig + h
+            lp = _loss(model, x, y)
+            flat[i] = orig - h
+            lm = _loss(model, x, y)
+            flat[i] = orig
+            num = (lp - lm) / (2 * h)
+            ana = gflat[i]
+            rel = abs(num - ana) / max(abs(num), abs(ana), 1e-8)
+            assert rel < 1e-4, f"gradiente errado em {p.name}[{i}] (alibi): rel {rel:.2e}"
+
+
+def test_alibi_nao_tem_wpe():
+    model = GPT(GPTConfig(vocab_size=17, block_size=8, n_layer=1, n_head=2,
+                          n_embd=8, pos_encoding="alibi"))
+    assert model.wpe is None
+    assert all(not p.name.startswith("wpe") for p in model.params())
+
+
+def test_pos_encoding_invalido_falha():
+    with pytest.raises(AssertionError):
+        GPT(GPTConfig(vocab_size=17, block_size=8, n_layer=1, n_head=2,
+                      n_embd=8, pos_encoding="rope_ainda_nao_existe"))
+
+
+def test_alibi_e_causal():
+    """A mesma prova de causalidade do 'learned', agora com o viés relativo."""
+    config = GPTConfig(vocab_size=17, block_size=8, n_layer=2, n_head=2,
+                       n_embd=8, dtype="float64", seed=7, pos_encoding="alibi")
+    model = GPT(config)
+    x1 = np.array([[1, 2, 3, 4, 5, 6]])
+    x2 = x1.copy()
+    x2[0, -1] = 9
+    l1, _ = model.forward(x1)
+    l2, _ = model.forward(x2)
+    np.testing.assert_allclose(l1[0, :-1], l2[0, :-1], rtol=1e-12)
+    assert not np.allclose(l1[0, -1], l2[0, -1])
+
+
+def test_alibi_extrapola_alem_do_block_size_de_treino():
+    """O PONTO do ALiBi (P1.5): sem tabela de posição, o forward aceita uma
+    sequência MAIOR que o block_size configurado — o 'learned' levantaria
+    ValueError aqui. Não afirma qualidade (isso é medido à parte, sweep de
+    ppl), só que o mecanismo não trava."""
+    config = GPTConfig(vocab_size=17, block_size=8, n_layer=1, n_head=2,
+                       n_embd=8, pos_encoding="alibi")
+    model = GPT(config)
+    x = np.random.default_rng(0).integers(0, 17, (1, 20))  # 20 > block_size=8
+    logits, _ = model.forward(x)
+    assert logits.shape == (1, 20, 17)
+    assert np.isfinite(logits).all()
+
+    baseline = GPT(GPTConfig(vocab_size=17, block_size=8, n_layer=1, n_head=2,
+                             n_embd=8, pos_encoding="learned"))
+    with pytest.raises(ValueError):
+        baseline.forward(x)

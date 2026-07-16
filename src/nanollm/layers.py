@@ -157,6 +157,13 @@ class Embedding(Module):
         return [self.w]
 
 
+def alibi_slopes(n_head: int) -> np.ndarray:
+    """Inclinações do ALiBi (Press et al.) — geométricas, uma por cabeça.
+    Fórmula padrão para n_head potência de 2 (todos os presets do projeto
+    são): 2^(-8/n · (i+1)), i=0..n-1."""
+    return np.array([2.0 ** (-8.0 / n_head * (i + 1)) for i in range(n_head)])
+
+
 # ------------------------------------------------- atenção causal multi-head
 class CausalSelfAttention(Module):
     def __init__(
@@ -167,9 +174,12 @@ class CausalSelfAttention(Module):
         n_layer: int,
         rng: np.random.Generator,
         dtype: str = "float32",
+        use_alibi: bool = False,
     ) -> None:
         assert n_embd % n_head == 0, "n_embd deve ser múltiplo de n_head"
         self.n_head = n_head
+        self.use_alibi = use_alibi
+        self._slopes = alibi_slopes(n_head).astype(dtype) if use_alibi else None
         self.qkv = Linear(f"{name}.qkv", n_embd, 3 * n_embd, rng, dtype=dtype)
         # projeção residual com init reduzida (estilo GPT-2)
         self.proj = Linear(
@@ -177,6 +187,7 @@ class CausalSelfAttention(Module):
         )
         self._cache: tuple | None = None
         self._tril: np.ndarray | None = None
+        self._alibi_cache: tuple[int, np.ndarray] | None = None
         self._k: np.ndarray | None = None  # KV cache (geração incremental)
         self._v: np.ndarray | None = None
 
@@ -184,6 +195,16 @@ class CausalSelfAttention(Module):
         if self._tril is None or self._tril.shape[0] < t:
             self._tril = np.tril(np.ones((t, t), dtype=bool))
         return self._tril[:t, :t]
+
+    def _alibi_bias(self, t: int) -> np.ndarray:
+        """Viés (nh, T, T) SEM parâmetro treinável — só distância relativa
+        i-j, por isso funciona em qualquer T (extrapola além do treinado)."""
+        if self._alibi_cache is None or self._alibi_cache[0] < t:
+            rel = np.arange(t)[:, None] - np.arange(t)[None, :]  # (T,T) i-j
+            bias = -self._slopes[:, None, None] * rel[None, :, :]
+            self._alibi_cache = (t, bias)
+            return bias
+        return self._alibi_cache[1][:, :t, :t]
 
     def forward(self, x: np.ndarray, keep_kv: bool = False) -> np.ndarray:
         bsz, t, dim = x.shape
@@ -193,6 +214,8 @@ class CausalSelfAttention(Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # (B, nh, T, hd)
         scale = 1.0 / math.sqrt(hd)
         scores = (q @ k.swapaxes(-1, -2)) * scale  # (B, nh, T, T)
+        if self.use_alibi:
+            scores = scores + self._alibi_bias(t)  # viés é constante: não muda o backward
         neg = np.asarray(-1e30, dtype=scores.dtype)
         scores = np.where(self._mask(t), scores, neg)
         probs = softmax(scores)
@@ -219,6 +242,10 @@ class CausalSelfAttention(Module):
         self._v = np.concatenate([self._v, v], axis=2)
         scale = 1.0 / math.sqrt(hd)
         scores = (q @ self._k.swapaxes(-1, -2)) * scale  # (B, nh, 1, T)
+        if self.use_alibi:
+            t = self._k.shape[2]
+            rel = (t - 1) - np.arange(t)  # distância da última posição a cada key
+            scores = scores + (-self._slopes[:, None, None] * rel[None, None, :])
         y = softmax(scores) @ self._v  # (B, nh, 1, hd)
         return self.proj.forward(y.transpose(0, 2, 1, 3).reshape(bsz, 1, dim))
 
@@ -289,9 +316,11 @@ class Block(Module):
         n_layer: int,
         rng: np.random.Generator,
         dtype: str = "float32",
+        use_alibi: bool = False,
     ) -> None:
         self.ln1 = LayerNorm(f"{name}.ln1", n_embd, dtype=dtype)
-        self.attn = CausalSelfAttention(f"{name}.attn", n_embd, n_head, n_layer, rng, dtype=dtype)
+        self.attn = CausalSelfAttention(f"{name}.attn", n_embd, n_head, n_layer, rng,
+                                        dtype=dtype, use_alibi=use_alibi)
         self.ln2 = LayerNorm(f"{name}.ln2", n_embd, dtype=dtype)
         self.mlp = MLP(f"{name}.mlp", n_embd, n_layer, rng, dtype=dtype)
 

@@ -21,23 +21,31 @@ from src.nanollm.quantize import dequantize_int8, quantize_int8
 @dataclass
 class GPTConfig:
     vocab_size: int = 4096
-    block_size: int = 256  # contexto máximo (tokens)
+    block_size: int = 256  # contexto máximo (tokens) — só limita treino/máscara no ALiBi
     n_layer: int = 6
     n_head: int = 8
     n_embd: int = 256
     dtype: str = "float32"  # float64 p/ checagem numérica de gradiente
     seed: int = 1337
+    # "learned": embedding de posição absoluta (padrão, o de sempre).
+    # "alibi": viés relativo SEM parâmetro na atenção (Press et al.) — sem
+    # tabela de posição, então o mesmo checkpoint funciona em qualquer T,
+    # inclusive T > block_size de treino (P1.5 do PLANO_7_PILARES.md).
+    pos_encoding: str = "learned"
 
 
 class GPT(Module):
     def __init__(self, config: GPTConfig) -> None:
         self.config = config
         c = config
+        assert c.pos_encoding in ("learned", "alibi"), f"pos_encoding inválido: {c.pos_encoding}"
+        use_alibi = c.pos_encoding == "alibi"
         rng = np.random.default_rng(c.seed)
         self.wte = Embedding("wte", c.vocab_size, c.n_embd, rng, dtype=c.dtype)
-        self.wpe = Param("wpe.w", rng.normal(0.0, 0.02, (c.block_size, c.n_embd)).astype(c.dtype))
+        self.wpe = (None if use_alibi else
+                    Param("wpe.w", rng.normal(0.0, 0.02, (c.block_size, c.n_embd)).astype(c.dtype)))
         self.blocks = [
-            Block(f"h{i}", c.n_embd, c.n_head, c.n_layer, rng, dtype=c.dtype)
+            Block(f"h{i}", c.n_embd, c.n_head, c.n_layer, rng, dtype=c.dtype, use_alibi=use_alibi)
             for i in range(c.n_layer)
         ]
         self.ln_f = LayerNorm("ln_f", c.n_embd, dtype=c.dtype)
@@ -49,7 +57,7 @@ class GPT(Module):
 
     # ------------------------------------------------------------- params
     def params(self) -> list[Param]:
-        out = self.wte.params() + [self.wpe]
+        out = self.wte.params() + ([self.wpe] if self.wpe is not None else [])
         for b in self.blocks:
             out += b.params()
         return out + self.ln_f.params() + self.lm_head.params()
@@ -64,10 +72,12 @@ class GPT(Module):
     ) -> tuple[np.ndarray, float | None]:
         """idx (B,T) int → logits (B,T,V); com targets (B,T) calcula a loss."""
         _, t = idx.shape
-        if t > self.config.block_size:
+        if self.wpe is not None and t > self.config.block_size:
             raise ValueError(f"sequência {t} > block_size {self.config.block_size}")
         self._t = t
-        x = self.wte.forward(idx) + self.wpe.data[:t]
+        x = self.wte.forward(idx)
+        if self.wpe is not None:
+            x = x + self.wpe.data[:t]
         for block in self.blocks:
             x = block.forward(x)
         x = self.ln_f.forward(x)
@@ -101,7 +111,8 @@ class GPT(Module):
         dx = self.ln_f.backward(dx)
         for block in reversed(self.blocks):
             dx = block.backward(dx)
-        self.wpe.grad[: self._t] += dx.sum(axis=0)
+        if self.wpe is not None:
+            self.wpe.grad[: self._t] += dx.sum(axis=0)
         self.wte.backward(dx)
         self._probs = None
         self._targets = None
@@ -119,7 +130,7 @@ class GPT(Module):
         """Amostragem autoregressiva. idx (B,T) → (B, T+n)."""
         rng = rng or np.random.default_rng()
         for _ in range(max_new_tokens):
-            ctx = idx[:, -self.config.block_size :]
+            ctx = idx if self.wpe is None else idx[:, -self.config.block_size :]
             logits, _ = self.forward(ctx)
             nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype)
             idx = np.concatenate([idx, nxt], axis=1)
@@ -131,14 +142,18 @@ class GPT(Module):
     def _prefill(self, idx: np.ndarray) -> np.ndarray:
         """Forward completo do prompt guardando K/V por camada → logits."""
         _, t = idx.shape
-        x = self.wte.forward(idx) + self.wpe.data[:t]
+        x = self.wte.forward(idx)
+        if self.wpe is not None:
+            x = x + self.wpe.data[:t]
         for block in self.blocks:
             x = block.forward(x, keep_kv=True)
         return self.lm_head.forward(self.ln_f.forward(x))
 
     def _step(self, token: np.ndarray, pos: int) -> np.ndarray:
         """Um token novo (B,1) na posição `pos` → logits (B,1,V), via cache."""
-        x = self.wte.forward(token) + self.wpe.data[pos : pos + 1]
+        x = self.wte.forward(token)
+        if self.wpe is not None:
+            x = x + self.wpe.data[pos : pos + 1]
         for block in self.blocks:
             x = block.step(x)
         return self.lm_head.forward(self.ln_f.forward(x))

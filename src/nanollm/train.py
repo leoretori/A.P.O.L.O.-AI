@@ -101,6 +101,7 @@ def train(args: argparse.Namespace) -> dict:
             n_head=preset["n_head"],
             n_embd=preset["n_embd"],
             seed=args.seed,
+            pos_encoding=getattr(args, "pos_encoding", "learned"),
         )
         model = GPT(config)
         start_step = 0
@@ -173,6 +174,8 @@ def main() -> None:
     ap.add_argument("--eval-every", type=int, default=250)
     ap.add_argument("--eval-iters", type=int, default=10)
     ap.add_argument("--seed", type=int, default=1337)
+    ap.add_argument("--pos-encoding", choices=["learned", "alibi"], default="learned",
+                    help="alibi: sem tabela de posição, generaliza a contexto maior (P1.5)")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--init-from", default=None,
                     help="fine-tune: warm-start dos pesos deste checkpoint (run novo)")
