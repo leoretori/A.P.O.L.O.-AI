@@ -179,10 +179,17 @@ depois.
   automaticamente (✓ 1/10 resumos reais, não simulado), influencia o rerank (✓ `w_verified`
   testado isolando o efeito). 19 testes novos entre `test_factcheck.py`, `test_storage.py`,
   `test_storage_learning.py`, `test_learner_dedup.py`, `test_rerank.py`, `test_recall_recency.py`.
-- 🔲 **P2.2 — Currículo dirigido por necessidade, não só por novidade.** Ligar a geração de
-  tópicos do auto-currículo ao perfil/metas/projetos ativos (a infraestrutura de grafo + perfil já
-  existe em `src/graph.py`/`src/profile.py`, só não está conectada aqui). Dar peso maior a
-  `_user_queue` (perguntas reais que você fez) sobre `_self_queue` (autogerado).
+- 🏁 **P2.2 — Currículo dirigido por necessidade (2026-07-16).** `LearningEngine` ganha
+  `profile=None` (opcional — sem perfil, comportamento antigo intacto). Novo
+  `_active_needs_context()` lê `goal`+`project` de `src/profile.py` (não `habit`/`person`/etc —
+  só o que é acionável como tópico de estudo). `_replenish_curriculum` injeta esse contexto no
+  prompt do LLM com instrução explícita de **PRIORIZAR** tópicos que ajudem essas metas/projetos,
+  mantendo exploração geral como complemento (não substituição). `app.py`: `profile` passou a ser
+  criado ANTES do `learner` e injetado nele. Verificação à parte (não era mudança de código, já
+  existia): `_fetcher` já prioriza `_user_queue` sobre `_self_queue` estruturalmente
+  (`src/learner.py:376-384` — checa a fila do usuário primeiro, sempre) — conferido por leitura,
+  não precisou de correção. 6 testes novos em `test_learner_logic.py` (contexto vazio/com
+  dados/perfil quebrado sem derrubar, prompt com e sem metas ativas).
 - 🔲 **P2.3 — Filtro de deriva do currículo.** Antes de enfileirar um tópico autogerado, pontuar
   relevância contra seus interesses/perfil conhecidos; descartar ou reformular o que pontuar
   baixo, em vez de estudar qualquer coisa que a LLM sugerir.

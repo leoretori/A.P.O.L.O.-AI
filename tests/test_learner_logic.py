@@ -185,6 +185,109 @@ def test_replenish_curriculum_gera_temas_quando_esgota(monkeypatch):
     assert "Sistemas distribuídos" in fila and "Filosofia estoica" in fila
 
 
+# ── P2.2: currículo dirigido por necessidade (metas/projetos ativos) ──────
+class _FakeProfile:
+    def __init__(self, groups):
+        self._groups = groups
+
+    def by_category(self):
+        return self._groups
+
+
+def test_active_needs_context_sem_profile():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = None
+    assert eng._active_needs_context() == ""
+
+
+def test_active_needs_context_junta_goal_e_project():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = _FakeProfile({
+        "goal": [{"fact": "aprender Rust em 2026"}],
+        "project": [{"fact": "migrar o Apolo pro llama.cpp"}],
+        "habit": [{"fact": "corre de manhã"}],  # NÃO entra — só goal/project
+    })
+    ctx = eng._active_needs_context()
+    assert "aprender Rust em 2026" in ctx
+    assert "migrar o Apolo pro llama.cpp" in ctx
+    assert "corre de manhã" not in ctx
+
+
+def test_active_needs_context_profile_quebrado_nao_derruba():
+    class _Boom:
+        def by_category(self):
+            raise RuntimeError("json corrompido")
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.profile = _Boom()
+    assert eng._active_needs_context() == ""
+
+
+def test_replenish_curriculum_ancora_no_perfil_quando_ha_metas(monkeypatch):
+    """Com metas/projetos ativos, o prompt PRIORIZA eles — a diferença real
+    entre 'currículo por novidade' e 'currículo por necessidade' (P2.2)."""
+    captured = {}
+
+    def fake_chat(model, messages, **k):
+        captured["prompt"] = messages[0]["content"]
+        return "1. Tópico relacionado\n2. Outro tópico"
+    monkeypatch.setattr(learner_mod, "chat_resilient", fake_chat)
+
+    class _DB:
+        def get_learning_history(self, n): return [{"topic": "Docker"}]
+        def is_topic_studied(self, t): return False
+        def add_notification(self, *a, **k): pass
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = _DB()
+    eng.gpu_gate = None
+    eng.summarize_model = "x"
+    eng._replenishing = False
+    eng._next_studies = []
+    eng.profile = _FakeProfile({"goal": [{"fact": "aprender Rust em 2026"}]})
+
+    async def run():
+        eng._llm_lock = asyncio.Lock()
+        eng._self_queue = asyncio.Queue(maxsize=24)
+        await eng._replenish_curriculum()
+
+    asyncio.run(run())
+    assert "aprender Rust em 2026" in captured["prompt"]
+    assert "PRIORIZE" in captured["prompt"]
+
+
+def test_replenish_curriculum_sem_metas_usa_exploracao_geral(monkeypatch):
+    """Sem perfil/metas, o comportamento é o de sempre (só novidade) — P2.2
+    não quebra quem nunca preencheu o modelo pessoal."""
+    captured = {}
+
+    def fake_chat(model, messages, **k):
+        captured["prompt"] = messages[0]["content"]
+        return "1. Tópico qualquer"
+    monkeypatch.setattr(learner_mod, "chat_resilient", fake_chat)
+
+    class _DB:
+        def get_learning_history(self, n): return [{"topic": "Docker"}]
+        def is_topic_studied(self, t): return False
+        def add_notification(self, *a, **k): pass
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.db = _DB()
+    eng.gpu_gate = None
+    eng.summarize_model = "x"
+    eng._replenishing = False
+    eng._next_studies = []
+    eng.profile = None
+
+    async def run():
+        eng._llm_lock = asyncio.Lock()
+        eng._self_queue = asyncio.Queue(maxsize=24)
+        await eng._replenish_curriculum()
+
+    asyncio.run(run())
+    assert "PRIORIZE" not in captured["prompt"]
+    assert "Misture tecnologia e conhecimento geral" in captured["prompt"]
+
+
 def test_llm_lock_serializa_inferencias(monkeypatch):
     """Regressão do 'estudou muito e travou de vez': o lock impede que summarize
     (3b) e síntese (14b) infiram AO MESMO TEMPO — numa 16GB CPU-only isso travava

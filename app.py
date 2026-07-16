@@ -491,6 +491,9 @@ async def lifespan(app: FastAPI):
     _init_knowledge()
     # A GPU é serializada pelo Ollama: o usuário tem prioridade sobre o aprendizado.
     gpu_gate = GpuGate()
+    # Criado ANTES do learner: P2.2 ancora o currículo auto-dirigido nas
+    # metas/projetos ativos do perfil (por NECESSIDADE, não só novidade).
+    profile = UserProfile(path=os.getenv("PROFILE_PATH", "data/user_profile.json"))
     learner = LearningEngine(
         model=MODEL,
         rag=rag,
@@ -499,12 +502,12 @@ async def lifespan(app: FastAPI):
         interval_seconds=LEARNING_INTERVAL,
         summarize_model=SUMMARIZE_MODEL,
         gpu_gate=gpu_gate,
+        profile=profile,
     )
     researcher = DeepResearchAgent(model=MODEL, rag=rag, knowledge_db=knowledge_db)
     reviewer = CodeReviewAgent(model=MODEL, rag=rag)
     ingestor = DocumentIngestor(rag=rag, knowledge_db=knowledge_db)
     curator = MemoryCurator(knowledge_db=knowledge_db, rag=rag, db=db)
-    profile = UserProfile(path=os.getenv("PROFILE_PATH", "data/user_profile.json"))
     coder_ws = CoderWorkspace(root=os.getenv("APOLO_WORKSPACE", "./workspace"))
     project_mem = ProjectMemory(path=os.getenv("PROJECT_MEMORY_PATH", "data/project_contexts.json"))
     lesson_mem = LessonMemory(path=os.getenv("LESSONS_PATH", "data/lessons.db"))

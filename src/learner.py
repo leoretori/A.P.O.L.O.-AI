@@ -74,6 +74,7 @@ class LearningEngine:
         interval_seconds: int = 60,   # não usado no pipeline, mantido para compatibilidade
         summarize_model: str | None = None,
         gpu_gate=None,
+        profile=None,
     ):
         self.model = model
         # Cede a GPU às requisições do usuário (resposta interativa tem prioridade).
@@ -83,6 +84,11 @@ class LearningEngine:
         self.summarize_model = summarize_model or os.getenv("SUMMARIZE_MODEL", "").strip() or model
         self.rag = rag
         self.knowledge_db = knowledge_db
+        # P2.2: metas/projetos ativos (src/profile.py) ancoram o currículo
+        # auto-dirigido — sem isto, `_replenish_curriculum` só sabia o que já
+        # tinha estudado, não o que IMPORTA para o Leo agora. Opcional (None
+        # funciona igual a antes — cai no comportamento só-por-novidade).
+        self.profile = profile
         self.db = db
         self.running = False
 
@@ -848,11 +854,31 @@ class LearningEngine:
             self._synthesis_agent.active = False
             self._synthesis_agent.current_topic = ""
 
+    def _active_needs_context(self) -> str:
+        """P2.2: metas/projetos ativos (src/profile.py) — a parte 'por
+        NECESSIDADE' do currículo. Vazio se não há perfil ou nada nessas
+        categorias (o comportamento antigo, só-por-novidade, continua valendo)."""
+        profile = getattr(self, "profile", None)
+        if not profile:
+            return ""
+        try:
+            groups = profile.by_category()
+        except Exception:
+            return ""
+        itens = [f.get("fact", "") for cat in ("goal", "project") for f in groups.get(cat, [])]
+        itens = [i for i in itens if i]
+        return "; ".join(itens[:15])[:800]
+
     async def _replenish_curriculum(self) -> None:
         """Rotação de listas fixas ESGOTADA (tudo já estudado na janela) e a fila
         auto-dirigida vazia? Gera tópicos NOVOS via LLM a partir do que já sabe e
         os injeta na fila. Sem isto, com as listas esgotadas o pipeline fica em
-        `buscados:0` para sempre (o famoso 'não está conseguindo estudar')."""
+        `buscados:0` para sempre (o famoso 'não está conseguindo estudar').
+
+        P2.2: quando há metas/projetos ativos no perfil, o currículo passa a
+        ser dirigido por NECESSIDADE (o que ajuda o Leo agora), não só por
+        novidade (o que ainda não foi estudado) — as duas coisas convivem no
+        mesmo prompt, sem perder a exploração geral."""
         if self._replenishing or not self.db:
             return
         self._replenishing = True
@@ -860,12 +886,21 @@ class LearningEngine:
             history = await asyncio.to_thread(self.db.get_learning_history, 40)
             conhecidos = [h.get("topic", "") for h in history if h.get("topic")]
             amostra = "; ".join(conhecidos[:30])[:1500]
+            needs = self._active_needs_context()
+            needs_block = (
+                f"\n\nMetas e projetos ativos do Leo agora: {needs}\n"
+                "PRIORIZE tópicos que ajudem diretamente essas metas/projetos — o "
+                "resto pode ser exploração geral (ciência, história, saúde, arte...)."
+                if needs else
+                "\n\nMisture tecnologia e conhecimento geral (ciência, história, "
+                "saúde, arte...)."
+            )
             prompt = (
                 "Sou um currículo de autoaprendizado contínuo. Já estudei, entre outros:\n"
-                f"{amostra}\n\n"
+                f"{amostra}"
+                f"{needs_block}\n\n"
                 "Liste 12 tópicos NOVOS e ESPECÍFICOS que eu ainda não estudei, para "
-                "aprofundar ou expandir esse conhecimento — misture tecnologia e "
-                "conhecimento geral (ciência, história, saúde, arte...). "
+                "aprofundar ou expandir esse conhecimento. "
                 "Um por linha, sem numeração, sem explicação."
             )
             if self.gpu_gate:
