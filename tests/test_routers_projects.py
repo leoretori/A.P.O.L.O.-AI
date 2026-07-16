@@ -114,6 +114,35 @@ def test_plano_run_projeto_inexistente():
     assert c.post("/api/projects/9999/plan/run", json={}).json()["ok"] is False
 
 
+# ───────────────────────────── M24.1 loop fechado, sozinho ──────────────────
+def test_plan_run_ao_concluir_mede_e_registra_sozinho():
+    c = _client({"duplicates": 30})
+    pid = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "Limpar"}).json()["project"]["id"]
+    d = c.post(f"/api/projects/{pid}/plan/run", json={}).json()
+    assert d["ok"] and d["status"] == "done"
+    assert "outcome" in d and d["outcome"]["measurable"] is True   # mediu sozinho
+    # e REGISTROU na curva (não só computou na hora)
+    hist = c.get("/api/projects/outcomes/history").json()["outcomes"]
+    assert len(hist) == 1
+    assert hist[0]["project_id"] == pid and hist[0]["auto"] is True
+
+
+def test_outcome_manual_nao_duplica_a_curva():
+    c = _client({"duplicates": 30})
+    pid = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "Limpar"}).json()["project"]["id"]
+    c.get(f"/api/projects/{pid}/outcome")   # chamada manual (botão), NÃO grava
+    c.get(f"/api/projects/{pid}/outcome")
+    assert c.get("/api/projects/outcomes/history").json()["outcomes"] == []
+
+
+def test_outcomes_history_filtra_por_kind():
+    c = _client({"duplicates": 30})
+    pid = c.post("/api/projects/adopt", json={"kind": "dedup", "title": "Limpar"}).json()["project"]["id"]
+    c.post(f"/api/projects/{pid}/plan/run", json={})
+    assert len(c.get("/api/projects/outcomes/history?kind=dedup").json()["outcomes"]) == 1
+    assert len(c.get("/api/projects/outcomes/history?kind=summary_quality").json()["outcomes"]) == 0
+
+
 def test_adopt_captura_baseline_e_outcome_mede():
     # adota um projeto de dedup: baseline capturado; DB vazio → 0 duplicatas
     c = _client({"duplicates": 30})

@@ -1595,19 +1595,33 @@
 
   // ── Projetos autodirigidos (M12 12.1) ──
   const _PRIO = ['#888','#5b9cff','#facc15','#f87171'];  // 0..3
-  function openProjects() { document.getElementById('projects-overlay').style.display='flex'; loadRetrospective(); loadSuggestions(); loadProjects(); }
+  function openProjects() { document.getElementById('projects-overlay').style.display='flex'; loadRetrospective(2); loadSuggestions(); loadProjects(); }
   function closeProjects() { document.getElementById('projects-overlay').style.display='none'; }
 
-  // Retrospectiva do ano (M12 12.2)
+  // Retrospectiva do ano (M12 12.2 — ano 1; M24 24.3 — ano 2)
   let _retroText = '';
-  async function loadRetrospective() {
+  const _RETRO_CFG = {
+    1: {path: '/api/retrospective', themesKey: 'year_two_themes', label: 'Focos propostos para o ano 2'},
+    2: {path: '/api/retrospective2', themesKey: 'year3_themes', label: 'Focos propostos para o ano 3'},
+  };
+  async function loadRetrospective(year) {
+    year = year === 1 ? 1 : 2;   // padrão: ano 2 (o mais recente)
+    const cfg = _RETRO_CFG[year];
     const el = document.getElementById('retro-body');
+    const b1 = document.getElementById('retro-y1-btn'), b2 = document.getElementById('retro-y2-btn');
+    if (b1 && b2) {
+      const on = 'background:#101a30;border:1px solid #2a3a5a;color:#8ab4ff;padding:3px 9px;border-radius:6px;cursor:pointer;font-size:10.5px';
+      const off = 'background:#1a1a22;border:1px solid #2a2a33;color:#888;padding:3px 9px;border-radius:6px;cursor:pointer;font-size:10.5px';
+      b1.style.cssText = year === 1 ? on : off;
+      b2.style.cssText = year === 2 ? on : off;
+    }
+    el.innerHTML = 'Carregando…';
     try {
-      const d = await fetch('/api/retrospective').then(r=>r.json());
+      const d = await fetch(cfg.path).then(r=>r.json());
       _retroText = d.text || '';
-      const themes = (d.year_two_themes||[]).map(t=>`<li>${escHtml(t)}</li>`).join('');
+      const themes = (d[cfg.themesKey]||[]).map(t=>`<li>${escHtml(t)}</li>`).join('');
       el.innerHTML = `<div>${escHtml(d.text||'')}</div>` +
-        (themes ? `<div style="color:#777;font-size:11px;margin-top:8px">Focos propostos para o ano 2:</div><ul style="margin:4px 0 0;padding-left:18px;color:#8ab4ff;font-size:11.5px">${themes}</ul>` : '');
+        (themes ? `<div style="color:#777;font-size:11px;margin-top:8px">${cfg.label}:</div><ul style="margin:4px 0 0;padding-left:18px;color:#8ab4ff;font-size:11.5px">${themes}</ul>` : '');
     } catch(e) { el.innerHTML = `<span style="color:#f87171">Erro: ${escHtml(e.message)}</span>`; }
   }
   function speakRetrospective() {

@@ -222,6 +222,25 @@ class SelfProject(Base):
     updated_at = Column(DateTime, default=_now)
 
 
+class ProjectOutcome(Base):
+    """Registro PERMANENTE de uma medição de resultado (M24.1 — fecha o loop
+    'propõe → faz → mede, sozinho'). `outcome()` (M19.3) já calculava o
+    antes→depois na hora, sem guardar; aqui cada medição vira uma linha —
+    é a CURVA que prova melhora no longo prazo, não só um instante (M24.2 lê
+    esta tabela para o placar de capacidade ao longo do tempo)."""
+    __tablename__ = "project_outcomes"
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    project_id  = Column(Integer, nullable=False)
+    kind        = Column(String(40), nullable=False)
+    label       = Column(String(120), default="")
+    baseline    = Column(Float)
+    current     = Column(Float)
+    delta       = Column(Float)
+    improved    = Column(Boolean)          # None (estável) vira NULL
+    auto        = Column(Boolean, default=False)  # medido sozinho ao concluir o plano?
+    measured_at = Column(DateTime, default=_now)
+
+
 class Routine(Base):
     """Rotina automatizada (M10, Épico 10.2): tarefa recorrente que o A.P.O.L.O.
     executa sozinho no horário combinado (ex.: 'toda sexta, resumo da semana').

@@ -49,3 +49,39 @@ def test_delete(db):
     p = db.save_self_project("gaps", "A", "", ["x"])
     assert db.delete_self_project(p["id"]) is True
     assert db.get_self_project(p["id"]) is None
+
+
+# ── Curva de resultados (M24.1/24.2) ──────────────────────────────
+def test_save_e_list_project_outcomes(db):
+    p = db.save_self_project("summary_quality", "Melhorar sínteses", "", ["a"])
+    out = db.save_project_outcome(p["id"], "summary_quality", "% estruturadas",
+                                  40.0, 55.0, 15.0, True, auto=True)
+    assert out["baseline"] == 40.0 and out["current"] == 55.0
+    assert out["improved"] is True and out["auto"] is True
+
+    rows = db.list_project_outcomes()
+    assert len(rows) == 1 and rows[0]["project_id"] == p["id"]
+
+
+def test_list_project_outcomes_mais_recente_primeiro(db):
+    p = db.save_self_project("dedup", "Limpar", "", ["a"])
+    db.save_project_outcome(p["id"], "dedup", "duplicatas", 10, 8, -2, True)
+    db.save_project_outcome(p["id"], "dedup", "duplicatas", 8, 5, -3, True)
+    rows = db.list_project_outcomes()
+    assert len(rows) == 2
+    assert rows[0]["current"] == 5 and rows[1]["current"] == 8  # mais recente 1º
+
+
+def test_list_project_outcomes_filtra_por_kind(db):
+    p1 = db.save_self_project("dedup", "A", "", ["x"])
+    p2 = db.save_self_project("summary_quality", "B", "", ["y"])
+    db.save_project_outcome(p1["id"], "dedup", "duplicatas", 10, 8, -2, True)
+    db.save_project_outcome(p2["id"], "summary_quality", "% estruturadas", 40, 55, 15, True)
+    assert len(db.list_project_outcomes(kind="dedup")) == 1
+    assert len(db.list_project_outcomes()) == 2
+
+
+def test_outcome_estavel_guarda_improved_none(db):
+    p = db.save_self_project("dedup", "A", "", ["x"])
+    out = db.save_project_outcome(p["id"], "dedup", "duplicatas", 5, 5, 0, None)
+    assert out["improved"] is None

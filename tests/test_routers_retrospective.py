@@ -17,6 +17,10 @@ def _client():
         # sinais p/ _gather_signals (routers.projects)
         def get_summary_quality(self): return {"pct_structured": 95, "raw": 0}
         def count_topic_duplicates(self): return 0
+        # sinais do Ano 2 (M24.3)
+        def nano_coverage(self): return {"overall": {"nano": 3, "teacher": 7, "total": 10, "pct": 30.0}}
+        def list_project_outcomes(self, kind=None, limit=500):
+            return [{"improved": True}, {"improved": False}, {"improved": True}]
 
     rt.configure(db=FakeDB(), learner=None)
     app = FastAPI()
@@ -30,3 +34,13 @@ def test_retrospectiva_traz_texto_falavel_e_highlights():
     assert d["highlights"]["projects_done"] == 1
     assert "628 tópicos" in d["text"] and "40 dias" in d["text"]
     assert d["year_two_themes"]           # sempre propõe algo p/ o ano 2
+
+
+def test_retrospectiva_ano2_traz_numeros_do_nano_e_projetos():
+    d = _client().get("/api/retrospective2").json()
+    assert d["highlights"]["total_topics"] == 628
+    assert d["highlights"]["nano"] == {"nano": 3, "teacher": 7, "total": 10, "pct": 30.0}
+    assert d["highlights"]["projects_measured"] == {"total": 3, "improved": 2}
+    assert "628 tópicos" in d["text"] and "30.0%" in d["text"]
+    assert d["year3_themes"]              # sempre propõe algo p/ o ano 3
+    assert "Ano 3" in d["text"]

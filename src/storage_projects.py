@@ -4,7 +4,14 @@ import json as _json
 
 from sqlalchemy.orm import Session
 
-from src.storage_models import SelfProject, _now
+from src.storage_models import ProjectOutcome, SelfProject, _now
+
+
+def _outcome_dict(r) -> dict:
+    return {"id": r.id, "project_id": r.project_id, "kind": r.kind, "label": r.label,
+            "baseline": r.baseline, "current": r.current, "delta": r.delta,
+            "improved": r.improved, "auto": bool(r.auto),
+            "measured_at": r.measured_at.isoformat() if r.measured_at else None}
 
 
 def _project_dict(r) -> dict:
@@ -90,3 +97,24 @@ class ProjectsMixin:
             return s.query(SelfProject).filter(
                 SelfProject.kind == kind,
                 SelfProject.status.in_(["active", "done"])).first() is not None
+
+    # ── Curva de resultados (M24.1) — cada medição de outcome vira histórico ──
+    def save_project_outcome(self, project_id: int, kind: str, label: str,
+                             baseline, current, delta, improved,
+                             auto: bool = False) -> dict:
+        with Session(self.engine) as s:
+            row = ProjectOutcome(project_id=project_id, kind=kind, label=label[:120],
+                                 baseline=baseline, current=current, delta=delta,
+                                 improved=improved, auto=auto)
+            s.add(row)
+            s.commit()
+            return _outcome_dict(row)
+
+    def list_project_outcomes(self, kind: str | None = None, limit: int = 100) -> list[dict]:
+        """A curva de capacidade (M24.2 lê isto): mais recente primeiro."""
+        with Session(self.engine) as s:
+            q = s.query(ProjectOutcome)
+            if kind:
+                q = q.filter(ProjectOutcome.kind == kind)
+            rows = q.order_by(ProjectOutcome.measured_at.desc()).limit(limit).all()
+            return [_outcome_dict(r) for r in rows]

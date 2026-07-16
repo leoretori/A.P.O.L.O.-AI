@@ -172,21 +172,57 @@ async def project_plan_run(project_id: int, payload: dict | None = None):
     """Executa o PLANO multi-passo (M19.2): roda os passos seguros sozinho e PARA
     num checkpoint para confirmar cada passo sensível. `confirm` autoriza o passo
     do checkpoint atual; chame de novo para seguir até o próximo. Retomável."""
-    from src.project_exec import run_plan
+    from src.project_exec import outcome, run_plan
     proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
     if proj is None:
         return {"ok": False, "error": "projeto não encontrado"}
     confirm = (payload or {}).get("confirm")
     out = await asyncio.to_thread(run_plan, proj, _exec_ctx(), confirm=confirm)
+    # M24.1 — fecha o loop "propõe → faz → MEDE, sozinho": quando o plano
+    # termina, o Apolo já re-mede por conta própria (antes o Leo precisava
+    # clicar "Medir resultado" à parte) e REGISTRA a medição — não só computa
+    # na hora, guarda a linha (é a curva do M24.2). Nunca quebra a resposta
+    # do plano se a medição falhar por algum motivo.
+    if out.get("status") == "done":
+        try:
+            oc = await asyncio.to_thread(outcome, proj, _exec_ctx())
+            if oc.get("measurable"):
+                await asyncio.to_thread(
+                    rt.db.save_project_outcome, project_id, proj["kind"], oc["label"],
+                    oc.get("baseline"), oc.get("current"), oc.get("delta"),
+                    oc.get("improved"), True)
+                if oc.get("improved") is not None:
+                    veredito = "melhorou" if oc["improved"] else "não melhorou"
+                    rt.db.add_notification(
+                        f"📈 Projeto '{proj['title'][:60]}' concluído — {oc['label']} "
+                        f"{veredito} ({oc['baseline']} → {oc['current']})", kind="info")
+                out["outcome"] = oc
+        except Exception:
+            pass
     return {"ok": True, **out}
 
 
 @router.get("/api/projects/{project_id}/outcome")
 async def project_outcome(project_id: int):
     """Fecha o loop propõe→faz→MEDE (M19.3): re-mede a métrica que motivou o
-    projeto e mostra o antes→depois (melhorou de verdade?)."""
+    projeto e mostra o antes→depois (melhorou de verdade?). Chamada manual
+    (o botão "📊 Medir resultado") NÃO grava na curva — só o auto-registro do
+    24.1 (ao concluir o plano) vira histórico; medir de novo sob demanda aqui
+    é só consulta, não duplica a linha da curva."""
     from src.project_exec import outcome
     proj = await asyncio.to_thread(rt.db.get_self_project, project_id)
     if proj is None:
         return {"ok": False, "error": "projeto não encontrado"}
     return {"ok": True, "outcome": await asyncio.to_thread(outcome, proj, _exec_ctx())}
+
+
+@router.get("/api/projects/outcomes/history")
+async def project_outcomes_history(kind: str = "", limit: int = 100):
+    """A curva de capacidade (M24.2): série histórica de medições reais, não
+    só atividade. Cresce conforme projetos são concluídos — cada linha é uma
+    prova pontual; a SÉRIE ao longo do tempo é a prova de melhora contínua."""
+    if not rt.db:
+        return {"outcomes": []}
+    limit = max(1, min(limit, 500))
+    rows = await asyncio.to_thread(rt.db.list_project_outcomes, kind or None, limit)
+    return {"outcomes": rows}
