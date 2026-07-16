@@ -159,6 +159,15 @@ _last_flywheel_date = None
 DEDUP_HOUR = int(os.getenv("DEDUP_HOUR", 4))
 _last_dedup_date = None
 
+# Amostra de qualidade real (P2.5): get_summary_quality() só mede FORMA (tem
+# "##" ou não) — 1x/dia a partir de QUALITY_SAMPLE_HOUR, um juiz LLM avalia
+# precisão/utilidade/especificidade numa amostra ALEATÓRIA de resumos já
+# salvos e registra num placar histórico. -1 desliga.
+QUALITY_SAMPLE_HOUR = int(os.getenv("QUALITY_SAMPLE_HOUR", 5))
+QUALITY_SAMPLE_N = int(os.getenv("QUALITY_SAMPLE_N", 15))
+QUALITY_HISTORY_PATH = os.getenv("QUALITY_HISTORY_PATH", "data/learner/quality_history.jsonl")
+_last_quality_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -292,6 +301,26 @@ async def _run_dedup_cycle() -> None:
         logger.info(f"[dedup] noturno: {chroma_pruned} (recall) + {log_pruned} (log) removidos")
 
 
+async def _run_quality_sample_cycle() -> None:
+    """Uma rodada de amostragem de qualidade (P2.5) — juiz LLM numa amostra
+    aleatória de resumos já salvos, registrada no placar histórico. Nunca
+    derruba o scheduler se falhar (mesma disciplina do flywheel/dedup)."""
+    if not db:
+        return
+    from src.quality_sampler import make_llm_quality_judge, run_tracked_quality_sample
+    try:
+        res = await asyncio.to_thread(
+            run_tracked_quality_sample, db, make_llm_quality_judge(),
+            history_path=QUALITY_HISTORY_PATH, n=QUALITY_SAMPLE_N)
+        if res.get("status") == "ok":
+            logger.info(f"[quality] amostra noturna: {res['passed']}/{res['decided']} "
+                        f"passaram ({res['pass_rate']}%)")
+        else:
+            logger.info(f"[quality] pulado: {res.get('reason')}")
+    except Exception as e:
+        logger.warning(f"[quality] ciclo falhou: {e}")
+
+
 async def _scheduler_loop():
     """Dispara estudos agendados e ativa aprendizado idle.
 
@@ -382,6 +411,14 @@ async def _scheduler_loop():
                 if _td.hour >= DEDUP_HOUR and _last_dedup_date != _td.date():
                     _last_dedup_date = _td.date()
                     await _run_dedup_cycle()
+
+            # Amostra de qualidade real (P2.5): 1x/dia a partir de QUALITY_SAMPLE_HOUR.
+            global _last_quality_date
+            if QUALITY_SAMPLE_HOUR >= 0:
+                _tq = datetime.now()
+                if _tq.hour >= QUALITY_SAMPLE_HOUR and _last_quality_date != _tq.date():
+                    _last_quality_date = _tq.date()
+                    await _run_quality_sample_cycle()
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:

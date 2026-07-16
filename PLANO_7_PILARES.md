@@ -219,9 +219,17 @@ depois.
   texto exato, sem IA). Os dois destinos são independentes: um falhar não impede o outro (testado).
   O caminho manual do Curador (`MemoryCurator.apply`) continua existindo do jeito que era — isto
   soma, não substitui. 4 testes novos em `tests/test_dedup_scheduler.py`.
-- 🔲 **P2.5 — Métrica de qualidade real, não só estrutural.** Substituir/estender
-  `get_summary_quality()` (hoje só checa se tem cabeçalho markdown) por uma amostragem com
-  LLM-juiz avaliando precisão/utilidade/não-genericidade, rastreada como indicador no tempo.
+- 🏁 **P2.5 — Métrica de qualidade real, rastreada no tempo (2026-07-16).** Novo
+  `src/quality_sampler.py` — separado de `get_summary_quality()` (que continua existindo, mede só
+  forma). `factcheck.py` ganha `QUALITY_PROMPT`+`parse_quality_verdict` (juiz LLM: preciso, útil,
+  específico — mira o mesmo padrão de chavão vazio já visto na deriva do currículo, P2.3).
+  `storage_learning.py::sample_topics_for_quality(n)` puxa amostra ALEATÓRIA (não os mais
+  recentes) de tópicos já salvos — diferente do P2.1 (precisa da fonte crua, só roda na hora do
+  save), este roda depois, sobre a base inteira, de qualquer época. `app.py::_run_quality_sample_cycle`
+  agendado 1×/dia (`QUALITY_SAMPLE_HOUR`, padrão 5h) — mesmo padrão do flywheel/dedup — grava
+  `data/learner/quality_history.jsonl` (append-only, mesmo desenho do `blind_eval_history` do P1.4).
+  21 testes novos entre `test_factcheck.py`, `test_storage_learning.py`, `test_quality_sampler.py`,
+  `test_quality_scheduler.py`.
 - 🔲 **P2.6 — Formalizar `recall_calibration.py`.** Hoje é ferramenta manual; virar gate de
   qualidade agendado testando recall contra um conjunto fixo de perguntas com resposta conhecida,
   pra pegar regressão de RAG antes que você perceba no uso real.

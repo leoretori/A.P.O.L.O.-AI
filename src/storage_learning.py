@@ -379,6 +379,18 @@ class LearningMixin:
                 "pct_sampled": round(100 * sampled / total) if total else None,
                 "pct_faithful_of_sampled": round(100 * verified / sampled) if sampled else None}
 
+    def sample_topics_for_quality(self, n: int = 15) -> list[dict]:
+        """P2.5: amostra ALEATÓRIA de tópicos já salvos (com resumo) pro juiz de
+        qualidade avaliar — diferente de `_verify_summary` (P2.1, precisa da
+        fonte crua, só roda na hora do save), este roda depois, sobre o que já
+        está gravado, então pode amostrar de qualquer época."""
+        from sqlalchemy import func
+        with Session(self.engine) as s:
+            rows = (s.query(LearnedTopic.id, LearnedTopic.topic, LearnedTopic.summary)
+                    .filter(LearnedTopic.summary.isnot(None), LearnedTopic.summary != "")
+                    .order_by(func.random()).limit(n).all())
+        return [{"id": rid, "topic": topic, "summary": summary} for rid, topic, summary in rows]
+
     def get_learning_stats(self) -> dict:
         from sqlalchemy import func, distinct
         today = _now().replace(hour=0, minute=0, second=0, microsecond=0)

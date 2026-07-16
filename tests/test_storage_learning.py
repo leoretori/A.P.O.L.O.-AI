@@ -132,3 +132,30 @@ def test_get_verification_stats_vazio(db):
         "total": 0, "sampled": 0, "verified": 0, "failed": 0,
         "pct_sampled": None, "pct_faithful_of_sampled": None,
     }
+
+
+# ── sample_topics_for_quality (P2.5) ────────────────────────────
+def test_sample_topics_for_quality_traz_topico_e_resumo(db):
+    db.save_learned_topic("A", "u1", "resumo de A")
+    db.save_learned_topic("B", "u2", "resumo de B")
+    amostra = db.sample_topics_for_quality(n=10)
+    assert len(amostra) == 2
+    assert {a["topic"] for a in amostra} == {"A", "B"}
+    assert all(set(a.keys()) == {"id", "topic", "summary"} for a in amostra)
+
+
+def test_sample_topics_for_quality_respeita_o_limite(db):
+    for i in range(20):
+        db.save_learned_topic(f"T{i}", f"u{i}", f"resumo {i}")
+    assert len(db.sample_topics_for_quality(n=5)) == 5
+
+
+def test_sample_topics_for_quality_ignora_sem_resumo(db):
+    db.save_learned_topic("Com resumo", "u1", "conteúdo real")
+    db.save_learned_topic("Sem resumo", "u2", "")
+    amostra = db.sample_topics_for_quality(n=10)
+    assert [a["topic"] for a in amostra] == ["Com resumo"]
+
+
+def test_sample_topics_for_quality_vazio(db):
+    assert db.sample_topics_for_quality(n=10) == []

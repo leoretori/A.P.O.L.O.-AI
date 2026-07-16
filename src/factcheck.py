@@ -118,3 +118,31 @@ def parse_groundedness(text: str) -> str | None:
     if first in _NO:
         return "failed"
     return None
+
+
+# ── Qualidade real via juiz LLM (P2.5) ──────────────────────────────
+# Diferente do groundedness (fiel à FONTE, precisa dela) e de
+# get_summary_quality (só estrutura — tem "##" ou não): aqui o juiz avalia o
+# RESUMO sozinho, sem a fonte (não fica retido depois de salvo) — precisão,
+# utilidade e especificidade. Mira o mesmo padrão de deriva já visto no
+# currículo (P2.3): chavão corporativo bem-formado mas vazio.
+QUALITY_PROMPT = (
+    "Você é um avaliador exigente. Leia o RESUMO abaixo sobre '{topic}' e decida "
+    "se ele é PRECISO (não genérico — dá pra entender o assunto de verdade), "
+    "ÚTIL (informação acionável, não só definição vaga) e ESPECÍFICO (não é "
+    "chavão corporativo tipo 'otimização de infraestruturas inteligentes'). "
+    "Responda APENAS 'sim' (passa nos 3) ou 'não' (falha em algum).\n\n"
+    "RESUMO:\n{summary}\n\nPassa nos 3 critérios? (sim/não):"
+)
+
+
+def parse_quality_verdict(text: str) -> bool | None:
+    """True (passa) | False (reprovado) | None (resposta não decidiu) — puro,
+    sem IO, mesmo padrão de `parse_groundedness`."""
+    out = (text or "").strip().lower()
+    first = re.split(r"[\s\n.,!?]", out)[0] if out else ""
+    if first in _YES:
+        return True
+    if first in _NO:
+        return False
+    return None

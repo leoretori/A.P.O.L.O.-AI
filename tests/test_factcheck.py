@@ -145,3 +145,22 @@ def test_verify_summary_erro_nunca_derruba_pipeline(monkeypatch):
     monkeypatch.setattr("src.learner.chat_resilient", _raise)
     result = asyncio.run(eng._verify_summary("resumo", "fonte"))
     assert result is None  # NUNCA propaga a exceção
+
+
+# ── Qualidade real via juiz LLM (P2.5) ──────────────────────────
+def test_parse_quality_verdict_sim_e_nao():
+    assert F.parse_quality_verdict("sim") is True
+    assert F.parse_quality_verdict("Sim, passa nos 3.") is True
+    assert F.parse_quality_verdict("não") is False
+    assert F.parse_quality_verdict("nao, é genérico demais") is False
+
+
+def test_parse_quality_verdict_inconclusivo_vira_none():
+    assert F.parse_quality_verdict("talvez") is None
+    assert F.parse_quality_verdict("") is None
+    assert F.parse_quality_verdict(None) is None
+
+
+def test_quality_prompt_inclui_topico_e_resumo():
+    p = F.QUALITY_PROMPT.format(topic="Kafka", summary="Resumo sobre partições.")
+    assert "Kafka" in p and "Resumo sobre partições." in p
