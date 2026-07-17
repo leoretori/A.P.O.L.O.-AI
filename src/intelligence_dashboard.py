@@ -60,6 +60,48 @@ def cycle_health(
     return out
 
 
+def answer_corpus_progress(
+    *,
+    dataset_meta_path: str = "data/nano/distill_answers/meta.json",
+    experiment_log_path: str = "data/nano/experiment_history.jsonl",
+    min_growth_pairs: int | None = None,
+) -> dict | None:
+    """Item 4 do `PLANO_FLYWHEEL_AUTOMATICO.md`: visibilidade do progresso do
+    corpus de destilação de resposta — quantos pares existem agora, quantos
+    existiam na última tentativa AUTOMÁTICA (`run_answer_flywheel`) e quanto
+    falta pro próximo piso de crescimento (`min_growth_pairs`, mesmo valor do
+    `ANSWER_FLYWHEEL_MIN_GROWTH`). Sinal de PROGRESSO, não de expectativa de
+    sucesso — 3 experimentos manuais já mostraram que "ter dado suficiente pra
+    tentar" não é o mesmo que "vai melhorar" (ver `docs/PLANO_CORPUS_DIVERSO.md`).
+    `None` se o dataset ainda não existe (nenhuma destilação rodou ainda)."""
+    import json
+    from pathlib import Path
+
+    from src.jsonl_history import read_entries
+
+    meta_path = Path(dataset_meta_path)
+    if not meta_path.exists():
+        return None
+    try:
+        pairs = json.loads(meta_path.read_text(encoding="utf-8")).get("pairs", 0)
+    except Exception:
+        return None
+
+    min_growth = (min_growth_pairs if min_growth_pairs is not None
+                 else int(os.getenv("ANSWER_FLYWHEEL_MIN_GROWTH", 200)))
+    auto_entries = [e for e in read_entries(experiment_log_path, limit=200)
+                    if e.get("name") == "answer_auto"]
+    last_pairs = (auto_entries[-1].get("hyperparams", {}).get("dataset_pairs", 0)
+                 if auto_entries else 0)
+    grown = max(0, pairs - last_pairs)
+    return {
+        "pairs": pairs, "last_attempt_pairs": last_pairs, "grown_since_last_attempt": grown,
+        "min_growth_pairs": min_growth,
+        "pairs_until_next_attempt": max(0, min_growth - grown),
+        "attempts_so_far": len(auto_entries),
+    }
+
+
 def build_snapshot(
     *,
     db=None,
@@ -77,7 +119,7 @@ def build_snapshot(
     snapshot: dict = {
         "coverage": None, "nano_status": None, "volume": None,
         "blind_eval": None, "quality": None, "recall_gate": None,
-        "cycles": None,
+        "cycles": None, "answer_corpus": None,
     }
 
     try:
@@ -85,6 +127,11 @@ def build_snapshot(
             {"quality": quality_history_path, "recall_gate": recall_gate_history_path},
             stale_after_days=cycle_stale_after_days,
         )
+    except Exception:
+        pass
+
+    try:
+        snapshot["answer_corpus"] = answer_corpus_progress()
     except Exception:
         pass
 

@@ -6,8 +6,9 @@ resultado agregado de quando roda."""
 
 from datetime import datetime, timedelta, timezone
 
-from src.intelligence_dashboard import build_snapshot, cycle_health
+from src.intelligence_dashboard import answer_corpus_progress, build_snapshot, cycle_health
 from src.jsonl_history import append_entry
+from src.nanollm.experiment_log import log_experiment
 
 
 class _FakeDB:
@@ -139,3 +140,46 @@ def test_build_snapshot_expoe_cycles(tmp_path):
     snap = build_snapshot(quality_history_path=q_path, recall_gate_history_path=rg_path)
     assert snap["cycles"]["quality"]["stale"] is False
     assert snap["cycles"]["recall_gate"]["stale"] is True  # nunca rodou nesse tmp_path
+
+
+# ── answer_corpus_progress (item 4, PLANO_FLYWHEEL_AUTOMATICO.md) ──────────
+def test_answer_corpus_progress_sem_dataset_fica_none(tmp_path):
+    assert answer_corpus_progress(dataset_meta_path=tmp_path / "nao_existe.json") is None
+
+
+def test_answer_corpus_progress_primeira_medicao_sem_tentativa_anterior(tmp_path):
+    import json
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"pairs": 300}), encoding="utf-8")
+    hist = tmp_path / "hist.jsonl"
+    progress = answer_corpus_progress(dataset_meta_path=meta, experiment_log_path=hist,
+                                      min_growth_pairs=200)
+    assert progress["pairs"] == 300
+    assert progress["last_attempt_pairs"] == 0
+    assert progress["grown_since_last_attempt"] == 300
+    assert progress["pairs_until_next_attempt"] == 0  # já cresceu mais que o piso
+    assert progress["attempts_so_far"] == 0
+
+
+def test_answer_corpus_progress_calcula_faltam_pro_proximo_piso(tmp_path):
+    import json
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"pairs": 350}), encoding="utf-8")
+    hist = tmp_path / "hist.jsonl"
+    log_experiment(hist, name="answer_auto", base_ckpt="x", dataset="y",
+                   hyperparams={"dataset_pairs": 300}, result={})
+    progress = answer_corpus_progress(dataset_meta_path=meta, experiment_log_path=hist,
+                                      min_growth_pairs=200)
+    assert progress["grown_since_last_attempt"] == 50   # 350-300
+    assert progress["pairs_until_next_attempt"] == 150  # 200-50
+    assert progress["attempts_so_far"] == 1
+
+
+def test_build_snapshot_inclui_answer_corpus(tmp_path, monkeypatch):
+    import json
+    meta = tmp_path / "meta.json"
+    meta.write_text(json.dumps({"pairs": 88}), encoding="utf-8")
+    monkeypatch.setattr("src.intelligence_dashboard.answer_corpus_progress",
+                        lambda **k: {"pairs": 88})
+    snap = build_snapshot()
+    assert snap["answer_corpus"] == {"pairs": 88}

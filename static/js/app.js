@@ -2533,6 +2533,18 @@
               }).join(', '));
           }
         }
+        // Item 4 (PLANO_FLYWHEEL_AUTOMATICO.md): progresso do corpus de
+        // destilação de resposta — sinal de PROGRESSO, não de expectativa de
+        // sucesso (3 experimentos manuais já mostraram que "dado suficiente"
+        // não é o mesmo que "vai melhorar").
+        const ac = intel.answer_corpus;
+        const acHtml = ac ? line('Corpus de resposta (destilação)',
+          `<b>${ac.pairs}</b> pares` +
+          (ac.pairs_until_next_attempt > 0
+            ? ` <span style="color:#666">(faltam ${ac.pairs_until_next_attempt} p/ próxima tentativa auto)</span>`
+            : ` <span style="color:#4ade80">(pronto p/ próxima tentativa)</span>`) +
+          (ac.attempts_so_far ? ` <span style="color:#666">· ${ac.attempts_so_far} tentativa(s) já feitas</span>` : '')
+        ) : '';
         intelCard = card(`🧠 Saúde da inteligência <span style="font-weight:400;color:#666;font-size:10px">(consolidado)</span>`,
           line('Win-rate blind-eval (Nano vs Qwen)', be
             ? `<span style="color:${pctColor(be.nano_win_rate)}">${be.nano_win_rate}%</span> <span style="color:#666">(n=${be.n})</span>`
@@ -2544,6 +2556,7 @@
             ? `<span style="color:${pctColor(rg.hit_rate)}">${rg.hit_rate}%</span> <span style="color:#666">(${rg.hits}/${rg.n})</span>`
             : '<span style="color:#666">ainda não medido</span>') +
           (vol ? line('Faltam p/ próximo treino', `título: <b>${vol.faltam_titulo}</b> · reações: <b>${vol.faltam_reacoes}</b>`) : '') +
+          acHtml +
           cyclesHtml);
       }
 
