@@ -158,6 +158,18 @@ FLYWHEEL_STEPS = int(os.getenv("FLYWHEEL_STEPS", 400))
 FLYWHEEL_MIN_PAIRS = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
 _last_flywheel_date = None
 
+# Flywheel de RESPOSTA (item 2 do PLANO_FLYWHEEL_AUTOMATICO.md): DELIBERADAMENTE
+# separado do flywheel de título acima — promove por BLIND-EVAL real (não ppl,
+# que 3 experimentos manuais provaram enganoso pra esta tarefa específica). Só
+# treina quando o corpus cresceu o suficiente desde a última tentativa
+# automática (nunca starta do zero a cada noite). -1 desliga.
+ANSWER_FLYWHEEL_HOUR = int(os.getenv("ANSWER_FLYWHEEL_HOUR", 3))
+ANSWER_FLYWHEEL_STEPS = int(os.getenv("ANSWER_FLYWHEEL_STEPS", 2000))
+ANSWER_FLYWHEEL_MIN_PAIRS = int(os.getenv("ANSWER_FLYWHEEL_MIN_PAIRS", 50))
+ANSWER_FLYWHEEL_MIN_GROWTH = int(os.getenv("ANSWER_FLYWHEEL_MIN_GROWTH", 200))
+ANSWER_FLYWHEEL_MARGIN = float(os.getenv("ANSWER_FLYWHEEL_MARGIN", 5.0))
+_last_answer_flywheel_date = None
+
 # Dedup automático (P2.4): dedup_exact (RAG) e dedup_learned_topics (log SQLite)
 # hoje só rodavam por ação manual do Curador — 1x/dia a partir de DEDUP_HOUR,
 # sem intervenção. Leve (compara texto exato, não IA) — sem restrição de
@@ -307,6 +319,35 @@ async def _run_flywheel_cycle(source: str) -> None:
             logger.info(f"[flywheel] pulado ({source}): {res.get('reason')}")
     except Exception as e:
         logger.warning(f"[flywheel] ciclo ({source}) falhou: {e}")
+
+
+async def _run_answer_flywheel_cycle() -> None:
+    """Uma rodada do flywheel de RESPOSTA (item 2 do PLANO_FLYWHEEL_AUTOMATICO.md)
+    — fine-tune noturno com portão de blind-eval real (não ppl). Nunca derruba
+    o scheduler se falhar (mesma disciplina do flywheel de título)."""
+    from src.nanollm.flywheel import run_answer_flywheel
+    try:
+        logger.info("[flywheel-resposta] iniciando ciclo noturno…")
+        res = await asyncio.to_thread(
+            run_answer_flywheel, db, steps=ANSWER_FLYWHEEL_STEPS,
+            min_pairs=ANSWER_FLYWHEEL_MIN_PAIRS, min_growth_pairs=ANSWER_FLYWHEEL_MIN_GROWTH,
+            margin=ANSWER_FLYWHEEL_MARGIN)
+        st = res.get("status")
+        if st == "promoted":
+            if rt.nano:
+                rt.nano.reload()
+            db.add_notification(
+                f"🌀 Nano de resposta evoluiu de madrugada: win-rate "
+                f"{res['incumbent_win_rate']}% → {res['candidate_win_rate']}% "
+                f"({res.get('n_questions')} perguntas). Já estou servindo o novo cérebro.",
+                kind="info")
+            logger.info(f"[flywheel-resposta] promovido: {res}")
+        elif st == "rejected":
+            logger.info(f"[flywheel-resposta] candidato rejeitado: {res.get('reason')}")
+        else:
+            logger.info(f"[flywheel-resposta] pulado: {res.get('reason')}")
+    except Exception as e:
+        logger.warning(f"[flywheel-resposta] ciclo falhou: {e}")
 
 
 async def _run_dedup_cycle() -> None:
@@ -633,6 +674,21 @@ async def _scheduler_loop():
                         and _last_knowledge_distill_date != _tkd.date() and _idle_ok_kd):
                     _last_knowledge_distill_date = _tkd.date()  # marca antes p/ não repetir
                     await _run_knowledge_distill_cycle()
+
+            # Flywheel de RESPOSTA (item 2 do PLANO_FLYWHEEL_AUTOMATICO.md):
+            # promove por blind-eval real, não ppl. Mesmo gate de ocioso +
+            # learner parado (fine-tune + blind-eval são pesados).
+            global _last_answer_flywheel_date
+            if ANSWER_FLYWHEEL_HOUR >= 0 and not (learner and learner.running):
+                _taf = datetime.now()
+                _idle_ok_af = True
+                if IDLE_TRIGGER > 0:
+                    _lr_af = _last_request_at_fn()
+                    _idle_ok_af = (_time.perf_counter() - _lr_af) > IDLE_TRIGGER if _lr_af > 0 else True
+                if (_taf.hour >= ANSWER_FLYWHEEL_HOUR
+                        and _last_answer_flywheel_date != _taf.date() and _idle_ok_af):
+                    _last_answer_flywheel_date = _taf.date()  # marca antes p/ não repetir
+                    await _run_answer_flywheel_cycle()
         except Exception as e:
             # warning (não debug): esta é a rede de segurança de TODA a tick do
             # scheduler (agenda/rotinas/backup/idle/sono/lembretes/briefing/flywheel).

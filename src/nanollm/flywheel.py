@@ -183,6 +183,166 @@ def _log(work_root: str | Path, summary: dict) -> dict:
     return summary
 
 
+# ── Flywheel de RESPOSTA (item 2 do PLANO_FLYWHEEL_AUTOMATICO.md) ──────────
+# Deliberadamente SEPARADO de `run_nightly_flywheel`: aquele promove por
+# PERPLEXIDADE no val destilado — achado real de 3 experimentos manuais
+# (PLANO_CORPUS_DIVERSO.md): ppl melhorou mas o BLIND-EVAL mostrou piora nos
+# três. Reusar o gate por ppl aqui repetiria o mesmo erro, só que automático e
+# sem ninguém olhando. Este flywheel promove só por blind-eval real (win-rate
+# no conjunto congelado de perguntas, contra o motor real de produção).
+DEFAULT_ANSWER_DATASET = "data/nano/distill_answers"
+DEFAULT_BLIND_QUESTIONS = "data/nano/blind_eval_questions.json"
+DEFAULT_EXPERIMENT_LOG = "data/nano/experiment_history.jsonl"
+
+
+def _default_answer_train(dataset_dir: Path, init_from: Path, out_dir: Path, *,
+                          steps: int, lr: float, patience: int, freeze_blocks: int,
+                          seed: int = 1337) -> dict:
+    """Fine-tune warm-start real (import preguiçoso — só quem roda paga)."""
+    import argparse
+
+    from src.nanollm.train import train
+    args = argparse.Namespace(
+        data=str(dataset_dir), out=str(out_dir), preset="small", steps=steps,
+        batch_size=8, lr=lr, warmup=min(50, max(1, steps // 10)), weight_decay=0.01,
+        grad_clip=1.0, log_every=50, eval_every=25, eval_iters=10, seed=seed,
+        resume=False, init_from=str(init_from), patience=patience,
+        freeze_blocks=freeze_blocks,
+    )
+    return train(args)
+
+
+def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
+                               max_tokens: int = 80) -> dict:
+    """Win-rate real do checkpoint contra o professor, no conjunto congelado —
+    mesma medição usada nas rodadas manuais (Pergunta:/Resposta:, motor real)."""
+    from src.nanollm.blind_eval import blind_compare, make_llm_judge
+    from src.nanollm.engine import NanoEngine
+
+    engine = NanoEngine(ckpt_dir=ckpt_dir)
+    if not engine.available():
+        return {"status": "skipped", "reason": f"sem checkpoint em {ckpt_dir}"}
+
+    def nano_fn(q: str) -> str:
+        out = engine.complete(f"Pergunta: {q}\n\nResposta:", max_tokens=max_tokens).get("text", "")
+        return out.split("\n\n")[0].strip()
+
+    teacher = make_llm_teacher(max_tokens=max_tokens)
+    judge = make_llm_judge()
+    res = blind_compare(questions, nano_fn, teacher, judge, seed=0)
+    res["status"] = "ok"
+    return res
+
+
+def run_answer_flywheel(
+    db,
+    *,
+    live_ckpt: str | Path | None = None,
+    dataset_dir: str | Path = DEFAULT_ANSWER_DATASET,
+    work_root: str | Path = DEFAULT_WORK_ROOT,
+    questions_path: str | Path = DEFAULT_BLIND_QUESTIONS,
+    experiment_log_path: str | Path = DEFAULT_EXPERIMENT_LOG,
+    min_pairs: int = 50,
+    min_growth_pairs: int = 200,
+    steps: int = 2000,
+    lr: float = 2e-4,
+    patience: int = 5,
+    freeze_blocks: int = 0,
+    margin: float = 5.0,
+    min_questions: int = 15,
+    train_fn: Callable[..., dict] | None = None,
+    blind_eval_fn: Callable[..., dict] | None = None,
+    promote: bool = True,
+    now: datetime | None = None,
+) -> dict:
+    """Fine-tune de resposta noturno com portão de BLIND-EVAL (não ppl).
+
+    Só treina quando o corpus de destilação (`dataset_dir`) cresceu pelo menos
+    `min_growth_pairs` desde a última tentativa AUTOMÁTICA registrada (não
+    starta do zero a cada noite — 3 experimentos manuais já mostraram que
+    repetir com pouco dado novo não ajuda). Promove só se o candidato bater o
+    titular no blind-eval real com margem (`margin` pontos percentuais) — cada
+    tentativa (promovida ou não) é registrada no histórico de experimentos."""
+    from src.nanollm.experiment_log import log_experiment, read_experiment_history
+
+    live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
+    dataset = Path(dataset_dir)
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
+    work = Path(work_root) / f"{stamp}_answer"
+
+    summary: dict = {"quando": stamp, "status": "skipped", "live_ckpt": str(live),
+                     "source": "answer"}
+
+    meta_path = dataset / "meta.json"
+    if not meta_path.exists():
+        summary["reason"] = f"sem dataset em {dataset} — rode a destilação de conhecimento primeiro"
+        return _log(work_root, summary)
+    pairs = json.loads(meta_path.read_text(encoding="utf-8")).get("pairs", 0)
+    summary["dataset_pairs"] = pairs
+    if pairs < min_pairs:
+        summary["reason"] = f"poucos pares ({pairs} < {min_pairs})"
+        return _log(work_root, summary)
+
+    last_auto = [e for e in read_experiment_history(experiment_log_path, limit=200)
+                if e.get("name") == "answer_auto"]
+    last_pairs = last_auto[-1].get("hyperparams", {}).get("dataset_pairs", 0) if last_auto else 0
+    if pairs - last_pairs < min_growth_pairs:
+        summary["reason"] = (f"corpus cresceu só {pairs - last_pairs} pares desde a última "
+                             f"tentativa automática (< {min_growth_pairs}) — esperando mais dado")
+        return _log(work_root, summary)
+
+    candidate = work / "candidate"
+    train = train_fn or _default_answer_train
+    train(dataset, live, candidate, steps=steps, lr=lr, patience=patience,
+          freeze_blocks=freeze_blocks)
+
+    from src.nanollm.blind_eval import freeze_questions
+    try:
+        questions = freeze_questions(db, questions_path, min_questions=min_questions)
+    except ValueError as e:
+        summary["reason"] = str(e)
+        return _log(work_root, summary)
+
+    blind_eval = blind_eval_fn or _default_answer_blind_eval
+    cand_res = blind_eval(candidate, questions)
+    base_res = blind_eval(live, questions)
+    if cand_res.get("status") != "ok" or base_res.get("status") != "ok":
+        summary["reason"] = "blind-eval não rodou (checkpoint indisponível)"
+        return _log(work_root, summary)
+
+    cand_wr, base_wr = cand_res["nano_win_rate"], base_res["nano_win_rate"]
+    summary.update({"candidate_win_rate": cand_wr, "incumbent_win_rate": base_wr,
+                    "candidate_dir": str(candidate), "n_questions": len(questions)})
+    hyperparams = {"lr": lr, "steps_budget": steps, "patience": patience,
+                   "freeze_blocks": freeze_blocks, "dataset_pairs": pairs}
+    result = {"candidate_win_rate": cand_wr, "incumbent_win_rate": base_wr}
+
+    improved = cand_wr > base_wr + margin
+    if not (improved and promote):
+        summary["status"] = "rejected"
+        summary["reason"] = (f"candidato {cand_wr}% não superou titular {base_wr}% "
+                             f"com margem {margin}pp")
+        result["promoted"] = False
+        log_experiment(experiment_log_path, name="answer_auto", base_ckpt=str(live),
+                       dataset=str(dataset), hyperparams=hyperparams, result=result,
+                       notes=summary["reason"])
+        logger.info(f"[flywheel-resposta] rejeitado: {summary['reason']}")
+        return _log(work_root, summary)
+
+    backup = work / "prev_live"
+    summary["backup_dir"] = str(backup)
+    _copy_model_files(live, backup)
+    summary["promoted_files"] = _copy_model_files(candidate, live)
+    summary["status"] = "promoted"
+    result["promoted"] = True
+    log_experiment(experiment_log_path, name="answer_auto", base_ckpt=str(live),
+                   dataset=str(dataset), hyperparams=hyperparams, result=result,
+                   notes=f"promovido: {cand_wr}% > {base_wr}% (+{margin}pp)")
+    logger.info(f"[flywheel-resposta] PROMOVIDO: win-rate {base_wr}% → {cand_wr}%; "
+               f"backup em {backup}")
+    return _log(work_root, summary)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI: `python -m src.nanollm.flywheel [--steps N] [--min-pairs K]`.
     Dispara UMA rodada AGORA (sem esperar as 3h): destila as conversas reais,
