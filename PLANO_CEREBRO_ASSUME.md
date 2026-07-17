@@ -51,14 +51,26 @@ tokens) e documentado com número real, não estimado.
 O preset `medium`/`large` existe em código desde o M26 mas nunca rodou de verdade neste hardware. Com o
 corpus ampliado do item 1, rodar um treino real.
 
-- 🔲 **2.1** — Rodar `python -m src.nanollm.train --preset medium` (ou o preset que o corpus disponível
-  sustentar) até convergência razoável, medindo tempo real de treino no CPU.
-- 🔲 **2.2** — Comparar ppl do checkpoint novo contra o `ckpt_v1` (3,4M) no mesmo conjunto de validação.
+- 🔨 **2.1 (2026-07-16/17, em andamento)** — Rodando `python -m src.nanollm.train --preset medium`
+  (12,57M params) contra o corpus real reexportado (1,55M tokens, `data/nanollm/v2`,
+  `data/nanollm/ckpt_medium_v2`). **Achado real, não hipotético:** a máquina roda o app do Leo AO VIVO
+  (processo `python app.py` com aprendizado de fundo ativo, ~5 núcleos ocupados continuamente) — o
+  throughput medido caiu de ~13.700 tok/s (o `ckpt_medium` anterior, treinado quando a máquina estava
+  ociosa) para **~100–380 tok/s** agora, disputando CPU com o app real. Confirma na prática a doutrina
+  que o próprio `JARVIS_ROADMAP_ANO2.md` §6 já definia ("treinar de madrugada, máquina ociosa") — não é
+  suposição, é o que a medição mostrou. Passo 600/15000 no momento deste registro: loss caindo de forma
+  saudável (6,70 → 4,60, val 4,89 no passo 500) — sem sinal de problema no treino em si, só de tempo:
+  aos 15.000 passos completos levaria dezenas de horas nesse throughput. Decisão: deixar rodando em
+  background (não custa nada mantê-lo vivo) e avaliar o `model_best.npz` que existir quando fizer
+  sentido parar, em vez de fingir que 15.000 passos terminaram.
+- 🔲 **2.2** — Comparar ppl do checkpoint (no ponto em que for avaliado) contra o `ckpt_v1` (3,4M) no
+  mesmo conjunto de validação.
 - 🔲 **2.3** — Promover só se medir melhora (reusa o portão de qualidade do M25.3); se não melhorar,
   reportar isso também.
 
-**DoD:** um checkpoint maior que 3,4M treinado de verdade neste hardware, com ppl medido e decisão de
-promoção justificada por número, não por expectativa.
+**DoD:** parcial — treino real rodando neste hardware (não simulado), mas a convergência completa não
+cabe numa sessão interativa dada a contenção real de CPU medida. ppl final e decisão de promoção ficam
+para quando o checkpoint tiver passos suficientes para a comparação significar algo.
 
 ---
 
