@@ -19,14 +19,15 @@ anterior) só roda via CLI manual — eu mesmo rodei na mão duas vezes nos últ
 `learned_topics` cresce sozinho todo dia (aprendizado autônomo 24/7) — o corpus de destilação deveria
 acompanhar, sem depender de alguém lembrar de rodar o comando.
 
-- 🔲 **1.1** — `_run_knowledge_distill_cycle()` em `app.py`, mesmo padrão dos ciclos já existentes
-  (flywheel/dedup/qualidade/recall-gate): roda 1x/dia via `_maybe_run_daily`, chama
-  `run_knowledge_distillation` com `max_per_sector` (evita o desbalanceamento medido no ciclo
-  anterior), grava em `data/nano/distill_answers` (sobrescreve o dataset — sempre o mais atual).
-- 🔲 **1.2** — Verificar ao vivo que o ciclo dispara e não derruba o scheduler se o professor falhar
-  (mesma disciplina de isolamento do item 5 do PLANO_CEREBRO_ASSUME.md).
+- 🏁 **1.1 (2026-07-17)** — `_run_knowledge_distill_cycle()` em `app.py`, gate igual ao flywheel de
+  título/reações (ocioso + learner parado — chama o professor LLM por par candidato, pesado). Chama
+  `run_knowledge_distillation` com `max_per_sector` (achado do PLANO_CORPUS_DIVERSO.md), grava em
+  `data/nano/distill_answers`. `KNOWLEDGE_DISTILL_HOUR/LIMIT/MAX_PER_SECTOR/OUT` configuráveis
+  (`-1` desliga).
+- 🏁 **1.2 (2026-07-17)** — Isolamento testado com professor fake: sem DB, sem tokenizer, professor
+  falhando e `ValueError` (sem pares aproveitáveis) — nenhum caso derruba o scheduler. 5 testes novos.
 
-**DoD:** ciclo noturno registrado e testado (com professor fake), isolado dos demais.
+**DoD:** ✅ batido — ciclo noturno registrado e testado, isolado dos demais.
 
 ---
 
@@ -38,13 +39,24 @@ experimentos já mostraram que fine-tune com pouco dado piora, o ciclo automáti
 CONSERVADOR: só treina quando o corpus cresceu o suficiente para valer a pena, e só promove com
 medição real, nunca por expectativa.
 
-- 🔲 **2.1** — `_run_answer_flywheel_cycle()`: dispara o fine-tune (com `--patience`) só quando o
-  corpus de destilação cresceu por um piso mínimo desde a última tentativa registrada em
-  `experiment_log` (reusa o histórico do ciclo anterior — não starta do zero).
-- 🔲 **2.2** — Gate de promoção: mede blind-eval no conjunto congelado (n=15) contra o checkpoint
-  ATUAL em produção — só troca `NANO_CKPT` se bater com margem real (não empate de ruído).
-- 🔲 **2.3** — Registra o resultado em `experiment_log` automaticamente (sucesso OU fracasso) — o
-  histórico honesto continua mesmo sem eu acompanhar manualmente.
+- 🏁 **2.1 (2026-07-17)** — `run_answer_flywheel` (`src/nanollm/flywheel.py`) só treina quando o
+  corpus cresceu `min_growth_pairs` (padrão 200) desde a última tentativa AUTOMÁTICA registrada em
+  `experiment_log` — nunca starta do zero a cada noite.
+- 🏁 **2.2 (2026-07-17)** — **Decisão de design importante, não estava no plano original:** o gate de
+  promoção do flywheel de TÍTULO (`run_nightly_flywheel`) usa ppl no val destilado — mas os 3
+  experimentos manuais provaram que ppl é enganoso pra esta tarefa (melhorou nos três, blind-eval
+  piorou). Reusar esse gate automatizaria o mesmo erro. `run_answer_flywheel` promove **só por
+  blind-eval real** (conjunto congelado, motor de produção) com margem (`ANSWER_FLYWHEEL_MARGIN`,
+  padrão 5pp) — nunca por ppl, nunca por empate de ruído.
+- 🏁 **2.3 (2026-07-17)** — Cada tentativa (promovida ou rejeitada) grava em `experiment_log`
+  automaticamente, com `dataset_pairs` no momento da tentativa (é o que alimenta o gate de
+  crescimento do 2.1 na próxima rodada).
+
+**Ciclo noturno:** `_run_answer_flywheel_cycle()` em `app.py`, mesmo gate ocioso+learner-parado do
+flywheel de título (`ANSWER_FLYWHEEL_HOUR/STEPS/MIN_PAIRS/MIN_GROWTH/MARGIN`, `-1` desliga). 9 testes
+novos (flywheel + isolamento no scheduler).
+
+**DoD:** ✅ batido — ciclo que treina, mede por blind-eval real e decide sozinho, testado com fakes.
 
 **DoD:** ciclo que treina, mede e decide sozinho — testado com fakes; verificação ao vivo só dispara
 quando o piso de crescimento é atingido (não força um treino toda madrugada sem sentido).
