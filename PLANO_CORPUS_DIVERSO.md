@@ -19,13 +19,23 @@ Legenda: 🔲 pendente · 🔨 em andamento · 🏁 concluído (com número medi
 quase nada de outros assuntos. É provavelmente a causa raiz do fine-tune ter feito o modelo "esquecer"
 prosa geral e derivar pra vocabulário tech em qualquer pergunta.
 
-- 🔲 **1.1** — Adicionar amostragem ESTRATIFICADA por setor (reusa `classify_sector`, já usado no gate
-  binário) em vez de "as primeiras N" — teto por setor pra nenhum dominar o dataset.
-- 🔲 **1.2** — Regenerar o dataset de destilação com a amostragem nova, medir a distribuição real
-  resultante (não assumir que ficou balanceado — contar de verdade).
+- 🏁 **1.1 (2026-07-17)** — `_stratify_by_sector(history, max_per_sector)` em `src/nanollm/distill.py`:
+  reusa `classify_sector` (já usado no gate binário), aplica o teto ANTES de chamar o professor
+  (economiza custo também). `source_knowledge_grounded_pairs`/`run_knowledge_distillation` ganham
+  `max_per_sector` (default `None`, compatível); CLI ganha `--max-per-sector`. 4 testes novos.
+- 🏁 **1.2 (2026-07-17)** — Rodado de verdade contra o banco de produção (3500 sínteses), `max_per_sector=15`:
+  - **Antes:** `backend_apis` 638 · `devops_cloud` 492 · `data_ml` 342 · `outros` 257 · `databases` 248
+    · `medicine_health` 232 · `mobile` 170 — os 3 primeiros setores já somam ~42% do total.
+  - **Depois da estratificação:** 20 setores, TODOS com exatamente 15 itens (599 no total) — nenhum
+    dominando. Setores antes ausentes/raros no dataset agora entram: `psychology`, `arts_creativity`,
+    `ai_agents`, `science`, `cs_fundamentals`, `embedded_iot`, `education_pedagogy`, `game_dev`,
+    `biotech_genomics`, `design_ux`.
+  - Professor real (`llamacpp`, `qwen-1.5b`) rodou sobre os 599 candidatos: **588 pares** válidos
+    (98,2% de aproveitamento) em 5077s (~84,6min) → `data/nano/distill_answers_v2/` (32.877 tokens,
+    ~1,7x o dataset anterior de 346 pares — E MUITO mais diverso, não só maior).
 
-**DoD:** dataset novo com distribuição por setor mensuravelmente mais equilibrada que o anterior
-(nenhum setor dominando >30-40% dos pares, por exemplo) — número real, comparado ao antes.
+**DoD:** ✅ batido — nenhum setor passou de 15/599 (2,5%) no dataset novo, contra ~18% de um único
+setor (`backend_apis`) no anterior — melhora real e mensurável, não estimada.
 
 ---
 
