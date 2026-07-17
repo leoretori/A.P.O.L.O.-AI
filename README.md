@@ -470,9 +470,19 @@ Apolo_AI/
 │   │   ├── optim.py          #    Adam + warmup/cosine + grad clip (do zero)
 │   │   ├── corpus_export.py  #    conhecimento do Apolo → corpus (limpeza+dedup+sem segredos)
 │   │   ├── data.py           #    corpus .txt → tokenizer + tokens.npy (CLI)
-│   │   ├── train.py          #    loop de treino resumível (CLI, presets p/ CPU)
+│   │   ├── train.py          #    loop de treino resumível (CLI, presets p/ CPU, --patience)
 │   │   ├── generate.py       #    geração de texto com checkpoint (CLI)
-│   │   └── eval.py           #    harness: ppl determinística + sondas fixas + relatório
+│   │   ├── eval.py           #    harness: ppl determinística + sondas fixas + relatório
+│   │   ├── engine.py         #    NanoEngine — serve o checkpoint no app (lazy, thread-safe)
+│   │   ├── distill.py        #    professor (Qwen) → aluno (Nano): título/resposta/conhecimento
+│   │   ├── taskdata.py       #    datasets de tarefa: título, setor, gate binário
+│   │   ├── tasks.py          #    inferência de tarefa (título/setor/binário) com portão de qualidade
+│   │   ├── routing.py        #    takeover progressivo: Nano primeiro, professor no fallback
+│   │   ├── flywheel.py       #    ciclo noturno: destila → treina → promove só se melhorar
+│   │   ├── blind_eval.py     #    Nano vs Qwen às cegas (ordem embaralhada, juiz não sabe quem é quem)
+│   │   ├── binary_eval.py    #    avalia o gate binário no held-out real
+│   │   ├── sweep.py          #    scaling-law compute-matched entre presets
+│   │   └── quantize.py       #    quantização do checkpoint
 │   ├── memory/               # 🧠 MemoryFabric — porta única sobre RAG + base + lições + episódios
 │   │   ├── fabric.py         #    remember(text, kind, tags) / recall(query, kind?) → MemoryHit
 │   │   └── episodic.py       #    Memória autobiográfica: conversas datadas + recall temporal
@@ -484,18 +494,43 @@ Apolo_AI/
 │   ├── tts_edge.py           # 🔊 Engine edge-tts — voz neural na nuvem (fallback)
 │   ├── rerank.py             # 🎯 Reranker híbrido compartilhado (vetorial + lexical + recência + dedup)
 │   ├── llm.py                # ⚡ Ollama: keep_alive, streaming sem bloquear o loop, warmup
+│   ├── providers.py          # 🧬 Motor de LLM intercambiável (Ollama ↔ llama.cpp embutido)
+│   ├── model_select.py       # Seleção de modelo agnóstica de backend (chat leve/visão)
 │   ├── gpu_gate.py           # 🦾 Prioridade de GPU ao usuário sobre o aprendizado de fundo
 │   ├── storage.py            # SQLite (fachada): compõe os mixins abaixo
 │   ├── storage_models.py     # Modelos ORM (execuções, sessões, tópicos, …)
 │   ├── storage_conversations.py # Execuções, conversas, notificações, agendamentos
 │   ├── storage_learning.py   # Tópicos aprendidos, diário do Coder, auditoria
 │   ├── storage_analytics.py  # Analytics de uso, benchmark, reações
+│   ├── storage_projects.py   # Projetos autodirigidos + outcomes medidos
+│   ├── storage_nano.py       # Cobertura do Nano por tarefa (takeover progressivo)
 │   ├── knowledge.py          # Supabase: base de conhecimento (+ insights p/ a Mente)
+│   ├── local_knowledge.py    # SQLite FTS5: fallback local sem Supabase
 │   ├── rag.py                # ChromaDB: RAG local
 │   ├── web_search.py         # DuckDuckGo + fetch de páginas
 │   ├── executor.py           # Execução segura de Python
 │   ├── prompts.py            # System prompt + templates
+│   ├── jsonl_history.py      # Placar histórico append-only genérico (JSONL)
+│   ├── intelligence_dashboard.py # Painel único de saúde da inteligência (consolida métricas)
+│   ├── security_audit_log.py # Registro histórico de auditorias de segurança
+│   ├── quality_sampler.py    # Amostragem de qualidade real (juiz LLM) do aprendizado
+│   ├── recall_calibration.py # Gate de regressão do recall (teste de ida-e-volta)
+│   ├── presence.py           # Presença ambiente: contexto contínuo + modos do dia
+│   ├── timeline.py           # Memória relacional & temporal (liga episódios a entidades)
+│   ├── profile.py            # Modelo profundo do Leo (metas, hábitos, relações)
+│   ├── project_exec.py       # Execução supervisionada de projetos autodirigidos
+│   ├── webtask.py            # Navegador interativo em sandbox (opt-in)
+│   ├── vision_read.py        # Visão útil: tela, documentos, câmera
+│   ├── telemetry.py          # Latência por endpoint (janela em memória)
+│   ├── resilience.py         # Retry + circuit breaker p/ chamadas externas
 │   └── utils.py              # Utilitários
+├── routers/                  # Rotas modularizadas por domínio (M1) — app.py só orquestra
+│   ├── health.py             # /api/boot, /api/health, /api/health/intelligence
+│   ├── chat.py, ai.py, agent.py, coder*.py  # chat, agência, Coder
+│   ├── nano.py                # /api/nano/* (completion, cobertura, flywheel)
+│   ├── projects.py, actions.py, routines.py, webtask.py  # agência que conduz
+│   ├── vision.py, memory.py, profile.py, retrospective.py  # multimodal + perfil + retrospectiva
+│   └── backup.py, remote.py, embeddings.py, …  # soberania e infraestrutura
 ├── static/
 │   ├── index.html            # Estrutura da página (markup + PWA)
 │   ├── css/
@@ -503,13 +538,15 @@ Apolo_AI/
 │   └── js/
 │       ├── app.js            # App principal (chat, memória, coder, painéis)
 │       └── enhancements.js   # Melhorias de UI (tabs, hands-free, SSE, mobile)
-├── data/
-│   ├── apolo.db              # SQLite local
-│   └── chroma_db/            # Vetores ChromaDB
+├── data/                      # gitignorado — cada checkout tem seu próprio estado
+│   ├── apolo.db              # SQLite local (sessões, tópicos, projetos, …)
+│   ├── chroma_db/            # Vetores ChromaDB (RAG)
+│   ├── nanollm/              # checkpoints + corpus tokenizado do Apolo-Nano
+│   └── nano/, learner/       # históricos JSONL (destilação, qualidade, recall-gate)
 ├── supabase/
 │   └── schema.sql            # Schema PostgreSQL
-├── tests/
-│   └── test_storage.py       # 17 testes (todos passando)
+├── tests/                     # 1680+ testes (todos passando) — 1 arquivo por módulo/router
+├── docs/                      # Roadmaps e planos fechados/arquivados
 ├── .env                      # Variáveis de ambiente
 └── requirements.txt          # Dependências
 ```
