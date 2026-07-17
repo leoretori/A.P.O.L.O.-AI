@@ -1,12 +1,19 @@
 # Plano — o flywheel de resposta fecha o loop sozinho
 
-> Continuação direta de [docs/PLANO_CORPUS_DIVERSO.md](docs/PLANO_CORPUS_DIVERSO.md) — três tentativas
-> de fine-tune (estreito, diverso, parcial) deram todas piores que o baseline sem fine-tune. Conclusão
-> daquele ciclo: o gargalo é volume de dado real, não técnica. Este plano ataca isso diretamente —
-> automatizando o que hoje só rodou manualmente (CLI, na mão, nos últimos dois ciclos), pra que o
-> corpus de resposta cresça sozinho todo dia, do mesmo jeito que o flywheel de título já cresce.
+> **🏁 PLANO COMPLETO (2026-07-17)** — as 4 frentes fechadas com número real; arquivado aqui em
+> `docs/` seguindo a cadência do P7.1.
+>
+> Continuação direta de [PLANO_CORPUS_DIVERSO.md](PLANO_CORPUS_DIVERSO.md) — três tentativas de
+> fine-tune (estreito, diverso, parcial) deram todas piores que o baseline sem fine-tune. Conclusão
+> daquele ciclo: o gargalo é volume de dado real, não técnica. Este plano atacou isso diretamente —
+> automatizando o que só rodava manualmente (CLI, na mão, nos últimos dois ciclos), pra que o corpus
+> de resposta cresça sozinho todo dia, do mesmo jeito que o flywheel de título já cresce.
+>
+> **Decisão de design que sobrevive além deste plano:** o flywheel de resposta promove por
+> **blind-eval real**, nunca por ppl — os 3 experimentos anteriores provaram que ppl melhora mesmo
+> quando a qualidade real piora, pra esta tarefa específica.
 
-**Início:** 2026-07-17 · **Dono:** Leo · **Copiloto:** Claude Code
+**Início:** 2026-07-17 · **Fim:** 2026-07-17 · **Dono:** Leo · **Copiloto:** Claude Code
 
 Legenda: 🔲 pendente · 🔨 em andamento · 🏁 concluído (com número medido) · ⏭️ adiado/descartado (com motivo)
 
@@ -58,9 +65,6 @@ novos (flywheel + isolamento no scheduler).
 
 **DoD:** ✅ batido — ciclo que treina, mede por blind-eval real e decide sozinho, testado com fakes.
 
-**DoD:** ciclo que treina, mede e decide sozinho — testado com fakes; verificação ao vivo só dispara
-quando o piso de crescimento é atingido (não força um treino toda madrugada sem sentido).
-
 ---
 
 ## 3. Reações — achado, não bug (fechado por investigação)
@@ -75,13 +79,15 @@ crescimento é o aprendizado autônomo (item 1/2), não as reações manuais.
 
 ## 4. Painel de progresso do corpus de resposta
 
-- 🔲 **4.1** — Estender `intelligence_dashboard.py` com o tamanho atual do corpus de destilação de
-  resposta (pares, distribuição por setor) + uma trend simples (crescimento desde o último fine-tune
-  registrado no `experiment_log`).
-- 🔲 **4.2** — Sinal honesto no painel: "faltam ~X pares pro próximo piso de tentativa" (não uma
-  previsão de sucesso — só visibilidade de progresso, evitando repetir a expectativa vazia do M28).
+- 🏁 **4.1 (2026-07-17)** — `answer_corpus_progress()` em `intelligence_dashboard.py`: lê o
+  `meta.json` do dataset + a última tentativa `answer_auto` do `experiment_log`, calcula
+  `pairs`/`last_attempt_pairs`/`grown_since_last_attempt`/`pairs_until_next_attempt`/`attempts_so_far`.
+- 🏁 **4.2 (2026-07-17)** — Painel Saúde mostra "Corpus de resposta (destilação): N pares (faltam X
+  p/ próxima tentativa auto | pronto p/ próxima tentativa) · M tentativa(s) já feitas" — sinal de
+  PROGRESSO, não previsão de sucesso. Verificado ao vivo no preview (caso vazio real + caso simulado
+  com dado real de progresso: 588 pares, 3 tentativas).
 
-**DoD:** painel mostra o crescimento real, verificado ao vivo no preview.
+**DoD:** ✅ batido — painel mostra o crescimento real, verificado ao vivo no preview.
 
 ---
 
