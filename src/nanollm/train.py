@@ -39,6 +39,34 @@ PRESETS: dict[str, dict] = {
 }
 
 
+def select_trainable(all_params: list, freeze_blocks: int) -> list:
+    """Congela embeddings (`wte`/`wpe`) + os primeiros `freeze_blocks` blocos
+    transformer (`h0`..`h{freeze_blocks-1}`), deixando treinável só os blocos
+    finais + `ln_f`/`lm_head`. `freeze_blocks<=0` devolve todos os params
+    (comportamento antigo, sem congelamento).
+
+    Achado real (PLANO_CORPUS_DIVERSO.md): 2 fine-tunes COMPLETOS (todas as
+    camadas) do Nano de 3,4M pioraram o blind-eval, mesmo com corpus diverso
+    — a causa provável não é "que dado", é que ajustar TODOS os pesos com
+    só centenas de pares apaga a capacidade geral do pré-treino. Congelar as
+    camadas que carregam a prosa geral e só adaptar as finais (mais
+    task-específicas) é a técnica padrão pra isso — testada aqui pela
+    primeira vez no Apolo-Nano."""
+    if freeze_blocks <= 0:
+        return all_params
+
+    def frozen(name: str) -> bool:
+        if name.startswith("wte") or name == "wpe.w":
+            return True
+        if name.startswith("h"):
+            idx_str = name[1:].split(".", 1)[0]
+            if idx_str.isdigit() and int(idx_str) < freeze_blocks:
+                return True
+        return False
+
+    return [p for p in all_params if not frozen(p.name)]
+
+
 def evaluate(model: GPT, tokens: np.ndarray, batch_size: int, iters: int,
              rng: np.random.Generator) -> float:
     losses = []
@@ -111,13 +139,19 @@ def train(args: argparse.Namespace) -> dict:
         if tok_src.exists():
             shutil.copy(tok_src, out / "tokenizer.json")
 
-    optim = Adam(model.params(), lr=args.lr, weight_decay=args.weight_decay)
+    freeze_blocks = getattr(args, "freeze_blocks", 0)
+    trainable = select_trainable(model.params(), freeze_blocks)
+    optim = Adam(trainable, lr=args.lr, weight_decay=args.weight_decay)
     if args.resume and optim_path.exists():
         optim.load(optim_path)
 
     print(f"modelo: {model.num_params / 1e6:.2f}M params | "
           f"corpus: {len(train_tokens):,} tokens | batch {batch_size} | "
           f"contexto {model.config.block_size}")
+    if freeze_blocks > 0:
+        n_treinaveis = sum(p.data.size for p in trainable)
+        print(f"fine-tune PARCIAL: {freeze_blocks} blocos + embeddings congelados | "
+              f"{n_treinaveis / 1e6:.2f}M/{model.num_params / 1e6:.2f}M params treináveis")
 
     # Early-stop (item 2 do PLANO_CEREBRO_ASSUME.md): o medium (M26) rodou os
     # 15.000 passos completos e OVERFITOU nos últimos ~9.000 — o val loss
@@ -137,7 +171,7 @@ def train(args: argparse.Namespace) -> dict:
         model.zero_grad()
         _, loss = model.forward(x, y)
         model.backward()
-        grad_norm = clip_grad_norm(model.params(), args.grad_clip)
+        grad_norm = clip_grad_norm(trainable, args.grad_clip)
         lr = lr_schedule(step, max_lr=args.lr, min_lr=args.lr / 10,
                          warmup=args.warmup, total=args.steps)
         optim.step(lr)
@@ -200,6 +234,9 @@ def main() -> None:
                     help="fine-tune: warm-start dos pesos deste checkpoint (run novo)")
     ap.add_argument("--patience", type=int, default=0,
                     help="para o treino após N avaliações sem melhora no val (0 = desliga)")
+    ap.add_argument("--freeze-blocks", type=int, default=0,
+                    help="fine-tune parcial: congela embeddings + os N primeiros blocos "
+                         "transformer, treina só os blocos finais + ln_f/lm_head (0 = tudo treinável)")
     train(ap.parse_args())
 
 

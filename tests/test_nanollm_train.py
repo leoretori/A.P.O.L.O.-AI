@@ -6,7 +6,7 @@ import pytest
 from src.nanollm.data import get_batch
 from src.nanollm.model import GPT, GPTConfig
 from src.nanollm.optim import Adam, clip_grad_norm, lr_schedule
-from src.nanollm.train import PRESETS
+from src.nanollm.train import PRESETS, select_trainable
 
 
 def test_presets_de_escala_existem_e_crescem():
@@ -198,6 +198,71 @@ def test_patience_para_apos_n_avaliacoes_sem_melhora(tmp_path, monkeypatch):
     assert result["step"] == 5  # melhorou nos passos 1-3, piorou nos passos 4-5
     assert result["stopped_early"] is True
     assert result["best_val"] == 1.0
+
+
+# ── fine-tune parcial (item do PLANO_CORPUS_DIVERSO.md — congelar camadas) ──
+def _small_gpt(n_layer=4) -> GPT:
+    return GPT(GPTConfig(vocab_size=16, block_size=16, n_layer=n_layer, n_head=2,
+                         n_embd=32, seed=1))
+
+
+def test_select_trainable_zero_nao_congela_nada():
+    model = _small_gpt()
+    all_params = model.params()
+    assert select_trainable(all_params, 0) == all_params
+
+
+def test_select_trainable_congela_embeddings_e_blocos_iniciais():
+    model = _small_gpt(n_layer=4)
+    all_params = model.params()
+    trainable = select_trainable(all_params, freeze_blocks=3)
+    names = {p.name for p in trainable}
+    # embeddings sempre congeladas quando freeze_blocks>0
+    assert not any(n.startswith("wte") or n == "wpe.w" for n in names)
+    # blocos 0,1,2 congelados; só o bloco 3 (o último) treinável
+    assert not any(n.startswith(("h0.", "h1.", "h2.")) for n in names)
+    assert any(n.startswith("h3.") for n in names)
+    # ln_f e lm_head sempre treináveis
+    assert any(n.startswith("ln_f") for n in names)
+    assert any(n.startswith("lm_head") for n in names)
+    assert len(trainable) < len(all_params)
+
+
+def test_finetune_com_freeze_blocks_congela_embeddings_de_verdade(tmp_path):
+    """Fine-tune real com --freeze-blocks >= n_layer: wte (embeddings, sempre
+    congelada) NÃO muda; lm_head (sempre treinável) muda."""
+    import argparse
+    import json as _json
+
+    from src.nanollm.train import train
+
+    src = tmp_path / "base"
+    src.mkdir()
+    base = _small_gpt(n_layer=2)
+    base.save(src / "model_best.npz")
+    (src / "tokenizer.json").write_text('{"version":1,"type":"byte-bpe","merges":[],'
+                                        '"special":{"<|sep|>":256}}', encoding="utf-8")
+    w0_wte = base.wte.w.data.copy()
+    w0_head = base.lm_head.w.data.copy()
+
+    data = tmp_path / "data"
+    data.mkdir()
+    rng = np.random.default_rng(0)
+    np.save(data / "train.npy", rng.integers(0, 16, 500).astype(np.uint16))
+    np.save(data / "val.npy", rng.integers(0, 16, 120).astype(np.uint16))
+    (data / "meta.json").write_text(_json.dumps({"vocab_size": 16}), encoding="utf-8")
+
+    out = tmp_path / "ft"
+    args = argparse.Namespace(
+        data=str(data), out=str(out), preset="nano", steps=5, batch_size=4,
+        lr=1e-2, warmup=1, weight_decay=0.0, grad_clip=1.0, log_every=100,
+        eval_every=5, eval_iters=2, seed=1, resume=False, init_from=str(src),
+        patience=0, freeze_blocks=2,  # >= n_layer=2 -> todos os blocos congelados
+    )
+    train(args)
+    trained = GPT.load(out / "model.npz")
+    assert np.array_equal(trained.wte.w.data, w0_wte)          # congelada: não mudou
+    assert not np.array_equal(trained.lm_head.w.data, w0_head)  # treinável: mudou
 
 
 def test_finetune_init_from_warm_start(tmp_path):
