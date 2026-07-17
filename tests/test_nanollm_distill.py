@@ -237,6 +237,44 @@ def test_source_knowledge_grounded_pairs():
     assert pairs[0][0].startswith("O que o Kubernetes")
 
 
+def test_stratify_by_sector_limita_dominancia():
+    """Achado real do PLANO_CORPUS_DIVERSO.md: sem teto, um setor pode dominar o
+    dataset (~80% num caso real) e o fine-tune esquece prosa geral."""
+    from src.nanollm.distill import _stratify_by_sector
+
+    history = (
+        [{"topic": f"Docker container API backend {i}", "summary": "x" * 50} for i in range(8)]
+        + [{"topic": f"Fotossíntese biologia planta {i}", "summary": "y" * 50} for i in range(2)]
+    )
+    out = _stratify_by_sector(history, max_per_sector=3)
+    assert len(out) <= 6  # no máx. 3 por setor, 2 setores distintos aqui
+    from src.topics import classify_sector
+    from collections import Counter
+    counts = Counter(classify_sector(f"{h['topic']} {h['summary'][:200]}") for h in out)
+    assert all(n <= 3 for n in counts.values())
+
+
+def test_source_knowledge_grounded_pairs_com_max_per_sector():
+    """max_per_sector estratifica ANTES de chamar o professor (economiza custo).
+    Docker/Kubernetes classificam como devops_cloud (2 itens); FastAPI como
+    backend_apis (1 item) — com teto 1, o professor só é chamado 2x (1 por setor),
+    não 3x."""
+    db = _FakeDB([], summaries=[
+        "Docker orquestra containers de aplicação de forma isolada e portátil.",
+        "Kubernetes escala e reinicia serviços automaticamente num cluster.",
+        "FastAPI é um framework web assíncrono em Python, rápido e tipado.",
+    ])
+    calls = []
+
+    def teacher(prompt):
+        calls.append(prompt)
+        return f"P: pergunta {len(calls)}?\nR: resposta."
+
+    pairs = source_knowledge_grounded_pairs(db, teacher, max_per_sector=1)
+    assert len(calls) == 2  # 1 devops_cloud (Docker OU Kubernetes) + 1 backend_apis (FastAPI)
+    assert len(pairs) == 2
+
+
 def test_run_knowledge_distillation(tokenizer, tmp_path):
     db = _FakeDB([], summaries=[
         "FastAPI é um framework web assíncrono em Python, rápido e com tipagem.",

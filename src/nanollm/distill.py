@@ -209,16 +209,44 @@ def _parse_qa(text: str) -> tuple[str | None, str | None]:
             a.group(1).strip() if a else None)
 
 
+def _stratify_by_sector(history: list[dict], max_per_sector: int) -> list[dict]:
+    """Teto de `max_per_sector` itens por setor (via `classify_sector`), preservando
+    a ordem original dentro de cada setor. Achado real (PLANO_CORPUS_DIVERSO.md): um
+    dataset de destilação ~80% de um só setor (backend/devops/dados) fez um fine-tune
+    fazer o Nano "esquecer" prosa geral e derivar pra vocabulário tech em qualquer
+    pergunta — este teto existe pra isso não se repetir."""
+    from src.topics import classify_sector
+
+    counts: dict[str, int] = {}
+    out: list[dict] = []
+    for item in history:
+        topic = item.get("topic") or ""
+        summ = (item.get("summary") or "")[:200]
+        sector = classify_sector(f"{topic} {summ}")
+        if counts.get(sector, 0) >= max_per_sector:
+            continue
+        counts[sector] = counts.get(sector, 0) + 1
+        out.append(item)
+    return out
+
+
 def source_knowledge_grounded_pairs(
     db,
     teacher_fn: Callable[[str], str],
     *,
     limit: int = 200,
     max_pairs: int | None = None,
+    max_per_sector: int | None = None,
 ) -> list[tuple[str, str]]:
     """Puxa as sínteses dos 7 agentes e o professor as vira pares pergunta→
-    resposta ANCORADOS. Isolado do título — combustível do chat próprio (M28)."""
+    resposta ANCORADOS. Isolado do título — combustível do chat próprio (M28).
+
+    `max_per_sector`, se dado, estratifica por setor ANTES de chamar o professor
+    (economiza chamadas também) — sem isso, "as primeiras N sínteses" pode ficar
+    dominado por 1-2 setores (medido: ~80% num caso real)."""
     history = db.get_learning_history(limit=limit)
+    if max_per_sector:
+        history = _stratify_by_sector(history, max_per_sector)
     pairs: list[tuple[str, str]] = []
     seen: set[str] = set()
     for item in history:
@@ -286,12 +314,16 @@ def run_knowledge_distillation(
     teacher_fn: Callable[[str], str] | None = None,
     limit: int = 200,
     max_pairs: int | None = None,
+    max_per_sector: int | None = None,
     val_fraction: float = 0.1,
 ) -> dict:
     """Destila o banco de conhecimento em Q&A ancorado (M28), ponta a ponta.
-    Dataset SEPARADO (task `answer_distill_grounded`), no formato do fine-tune."""
+    Dataset SEPARADO (task `answer_distill_grounded`), no formato do fine-tune.
+    `max_per_sector`: teto por setor (ver `_stratify_by_sector`) — sem ele, o
+    dataset pode ficar dominado por 1-2 setores (medido: ~80% num caso real)."""
     teacher = teacher_fn or make_llm_teacher()
-    pairs = source_knowledge_grounded_pairs(db, teacher, limit=limit, max_pairs=max_pairs)
+    pairs = source_knowledge_grounded_pairs(db, teacher, limit=limit, max_pairs=max_pairs,
+                                            max_per_sector=max_per_sector)
     if not pairs:
         raise ValueError("sem sínteses aproveitáveis no banco de conhecimento — "
                          "deixe os 7 agentes estudarem primeiro")
@@ -385,6 +417,8 @@ def main(argv: list[str] | None = None) -> int:
                         "reactions → pergunta→resposta dos 👍 do Leo (rótulo humano direto)")
     p.add_argument("--limit", type=int, default=300, help="máx. de itens do banco")
     p.add_argument("--max-pairs", type=int, default=None, help="teto de pares (custo do professor)")
+    p.add_argument("--max-per-sector", type=int, default=None,
+                   help="(--source knowledge) teto por setor — evita dataset dominado por 1-2 setores")
     args = p.parse_args(argv)
 
     from src.storage import DatabaseManager
@@ -392,8 +426,9 @@ def main(argv: list[str] | None = None) -> int:
     db = DatabaseManager()
     if args.source == "knowledge":
         out = args.out or "data/nano/distill_answers"
-        meta = run_knowledge_distillation(db, args.tokenizer, out,
-                                          limit=args.limit, max_pairs=args.max_pairs)
+        meta = run_knowledge_distillation(db, args.tokenizer, out, limit=args.limit,
+                                          max_pairs=args.max_pairs,
+                                          max_per_sector=args.max_per_sector)
         print(f"✓ destilados {meta['pairs']} pares Q&A ancorados → {out}")
     elif args.source == "reactions":
         out = args.out or "data/nano/distill_reactions"
