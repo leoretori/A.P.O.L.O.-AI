@@ -186,3 +186,39 @@ Igual ao `PLANO_7_PILARES.md`: um item por vez, na ordem 1→6, "Siga" avança p
 cabe ao Leo (ex.: qual preset de escala rodar se o hardware não aguentar `large`) para com
 `AskUserQuestion`. Ao fechar o item 6, este documento migra para `docs/` (mesma cadência definida no
 P7.1 do plano anterior).
+
+---
+
+## Addendum (2026-07-17) — correção de metodologia + fine-tune de resposta
+
+**Achado real, importante:** todos os scripts ad hoc desta sessão que ficaram no diretório de
+scratchpad (fora da árvore do projeto) chamavam `load_dotenv()` sem argumento — e essa função busca o
+`.env` a partir da localização do PRÓPRIO ARQUIVO do script (via frame do chamador), não do diretório
+de trabalho. Como o script morava fora da árvore do repo, `load_dotenv()` nunca achava
+`C:/Users/leore/Documents/Apolo_AI/.env` e o `LLM_BACKEND` caía silenciosamente no padrão `"ollama"`.
+**Consequência:** as medições de blind-eval (item 3.2, 46,7%) e de latência do Qwen (item 4) mediram
+contra `qwen2.5-coder:3b` via Ollama — não contra o motor de PRODUÇÃO real (`llamacpp`,
+`qwen-1.5b`/`qwen-7b`, configurado no `.env`). As comparações relativas (Nano vs "um" Qwen) continuam
+válidas como sinal, mas os números específicos NÃO refletem o oponente que o Leo realmente usa no
+dia a dia. Corrigido nos scripts seguintes com `load_dotenv(os.path.join(os.getcwd(), ".env"))`.
+
+**Fine-tune de resposta com os 346 pares reais (item 1) — resultado NEGATIVO, honesto:**
+- Treinado com o novo `--patience 5`: parou sozinho no passo 350/2000 (melhor val no passo 100, ppl
+  ≈32,6) — o early-stop funcionou exatamente como esperado, sem desperdiçar os 2000 passos.
+- Blind-eval comparável, MESMO conjunto congelado (n=15), MESMO oponente real (`qwen-1.5b` via
+  `llamacpp`, corrigido o bug acima):
+  - `ckpt_v1` (sem fine-tune, prompt cru): **33,3%** win-rate (5/15) — este é o baseline correto,
+    substitui o 46,7% medido contra o oponente errado.
+  - `ckpt_answer_v1` (fine-tune, prompt no formato de treino "Pergunta:/Resposta:"): **20,0%** (3/15).
+  - `ckpt_answer_v1` (fine-tune, prompt cru — isola o efeito do template): **6,7%** (1/15).
+- **Conclusão honesta: o fine-tune piorou o modelo**, não melhorou. Olhando as gerações lado a lado, o
+  padrão é visível: o `ckpt_answer_v1` deriva para vocabulário de tech ("neurociência", "sistema
+  operacional", "API") em QUALQUER pergunta, mesmo sobre creatina ou muay thai — o dataset de
+  fine-tune (346 pares vindos de `learned_topics`, majoritariamente backend/devops/data) é
+  topicamente estreito demais e o fine-tune completo (todas as camadas, sem LoRA) fez o modelo
+  "esquecer" parte da prosa mais aberta que tinha. **Decisão: `NANO_CKPT` de produção continua em
+  `ckpt_v1`** — nenhuma promoção, o resultado foi pior, não melhor.
+- **Lição pro próximo ciclo:** um dataset de fine-tune pequeno (346 pares) e topicamente concentrado
+  não é substituto de mais VOLUME e DIVERSIDADE de tópicos — ou precisa de uma técnica que preserve a
+  capacidade geral (mixar com o corpus de pré-treino, LR menor, ou congelar camadas), não só rodar o
+  fine-tune completo e esperar que "mais dado real" resolva por si só.
