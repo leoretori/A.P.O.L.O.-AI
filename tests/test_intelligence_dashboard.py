@@ -1,6 +1,12 @@
-"""Painel único de saúde da inteligência (src.intelligence_dashboard, P5.2/P5.3)."""
+"""Painel único de saúde da inteligência (src.intelligence_dashboard, P5.2/P5.3).
 
-from src.intelligence_dashboard import build_snapshot
+Item 5.2 do PLANO_CEREBRO_ASSUME.md acrescenta `cycle_health`/`cycles`:
+visibilidade de ciclo noturno TRAVADO (sem rodar há N dias), não só o
+resultado agregado de quando roda."""
+
+from datetime import datetime, timedelta, timezone
+
+from src.intelligence_dashboard import build_snapshot, cycle_health
 from src.jsonl_history import append_entry
 
 
@@ -101,3 +107,35 @@ def test_build_snapshot_respeita_trend_points(tmp_path):
     snap = build_snapshot(blind_eval_history_path=path, trend_points=5)
     assert len(snap["blind_eval"]["trend"]) == 5
     assert snap["blind_eval"]["latest"]["nano_win_rate"] == 14
+
+
+# ── cycle_health (item 5.2) ────────────────────────────────────────
+def test_cycle_health_ciclo_nunca_rodou_fica_stale(tmp_path):
+    health = cycle_health({"quality": str(tmp_path / "nao_existe.jsonl")})
+    assert health["quality"] == {"last_run": None, "days_since": None, "stale": True}
+
+
+def test_cycle_health_ciclo_recente_nao_fica_stale(tmp_path):
+    path = tmp_path / "q.jsonl"
+    append_entry(path, {"pass_rate": 80.0})
+    health = cycle_health({"quality": str(path)}, stale_after_days=2)
+    assert health["quality"]["stale"] is False
+    assert health["quality"]["days_since"] < 1
+
+
+def test_cycle_health_ciclo_velho_fica_stale(tmp_path):
+    path = tmp_path / "q.jsonl"
+    append_entry(path, {"pass_rate": 80.0})
+    fake_now = datetime.now(timezone.utc) + timedelta(days=5)
+    health = cycle_health({"quality": str(path)}, stale_after_days=2, now=fake_now)
+    assert health["quality"]["stale"] is True
+    assert health["quality"]["days_since"] > 4
+
+
+def test_build_snapshot_expoe_cycles(tmp_path):
+    q_path = tmp_path / "q.jsonl"
+    rg_path = tmp_path / "rg.jsonl"
+    append_entry(q_path, {"pass_rate": 80.0})
+    snap = build_snapshot(quality_history_path=q_path, recall_gate_history_path=rg_path)
+    assert snap["cycles"]["quality"]["stale"] is False
+    assert snap["cycles"]["recall_gate"]["stale"] is True  # nunca rodou nesse tmp_path

@@ -2517,6 +2517,22 @@
         const q = intel.quality && intel.quality.latest;
         const rg = intel.recall_gate && intel.recall_gate.latest;
         const vol = intel.volume;
+        // Item 5.2 (PLANO_CEREBRO_ASSUME.md): não só o RESULTADO dos ciclos
+        // noturnos — se algum parou de RODAR (stale há mais dias que o esperado).
+        const cy = intel.cycles;
+        const cycleLabel = {quality: 'Amostra de qualidade', recall_gate: 'Gate de recall'};
+        let cyclesHtml = '';
+        if (cy) {
+          const stale = Object.entries(cy).filter(([, v]) => v.stale);
+          if (stale.length) {
+            cyclesHtml = line('⚠️ Ciclos noturnos travados',
+              stale.map(([name, v]) => {
+                const label = cycleLabel[name] || name;
+                const age = v.days_since == null ? 'nunca rodou' : `${v.days_since}d sem rodar`;
+                return `<span style="color:#f87171">${escHtml(label)} (${age})</span>`;
+              }).join(', '));
+          }
+        }
         intelCard = card(`🧠 Saúde da inteligência <span style="font-weight:400;color:#666;font-size:10px">(consolidado)</span>`,
           line('Win-rate blind-eval (Nano vs Qwen)', be
             ? `<span style="color:${pctColor(be.nano_win_rate)}">${be.nano_win_rate}%</span> <span style="color:#666">(n=${be.n})</span>`
@@ -2527,7 +2543,8 @@
           line('Gate de recall (acha o que já sabe)', rg
             ? `<span style="color:${pctColor(rg.hit_rate)}">${rg.hit_rate}%</span> <span style="color:#666">(${rg.hits}/${rg.n})</span>`
             : '<span style="color:#666">ainda não medido</span>') +
-          (vol ? line('Faltam p/ próximo treino', `título: <b>${vol.faltam_titulo}</b> · reações: <b>${vol.faltam_reacoes}</b>`) : ''));
+          (vol ? line('Faltam p/ próximo treino', `título: <b>${vol.faltam_titulo}</b> · reações: <b>${vol.faltam_reacoes}</b>`) : '') +
+          cyclesHtml);
       }
 
       body.innerHTML = intelCard + ollamaCard + nanoCard + learnerCard + recallCard + embCard + perfCard + dbCard + sbCard + buildFooter;

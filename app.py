@@ -127,7 +127,13 @@ REMOTE_TOKEN = os.getenv("REMOTE_TOKEN", "").strip()
 # Briefing diário (M4 4.1): hora local (0–23) a partir da qual o A.P.O.L.O. te
 # aborda com o resumo do dia, uma vez por dia. -1 desliga.
 BRIEFING_HOUR = int(os.getenv("BRIEFING_HOUR", 8))
-_last_briefing_date = None
+
+# Ciclos noturnos "1x/dia a partir da hora X" (briefing/dedup/qualidade/recall):
+# o mesmo padrão hora+data se repetiu 4x com variáveis globais separadas — a
+# 4ª repetição virou `_maybe_run_daily` (item 6.2/PLANO_CEREBRO_ASSUME.md,
+# regra dos 3). Backup e flywheel ficam de fora de propósito: têm gatilhos
+# extras (senha configurada / máquina ociosa) que não são só hora+data.
+_last_cycle_dates: dict[str, object] = {}
 
 # Presença ambiente (M23 23.1): avisa ANTES de um compromisso da agenda
 # chegar, não só quando perguntado — evolui o briefing de "1x/dia" pra "no
@@ -157,7 +163,6 @@ _last_flywheel_date = None
 # sem intervenção. Leve (compara texto exato, não IA) — sem restrição de
 # ocioso como o flywheel. -1 desliga.
 DEDUP_HOUR = int(os.getenv("DEDUP_HOUR", 4))
-_last_dedup_date = None
 
 # Amostra de qualidade real (P2.5): get_summary_quality() só mede FORMA (tem
 # "##" ou não) — 1x/dia a partir de QUALITY_SAMPLE_HOUR, um juiz LLM avalia
@@ -166,7 +171,6 @@ _last_dedup_date = None
 QUALITY_SAMPLE_HOUR = int(os.getenv("QUALITY_SAMPLE_HOUR", 5))
 QUALITY_SAMPLE_N = int(os.getenv("QUALITY_SAMPLE_N", 15))
 QUALITY_HISTORY_PATH = os.getenv("QUALITY_HISTORY_PATH", "data/learner/quality_history.jsonl")
-_last_quality_date = None
 
 # Gate de regressão do recall (P2.6): recall_calibration.py era ferramenta
 # manual — 1x/dia a partir de RECALL_GATE_HOUR, testa um conjunto FIXO de
@@ -177,7 +181,6 @@ RECALL_GATE_N = int(os.getenv("RECALL_GATE_N", 30))
 RECALL_GATE_TRUTH_PATH = os.getenv("RECALL_GATE_TRUTH_PATH", "data/learner/recall_gate_truth.json")
 RECALL_GATE_HISTORY_PATH = os.getenv("RECALL_GATE_HISTORY_PATH",
                                      "data/learner/recall_gate_history.jsonl")
-_last_recall_gate_date = None
 
 db: DatabaseManager = None
 rag: RAGManager = None
@@ -359,6 +362,35 @@ async def _run_recall_gate_cycle() -> None:
         logger.warning(f"[recall-gate] ciclo falhou: {e}")
 
 
+async def _run_briefing_cycle() -> None:
+    """Uma rodada do briefing diário (M4 4.1). Nunca derruba o scheduler se
+    falhar (mesma disciplina dos demais ciclos noturnos) — a falha vira log,
+    não impede o resto do tick."""
+    from src.briefing import build_briefing
+    b = await asyncio.to_thread(build_briefing, db, rt.episodic, learner, profile, 12)
+    db.add_notification(f"☀️ {b['text'][:400]}", kind="briefing")
+    logger.info("[briefing] briefing diário enviado")
+
+
+async def _maybe_run_daily(name: str, hour: int, cycle_fn) -> None:
+    """Roda `cycle_fn()` no máx. 1x/dia a partir de `hour` (-1 desliga).
+
+    Item 5.1 (`PLANO_CEREBRO_ASSUME.md`): isola cada ciclo por dispatch — se
+    algo escapar do try/except interno de `cycle_fn` (bug não previsto), só
+    ESTE ciclo falha; os demais ciclos do mesmo tick do scheduler continuam
+    rodando normalmente, e este mesmo ciclo é retentado no próximo tick (a
+    data só avança quando o disparo de fato acontece)."""
+    if hour < 0:
+        return
+    now = datetime.now()
+    if now.hour >= hour and _last_cycle_dates.get(name) != now.date():
+        _last_cycle_dates[name] = now.date()
+        try:
+            await cycle_fn()
+        except Exception as e:
+            logger.warning(f"[scheduler] ciclo '{name}' falhou: {e}")
+
+
 async def _scheduler_loop():
     """Dispara estudos agendados e ativa aprendizado idle.
 
@@ -443,28 +475,13 @@ async def _scheduler_loop():
             # Dedup automático (P2.4): 1x/dia a partir de DEDUP_HOUR — RAG (exato)
             # + log de aprendizado. Leve (texto exato, sem IA); não depende de
             # ocioso como o flywheel.
-            global _last_dedup_date
-            if DEDUP_HOUR >= 0:
-                _td = datetime.now()
-                if _td.hour >= DEDUP_HOUR and _last_dedup_date != _td.date():
-                    _last_dedup_date = _td.date()
-                    await _run_dedup_cycle()
+            await _maybe_run_daily("dedup", DEDUP_HOUR, _run_dedup_cycle)
 
             # Amostra de qualidade real (P2.5): 1x/dia a partir de QUALITY_SAMPLE_HOUR.
-            global _last_quality_date
-            if QUALITY_SAMPLE_HOUR >= 0:
-                _tq = datetime.now()
-                if _tq.hour >= QUALITY_SAMPLE_HOUR and _last_quality_date != _tq.date():
-                    _last_quality_date = _tq.date()
-                    await _run_quality_sample_cycle()
+            await _maybe_run_daily("quality", QUALITY_SAMPLE_HOUR, _run_quality_sample_cycle)
 
             # Gate de regressão do recall (P2.6): 1x/dia a partir de RECALL_GATE_HOUR.
-            global _last_recall_gate_date
-            if RECALL_GATE_HOUR >= 0:
-                _tr = datetime.now()
-                if _tr.hour >= RECALL_GATE_HOUR and _last_recall_gate_date != _tr.date():
-                    _last_recall_gate_date = _tr.date()
-                    await _run_recall_gate_cycle()
+            await _maybe_run_daily("recall_gate", RECALL_GATE_HOUR, _run_recall_gate_cycle)
 
             # Idle learning: ativa o aprendizado autônomo quando a máquina está ociosa.
             if IDLE_TRIGGER > 0 and learner and not learner.running:
@@ -532,20 +549,8 @@ async def _scheduler_loop():
 
             # Briefing diário (M4 4.1): a partir de BRIEFING_HOUR, uma vez por dia,
             # o A.P.O.L.O. te aborda primeiro com o resumo do dia (vira notificação;
-            # o front pode falá-lo). Guarda a data p/ não repetir.
-            global _last_briefing_date
-            if BRIEFING_HOUR >= 0:
-                _today = datetime.now()
-                if _today.hour >= BRIEFING_HOUR and _last_briefing_date != _today.date():
-                    _last_briefing_date = _today.date()
-                    try:
-                        from src.briefing import build_briefing
-                        b = await asyncio.to_thread(build_briefing, db, rt.episodic,
-                                                    learner, profile, 12)
-                        db.add_notification(f"☀️ {b['text'][:400]}", kind="briefing")
-                        logger.info("[briefing] briefing diário enviado")
-                    except Exception as e:
-                        logger.warning(f"[briefing] {e}")
+            # o front pode falá-lo).
+            await _maybe_run_daily("briefing", BRIEFING_HOUR, _run_briefing_cycle)
 
             # Flywheel noturno do Nano (M25.3): 1x/dia a partir de FLYWHEEL_HOUR,
             # o Qwen destila as conversas reais e o Nano treina um candidato —
