@@ -119,9 +119,19 @@ def train(args: argparse.Namespace) -> dict:
           f"corpus: {len(train_tokens):,} tokens | batch {batch_size} | "
           f"contexto {model.config.block_size}")
 
+    # Early-stop (item 2 do PLANO_CEREBRO_ASSUME.md): o medium (M26) rodou os
+    # 15.000 passos completos e OVERFITOU nos últimos ~9.000 — o val loss
+    # atingiu o mínimo no passo 6.000 e só piorou depois. `patience` (0 =
+    # desligado, compatível com scripts/testes existentes) para o treino
+    # depois de N avaliações seguidas SEM melhora no val — o `model_best.npz`
+    # já é o que interessa; continuar só queima tempo de máquina.
+    patience = getattr(args, "patience", 0)
+    evals_no_improve = 0
+
     rng = np.random.default_rng(args.seed + start_step)
     eval_rng = np.random.default_rng(9999)
     t_last = time.time()
+    stopped_early_at = None
     for step in range(start_step, args.steps):
         x, y = get_batch(train_tokens, model.config.block_size, batch_size, rng)
         model.zero_grad()
@@ -149,14 +159,23 @@ def train(args: argparse.Namespace) -> dict:
             optim.save(optim_path)
             if val < best_val:
                 best_val = val
+                evals_no_improve = 0
                 model.save(out / "model_best.npz")
+            else:
+                evals_no_improve += 1
             state_path.write_text(
                 json.dumps({"step": step + 1, "best_val": best_val, "last_val": val}),
                 encoding="utf-8",
             )
             t_last = time.time()
+            if patience > 0 and evals_no_improve >= patience:
+                print(f"early-stop no passo {step + 1}: val sem melhorar por "
+                      f"{evals_no_improve} avaliações (patience={patience})", flush=True)
+                stopped_early_at = step + 1
+                break
 
-    return {"step": args.steps, "best_val": best_val}
+    return {"step": stopped_early_at or args.steps, "best_val": best_val,
+            "stopped_early": stopped_early_at is not None}
 
 
 def main() -> None:
@@ -179,6 +198,8 @@ def main() -> None:
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--init-from", default=None,
                     help="fine-tune: warm-start dos pesos deste checkpoint (run novo)")
+    ap.add_argument("--patience", type=int, default=0,
+                    help="para o treino após N avaliações sem melhora no val (0 = desliga)")
     train(ap.parse_args())
 
 

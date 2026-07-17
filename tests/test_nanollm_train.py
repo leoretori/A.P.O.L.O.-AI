@@ -152,6 +152,54 @@ def test_sequencia_maior_que_contexto_falha():
         model.forward(np.ones((1, 17), dtype=np.int64))
 
 
+def _tiny_run_args(tmp_path, **overrides):
+    """Namespace mínimo p/ rodar `train()` num dataset aleatório pequeno."""
+    import argparse
+    import json as _json
+
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    rng = np.random.default_rng(0)
+    np.save(data / "train.npy", rng.integers(0, 16, 800).astype(np.uint16))
+    np.save(data / "val.npy", rng.integers(0, 16, 200).astype(np.uint16))
+    (data / "meta.json").write_text(_json.dumps({"vocab_size": 16}), encoding="utf-8")
+
+    args = dict(
+        data=str(data), out=str(tmp_path / "ckpt"), preset="nano", steps=10,
+        batch_size=4, lr=1e-3, warmup=1, weight_decay=0.0, grad_clip=1.0,
+        log_every=100, eval_every=1, eval_iters=2, seed=1, resume=False,
+        init_from=None, patience=0,
+    )
+    args.update(overrides)
+    return argparse.Namespace(**args)
+
+
+def test_patience_zero_desligado_roda_todos_os_passos(tmp_path, monkeypatch):
+    """patience=0 (padrão) — nunca para antes, mesmo se o val só piorar."""
+    from src.nanollm.train import train
+
+    vals = iter([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0])
+    monkeypatch.setattr("src.nanollm.train.evaluate", lambda *a, **k: next(vals))
+
+    result = train(_tiny_run_args(tmp_path, patience=0))
+    assert result["step"] == 10
+    assert result["stopped_early"] is False
+
+
+def test_patience_para_apos_n_avaliacoes_sem_melhora(tmp_path, monkeypatch):
+    """val melhora até o passo 3 (loss 1.0) e só piora depois — com patience=2
+    o treino deve parar no passo 5 (2 avaliações seguidas sem bater 1.0)."""
+    from src.nanollm.train import train
+
+    vals = iter([3.0, 2.0, 1.0, 1.5, 1.8, 1.9, 1.2])  # nunca deveria chegar ao passo 7
+    monkeypatch.setattr("src.nanollm.train.evaluate", lambda *a, **k: next(vals))
+
+    result = train(_tiny_run_args(tmp_path, patience=2, steps=10))
+    assert result["step"] == 5  # melhorou nos passos 1-3, piorou nos passos 4-5
+    assert result["stopped_early"] is True
+    assert result["best_val"] == 1.0
+
+
 def test_finetune_init_from_warm_start(tmp_path):
     """--init-from carrega os pesos de outro ckpt mas começa run NOVO."""
     import argparse
