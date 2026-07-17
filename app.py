@@ -182,6 +182,19 @@ RECALL_GATE_TRUTH_PATH = os.getenv("RECALL_GATE_TRUTH_PATH", "data/learner/recal
 RECALL_GATE_HISTORY_PATH = os.getenv("RECALL_GATE_HISTORY_PATH",
                                      "data/learner/recall_gate_history.jsonl")
 
+# Destilação de conhecimento noturna (item 1 do PLANO_FLYWHEEL_AUTOMATICO.md):
+# o learned_topics cresce sozinho (aprendizado autônomo 24/7) mas o corpus de
+# Q&A ancorado (dataset do fine-tune de resposta) só foi gerado por CLI manual
+# nos 2 ciclos anteriores. Pesado (chama o professor LLM por par candidato) —
+# mesma disciplina do flywheel: só roda ocioso e com o learner parado. -1 desliga.
+KNOWLEDGE_DISTILL_HOUR = int(os.getenv("KNOWLEDGE_DISTILL_HOUR", 2))
+KNOWLEDGE_DISTILL_LIMIT = int(os.getenv("KNOWLEDGE_DISTILL_LIMIT", 3500))
+# Teto por setor (achado do PLANO_CORPUS_DIVERSO.md): sem ele, o dataset fica
+# dominado por 1-2 setores (~80% num caso real medido).
+KNOWLEDGE_DISTILL_MAX_PER_SECTOR = int(os.getenv("KNOWLEDGE_DISTILL_MAX_PER_SECTOR", 15))
+KNOWLEDGE_DISTILL_OUT = os.getenv("KNOWLEDGE_DISTILL_OUT", "data/nano/distill_answers")
+_last_knowledge_distill_date = None
+
 db: DatabaseManager = None
 rag: RAGManager = None
 executor: CodeExecutor = None
@@ -333,6 +346,36 @@ async def _run_quality_sample_cycle() -> None:
             logger.info(f"[quality] pulado: {res.get('reason')}")
     except Exception as e:
         logger.warning(f"[quality] ciclo falhou: {e}")
+
+
+async def _run_knowledge_distill_cycle() -> None:
+    """Uma rodada da destilação de conhecimento (item 1 do
+    PLANO_FLYWHEEL_AUTOMATICO.md) — regenera o corpus de Q&A ancorado
+    (`data/nano/distill_answers`) a partir do `learned_topics` mais recente,
+    com amostragem estratificada por setor. Nunca derruba o scheduler se
+    falhar (mesma disciplina do flywheel/dedup/qualidade/recall-gate)."""
+    if not db:
+        return
+    from pathlib import Path
+
+    from src.nanollm.distill import make_llm_teacher, run_knowledge_distillation
+
+    ckpt_dir = Path(os.getenv("NANO_CKPT", "data/nanollm/ckpt_v1"))
+    tokenizer_path = ckpt_dir / "tokenizer.json"
+    if not tokenizer_path.exists():
+        logger.info("[destil-conhecimento] pulado: sem tokenizer do checkpoint ativo")
+        return
+    try:
+        teacher = make_llm_teacher()
+        meta = await asyncio.to_thread(
+            run_knowledge_distillation, db, tokenizer_path, KNOWLEDGE_DISTILL_OUT,
+            teacher_fn=teacher, limit=KNOWLEDGE_DISTILL_LIMIT,
+            max_per_sector=KNOWLEDGE_DISTILL_MAX_PER_SECTOR)
+        logger.info(f"[destil-conhecimento] {meta['pairs']} pares → {KNOWLEDGE_DISTILL_OUT}")
+    except ValueError as e:
+        logger.info(f"[destil-conhecimento] pulado: {e}")
+    except Exception as e:
+        logger.warning(f"[destil-conhecimento] ciclo falhou: {e}")
 
 
 async def _run_recall_gate_cycle() -> None:
@@ -574,6 +617,22 @@ async def _scheduler_loop():
                         # misturadas (lição do M14.2) — cada uma no seu ciclo.
                         await _run_flywheel_cycle("title")
                         await _run_flywheel_cycle("reactions")
+
+            # Destilação de conhecimento noturna (item 1 do
+            # PLANO_FLYWHEEL_AUTOMATICO.md): regenera o corpus de Q&A ancorado
+            # a partir do learned_topics mais recente. Mesmo gate de ocioso +
+            # learner parado do flywheel (chama o professor LLM por par candidato).
+            global _last_knowledge_distill_date
+            if KNOWLEDGE_DISTILL_HOUR >= 0 and not (learner and learner.running):
+                _tkd = datetime.now()
+                _idle_ok_kd = True
+                if IDLE_TRIGGER > 0:
+                    _lr_kd = _last_request_at_fn()
+                    _idle_ok_kd = (_time.perf_counter() - _lr_kd) > IDLE_TRIGGER if _lr_kd > 0 else True
+                if (_tkd.hour >= KNOWLEDGE_DISTILL_HOUR
+                        and _last_knowledge_distill_date != _tkd.date() and _idle_ok_kd):
+                    _last_knowledge_distill_date = _tkd.date()  # marca antes p/ não repetir
+                    await _run_knowledge_distill_cycle()
         except Exception as e:
             # warning (não debug): esta é a rede de segurança de TODA a tick do
             # scheduler (agenda/rotinas/backup/idle/sono/lembretes/briefing/flywheel).
