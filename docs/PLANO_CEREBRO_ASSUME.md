@@ -1,14 +1,18 @@
 # Plano — o cérebro próprio assume (Ano 3, ciclo focado)
 
-> Continuação direta do [JARVIS_ROADMAP_ANO2.md](JARVIS_ROADMAP_ANO2.md) §10 (Ano 3, pilar **P12 · Cérebro
-> próprio que assume**). O Ano 2 fechou (M13–M24). O Ano 3 (M25–M28) tem a **infraestrutura pronta**
-> (destilação, flywheel, escala, roteamento, avaliação às cegas, gate binário) mas travada por **pouco
-> dado real** — não por código faltando. Este plano ataca esse gargalo de frente, com 6 frentes, na
-> ordem 1→6, seguindo a mesma disciplina do [docs/PLANO_7_PILARES.md](docs/PLANO_7_PILARES.md): número
-> medido de verdade (nunca estimado, nunca inflado), teste verde, verificação ao vivo quando é
-> frontend, commit + push + merge, doc atualizado.
+> **🏁 PLANO COMPLETO (2026-07-17)** — as 6 frentes fechadas com número real; arquivado aqui em
+> `docs/` seguindo a cadência definida no P7.1 do `PLANO_7_PILARES.md` (plano com tudo 🏁/⏭️ migra da
+> raiz pra `docs/`).
+>
+> Continuação direta do [../JARVIS_ROADMAP_ANO2.md](../JARVIS_ROADMAP_ANO2.md) §10 (Ano 3, pilar
+> **P12 · Cérebro próprio que assume**). O Ano 2 fechou (M13–M24). O Ano 3 (M25–M28) tinha a
+> **infraestrutura pronta** (destilação, flywheel, escala, roteamento, avaliação às cegas, gate
+> binário) mas travada por **pouco dado real** — não por código faltando. Este plano atacou esse
+> gargalo de frente, com 6 frentes, na ordem 1→6, seguindo a mesma disciplina do
+> [PLANO_7_PILARES.md](PLANO_7_PILARES.md): número medido de verdade (nunca estimado, nunca inflado),
+> teste verde, verificação ao vivo quando é frontend, commit + push + merge, doc atualizado.
 
-**Início:** 2026-07-16 · **Dono:** Leo · **Copiloto:** Claude Code
+**Início:** 2026-07-16 · **Fim:** 2026-07-17 · **Dono:** Leo · **Copiloto:** Claude Code
 
 Legenda: 🔲 pendente · 🔨 em andamento · 🏁 concluído (com número medido) · ⏭️ adiado/descartado (com motivo)
 
@@ -51,26 +55,39 @@ tokens) e documentado com número real, não estimado.
 O preset `medium`/`large` existe em código desde o M26 mas nunca rodou de verdade neste hardware. Com o
 corpus ampliado do item 1, rodar um treino real.
 
-- 🔨 **2.1 (2026-07-16/17, em andamento)** — Rodando `python -m src.nanollm.train --preset medium`
-  (12,57M params) contra o corpus real reexportado (1,55M tokens, `data/nanollm/v2`,
-  `data/nanollm/ckpt_medium_v2`). **Achado real, não hipotético:** a máquina roda o app do Leo AO VIVO
-  (processo `python app.py` com aprendizado de fundo ativo, ~5 núcleos ocupados continuamente) — o
-  throughput medido caiu de ~13.700 tok/s (o `ckpt_medium` anterior, treinado quando a máquina estava
-  ociosa) para **~100–380 tok/s** agora, disputando CPU com o app real. Confirma na prática a doutrina
-  que o próprio `JARVIS_ROADMAP_ANO2.md` §6 já definia ("treinar de madrugada, máquina ociosa") — não é
-  suposição, é o que a medição mostrou. Passo 600/15000 no momento deste registro: loss caindo de forma
-  saudável (6,70 → 4,60, val 4,89 no passo 500) — sem sinal de problema no treino em si, só de tempo:
-  aos 15.000 passos completos levaria dezenas de horas nesse throughput. Decisão: deixar rodando em
-  background (não custa nada mantê-lo vivo) e avaliar o `model_best.npz` que existir quando fizer
-  sentido parar, em vez de fingir que 15.000 passos terminaram.
-- 🔲 **2.2** — Comparar ppl do checkpoint (no ponto em que for avaliado) contra o `ckpt_v1` (3,4M) no
-  mesmo conjunto de validação.
-- 🔲 **2.3** — Promover só se medir melhora (reusa o portão de qualidade do M25.3); se não melhorar,
-  reportar isso também.
+- 🏁 **2.1 (2026-07-16/17)** — `python -m src.nanollm.train --preset medium` (12,57M params) rodou os
+  15.000 passos completos contra o corpus real reexportado (1,55M tokens, `data/nanollm/v2`), levando
+  **~10h** (não ~1h como um cálculo ingênuo sugeriria). **Achado real, confirmado ao vivo com o Leo:** a
+  máquina roda o app dele AO VIVO (aprendizado de fundo contínuo, ~5 núcleos ocupados) — o throughput
+  variou de ~96 tok/s (pico de contenção) a ~750 tok/s (quando aliviou), turbulento o tempo todo. Bate
+  com a doutrina que o próprio `JARVIS_ROADMAP_ANO2.md` §6 já definia ("treinar de madrugada, máquina
+  ociosa") — não é suposição, é o que a medição mostrou na prática.
+- 🏁 **2.2 (2026-07-17)** — **Achado real #2, tão importante quanto o de CPU:** o `val loss` atingiu o
+  mínimo (3,3873 → ppl 29,6) no passo **6000/15000** e SUBIU continuamente depois disso (4,1345 → ppl
+  62,5 no passo 15000 final) — overfit claro nos últimos 9000 passos, ~60% do treino desperdiçado.
+  `model_best.npz` (o que o `NanoEngine` carrega, não o `model.npz` final) é do passo 6000. Avaliação
+  formal (`eval.py`, 120 janelas sequenciais fixas do held-out): **ppl 34,56** (nll 3,5427) — MELHOR que
+  o `ckpt_v1` (ppl 157,96) e que o `ckpt_medium` anterior treinado com o corpus pequeno (ppl 160,91).
+  **Ressalva honesta que não posso omitir:** essa comparação de ppl NÃO é rigorosamente justa — cada
+  checkpoint tem seu PRÓPRIO tokenizer/val-set (vocabulários BPE diferentes, treinados em corpora
+  diferentes), então não é "o mesmo exame" pros três. As sondas qualitativas (mesmos 10 prompts do
+  `PROBES_V1`) saem com a MESMA qualidade tosca de sempre (ex.: "Bolo" como nome de API, "Eleon
+  Evaluation invalitation and Learn" — texto garantidamente incoerente) — a queda de ppl não virou um
+  salto de coerência visível a olho.
+- 🏁 **2.3 (2026-07-17)** — Em vez de confiar só no ppl (que tem a ressalva acima), testei o que
+  REALMENTE importa pra produção: rodei `nano_session_title` com o `ckpt_medium_v2` nas MESMAS 15
+  mensagens reais do item 4. Resultado: **`gate_accept_rate` subiu de 0% (ckpt_v1) para 13,3% (2/15)** —
+  uma melhora real, porém modesta, e os 2 títulos que passaram são de qualidade discutível ("Síntese #7
+  - Aprendizado de máquina em Python" pra uma pergunta sobre calculadora). **Decisão: NÃO troquei o
+  `NANO_CKPT` de produção.** É uma melhora genuína mas pequena (86,7% das tarefas ainda cairiam no
+  Qwen do mesmo jeito que caem hoje) obtida com 3,7x mais parâmetros e ~10h de treino contencionado — o
+  ganho não parece valer o troca de infraestrutura ainda sem mais uma rodada (early-stop no passo 6000
+  da próxima vez, sem desperdiçar 60% do treino) ou mais dado de resposta (o item 1 já ajuda aqui). Isso
+  é uma decisão de infraestrutura de produção — fica pro Leo decidir se quer aplicar de qualquer forma.
 
-**DoD:** parcial — treino real rodando neste hardware (não simulado), mas a convergência completa não
-cabe numa sessão interativa dada a contenção real de CPU medida. ppl final e decisão de promoção ficam
-para quando o checkpoint tiver passos suficientes para a comparação significar algo.
+**DoD:** ✅ batido — checkpoint maior que 3,4M treinado de verdade neste hardware (não simulado), ppl
+medido com a ressalva honesta de não-comparabilidade documentada, decisão de NÃO promover justificada
+por medição funcional real (gate_accept_rate), não por expectativa.
 
 ---
 
@@ -134,12 +151,15 @@ cada um isolado por try/except — mas nunca testamos o cenário de **falha em c
 saúde individual desses ciclos no dashboard (o painel P5 mostra resultado agregado, não se um ciclo
 específico está falhando silenciosamente há dias).
 
-- 🔲 **5.1** — Teste de falha isolada: um ciclo lançando exceção não deve impedir os outros de rodar
-  na mesma madrugada (validar o que já deveria ser verdade, com teste real).
-- 🔲 **5.2** — Expor no dashboard/health quando um ciclo noturno não roda há mais que N dias (sinal de
-  problema silencioso, não só "não há dado ainda").
+- 🏁 **5.1 (2026-07-16)** — `_maybe_run_daily` isola cada ciclo no ponto de dispatch (`app.py`);
+  `tests/test_scheduler_cycle_isolation.py::test_falha_de_um_ciclo_nao_impede_os_outros_no_mesmo_tick`
+  prova com um ciclo forçado a estourar exceção não prevista, os demais do mesmo tick continuam.
+- 🏁 **5.2 (2026-07-16)** — `src/intelligence_dashboard.py::cycle_health()` lê o `timestamp` da última
+  linha de cada histórico JSONL e reporta `stale` (>2 dias sem rodar); `/api/health/intelligence`
+  expõe `cycles`; painel Saúde mostra "⚠️ Ciclos noturnos travados" só quando há algo travado —
+  verificado ao vivo no preview (caso real + caso simulado).
 
-**DoD:** garantia testada de isolamento de falha entre ciclos + visibilidade real de ciclo travado.
+**DoD:** ✅ batido — isolamento testado de verdade + visibilidade real de ciclo travado no painel.
 
 ---
 
@@ -148,12 +168,15 @@ específico está falhando silenciosamente há dias).
 Ao longo do `PLANO_7_PILARES.md` emergiram padrões repetidos e pontos soltos que vale consolidar agora,
 com o código todo fresco na cabeça.
 
-- 🔲 **6.1** — Rodar `ruff` no repo inteiro, comparar contra a baseline conhecida, corrigir o que for
-  novo (não reabrir debate sobre avisos pré-existentes aceitos).
-- 🔲 **6.2** — Varrer `src/nanollm/` e `src/*.py` tocados neste ciclo grande por duplicação óbvia
-  (regra dos 3) que ainda não foi extraída.
+- 🏁 **6.1 (2026-07-16)** — `ruff check .`: 144 erros, todos E4/E7 estilísticos pré-existentes (import
+  após `sys.path` hack em testes, fakes de uma linha) — zero F/E9 (nenhum bug real). Não mexido de
+  propósito: mass-editar dezenas de arquivos por convenção já aceita seria puro churn sem ganho.
+- 🏁 **6.2 (2026-07-16)** — O padrão hora+data "1x/dia a partir de X" se repetia 4x em `app.py`
+  (dedup/qualidade/recall-gate/briefing) — extraído em `_maybe_run_daily`, remove ~24 linhas
+  duplicadas (mesmo commit do item 5.1, os dois nascem da mesma refatoração).
 
-**DoD:** ruff sem regressão nova, duplicações reais (3+ ocorrências) extraídas sem quebrar API pública.
+**DoD:** ✅ batido — ruff sem regressão nova (59 E402 pré-existentes em `app.py`, idêntico à baseline);
+duplicação real (4 ocorrências) extraída sem quebrar nenhum teste existente.
 
 ---
 
