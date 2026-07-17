@@ -68,13 +68,16 @@ M28 mediu win-rate 40% com n=5 (ruído de amostra). M27 mediu o gate binário co
 treinado (só 19 tópicos com setor válido). Ambos ficaram pendentes por pouco dado — o item 1 pode
 destravar isso.
 
-- 🔨 **3.1 (2026-07-16, em andamento)** — Recontagem real (banco de produção, não o worktree): **3469
-  pares setor-rotulados**, `backend_apis` sozinho tem 627 (vs. os 19 tópicos totais do experimento
-  anterior). `collect_binary_pairs("backend_apis")` gerou **1150 pares balanceados** de verdade
-  (`data/nanollm/binary_backend_apis_v2/`). Fine-tune real rodando a partir de `ckpt_v1`
-  (`data/nanollm/ckpt_binary_backend_apis_v2`, 800 passos) — vai ser avaliado com `binary_eval.py`
-  (acurácia held-out real) assim que terminar; número final entra aqui quando sair (nunca reciclo o
-  80,56% do experimento com dado sintético como se fosse este).
+- 🏁 **3.1 (2026-07-16/17)** — Recontagem real (banco de produção, não o worktree): **3469 pares
+  setor-rotulados**, `backend_apis` sozinho tem 627 (vs. os 19 tópicos totais do experimento anterior).
+  `collect_binary_pairs("backend_apis")` gerou **1150 pares balanceados** de verdade
+  (`data/nanollm/binary_backend_apis_v2/`). Fine-tune real a partir de `ckpt_v1` (800 passos,
+  `data/nanollm/ckpt_binary_backend_apis_v2`) — `train loss` caiu de 4,03→0,54 mas o `val loss` parou de
+  melhorar depois do passo 600 (2,99 → 3,32 no passo 800: sinal de overfit no fim, `model_best.npz`
+  correto salvo do passo de melhor val). **Avaliado de verdade com `binary_eval.py` no held-out real
+  (n=172, nunca visto no treino): 145/172 acertos → acurácia 84,3%, decide em 100% dos casos (nunca
+  recusa).** Bate o multi-classe do M4.3 (31,4%) e até o experimento anterior com dado sintético
+  (80,56%) — com dado REAL de produção desta vez, não sintético.
 - 🏁 **3.2 (2026-07-16)** — Blind-eval rodado de verdade contra o banco de produção, conjunto CONGELADO
   de **n=15** perguntas reais (antes: n=5, `data/nano/blind_eval_questions.json`, `--min-questions 15`).
   Resultado: **Nano 7 · Qwen 8 · empates 0 → win-rate 46,7%**. Com n=15 cada pergunta vale 6,7pp (antes,
