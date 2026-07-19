@@ -299,9 +299,11 @@ class LocalKnowledge:
         for r in rows:
             cat = (r.get("category") or "outros").strip() or "outros"
             cat_counts[cat] = cat_counts.get(cat, 0) + 1
-            tags = json.loads(r.get("tags") or "[]") if isinstance(r.get("tags"), str) else []
-            sector = tags[0] if (tags and tags[0] in known_sectors) else classify_sector(r.get("title") or "")
-            sec_counts[sector] = sec_counts.get(sector, 0) + 1
+            # Síntese cross-domain fica de fora da contagem por setor (ver knowledge.py::insights).
+            if cat != "synthesis":
+                tags = json.loads(r.get("tags") or "[]") if isinstance(r.get("tags"), str) else []
+                sector = tags[0] if (tags and tags[0] in known_sectors) else classify_sector(r.get("title") or "")
+                sec_counts[sector] = sec_counts.get(sector, 0) + 1
             dom = _domain_of(r.get("url") or "")
             if dom:
                 dom_counts[dom] = dom_counts.get(dom, 0) + 1

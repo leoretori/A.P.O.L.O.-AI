@@ -102,6 +102,20 @@ def test_insights_invalida_ao_salvar(kb):
     assert ins2["total"] > ins1["total"]
 
 
+# ── achado real 2026-07-19: "Síntese #N" (category="synthesis") não tem
+# palavra-chave própria de setor — cair sempre em "outros" inflava o painel
+# com meta-informação em vez de conhecimento setorial real. Fica de fora da
+# contagem por setor (mas continua contando em "categorias" e no total). ──
+def test_insights_sintese_nao_entra_na_contagem_por_setor(kb):
+    kb.save("Síntese #12", "synthesis://apolo/0012", "cruzamento de domínios", "synthesis")
+    kb.save("Kubernetes autoscaling", "https://k8s.io", "conteúdo real sobre k8s")
+    ins = kb.insights()
+    assert ins["total"] == 2
+    secs = {s["name"] for s in ins["sectors"]}
+    assert sum(s["count"] for s in ins["sectors"]) == 1   # só o item não-síntese
+    assert "devops_cloud" in secs or "backend_apis" in secs or secs  # classificado, não some
+
+
 def test_insights_recent_tem_campos(kb):
     kb.save("Artigo recente", "https://recente.com", "conteúdo recente", "synthesis")
     ins = kb.insights()

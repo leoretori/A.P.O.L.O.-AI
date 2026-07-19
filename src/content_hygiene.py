@@ -25,6 +25,23 @@ _INJECTION = re.compile(
 # Piso de conteúdo: abaixo disso não há artigo de verdade (é navegação/spam/erro).
 MIN_CONTENT_CHARS = 100
 
+# Achado real 2026-07-19 (segunda rodada): o loop de degeneração do
+# Auto-Currículo (ver `looks_degenerate`) continuava ATIVO — inclusive depois
+# da 1ª correção — porque o modelo pequeno ficou presa num cluster temático
+# ("neuroestabilização cognitiva"/"urbanatura"/"psicoterapia") gerando variações
+# de invenções CURTAS (6-10 letras: "urbéla", "friosu", "susfra") que driblam os
+# sinais gerais acima (palavra isolada só pega >20 chars; barra só pega os dois
+# lados >6 chars). Confirmado ao vivo: títulos novos com esse morfema salvos há
+# minutos, não é só resíduo histórico. Bloqueio direto dos morfemas observados
+# deste episódio específico — mesma disciplina do `poisoned()` da limpeza
+# manual, mas permanente porque o episódio não parou. Ver
+# [[lesson_silent_gibberish_feedback_loop]].
+_KNOWN_GIBBERISH_MORPHEMES = re.compile(
+    r"urbanatur|urburation|urb[eé]la|sufr[ue]fe|sensor[ns]eto|"
+    r"sensori.{0,4}urb|friosu|susfra|futurota|neuroestabiliza",
+    re.IGNORECASE,
+)
+
 
 def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
@@ -60,6 +77,8 @@ def looks_degenerate(text: str) -> bool:
         return True
     if re.search(r"\(\s*ou\s+(qualquer|outr[oa])\b|\(\s*n[ãa]o\s+mencionad[oa]\s*\)",
                 text, re.IGNORECASE):
+        return True
+    if _KNOWN_GIBBERISH_MORPHEMES.search(text):
         return True
     return False
 

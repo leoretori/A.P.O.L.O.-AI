@@ -52,6 +52,25 @@ def test_looks_degenerate_poupa_abreviacoes_reais():
     assert looks_degenerate("Kubernetes containerization best practices") is False
 
 
+# ── 2ª rodada (2026-07-19): o mesmo loop de mode-collapse continuava ATIVO
+# gerando variações CURTAS (6-10 letras) do mesmo cluster temático, que driblam
+# os sinais gerais acima (nem passam de 20 chars, nem têm "/" com ambos lados
+# >6). Confirmado com títulos reais salvos minutos antes desta correção. ──
+@pytest.mark.parametrize("title", [
+    "Tecnologias urbanaturas para neuroestabilização cognitiva tradicional",
+    "História sensoriáriaurbéla friosu/sufereauurafriás em psicoterapia emergente",
+    "Neurociências aplicadas à urbéla/urbanatura susfra",
+    "Padrões Cross-Domain Identificados em saúde urbanaturasensorneto",
+])
+def test_looks_degenerate_pega_variacoes_curtas_do_episodio_ainda_ativo(title):
+    assert looks_degenerate(title) is True
+
+
+def test_looks_degenerate_ainda_poupa_termos_tecnicos_curtos():
+    assert looks_degenerate("ACID transaction isolation em bancos relacionais") is False
+    assert looks_degenerate("Kubernetes autoscaling best practices") is False
+
+
 def test_is_ingestible_rejeita_titulo_degenerado():
     ok, motivo = is_ingestible("Neurobiologia urburation/urbanatura da arte futura", _ARTIGO)
     assert not ok

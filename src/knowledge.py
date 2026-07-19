@@ -276,9 +276,14 @@ class SupabaseKnowledge:
             cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
             # Setor: usa a tag persistida (se for um setor válido); senão classifica pelo título.
-            tags = r.get("tags") or []
-            sector = tags[0] if (tags and tags[0] in known_sectors) else classify_sector(r.get("title") or "")
-            sec_counts[sector] = sec_counts.get(sector, 0) + 1
+            # Síntese cross-domain (achado real 2026-07-19: rótulo curto "Síntese #N"
+            # sem palavras-chave próprias, cai sempre em "Outros" e infla o painel com
+            # meta-informação, não conhecimento setorial de verdade) fica de fora da
+            # contagem por setor — ela já aparece em "Conhecimento por categoria".
+            if cat != "synthesis":
+                tags = r.get("tags") or []
+                sector = tags[0] if (tags and tags[0] in known_sectors) else classify_sector(r.get("title") or "")
+                sec_counts[sector] = sec_counts.get(sector, 0) + 1
 
             dom = _domain_of(r.get("url") or "")
             if dom:
