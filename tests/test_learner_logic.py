@@ -57,6 +57,45 @@ def test_dedup_ignora_pontuacao_e_caixa():
     assert len(r) == 1
 
 
+# ── _looks_degenerate (achado real 2026-07-19: loop de degeneração do
+# Auto-Currículo — o modelo pequeno inventava palavras tipo "urbanatura") ──
+def test_filtra_query_degenerada_com_barra_entre_palavras_longas():
+    from src.learner_synthesis import _looks_degenerate
+
+    assert _looks_degenerate("Neurobiologia urburation/urbanatura da arte") is True
+    # abreviações reais curtas continuam passando (CI/CD, pub/sub)
+    assert _looks_degenerate("CI/CD pipeline best practices") is False
+    assert _looks_degenerate("Redis pub/sub patterns production") is False
+
+
+def test_filtra_query_com_palavra_isolada_absurdamente_longa():
+    from src.learner_synthesis import _looks_degenerate
+
+    assert _looks_degenerate("tecnologia urbanaturasensornetourbuacaoextrema real") is True
+    assert _looks_degenerate("Kubernetes containerization best practices") is False
+
+
+def test_extract_self_queries_rejeita_padrao_degenerado_observado():
+    s = ("🎯 QUERY: Neurobiologia urburation/urbanatura da arte futura\n"
+         "🎯 QUERY: como escalar filas distribuídas em produção")
+    r = _extract_self_queries(s)
+    assert len(r) == 1
+    assert "urburation" not in r[0]
+
+
+def test_build_synthesis_prompt_exclui_outros_do_contexto():
+    """Achado real: mostrar "Outros" de volta ao modelo alimentava o loop de
+    degeneração (ele via as próprias invenções e continuava inventando)."""
+    from src.learner_synthesis import _build_synthesis_prompt
+
+    clusters = {"Python Core": ["asyncio patterns"],
+               "Outros": ["urburation/urbanatura da arte futura"]}
+    prompt = _build_synthesis_prompt(clusters)
+    assert "asyncio patterns" in prompt
+    assert "urburation" not in prompt
+    assert "Outros" not in prompt
+
+
 def test_persist_nao_trava_com_save_lento(monkeypatch):
     """Regressão do 'estudou 45 e travou': uma escrita lenta (Supabase em rede
     ruim) NÃO pode segurar o _persist. Com PERSIST_TIMEOUT curto, ele desiste e

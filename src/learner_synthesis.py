@@ -18,6 +18,32 @@ DOMAIN_KEYWORDS = {
 }
 
 
+def _looks_degenerate(q: str) -> bool:
+    """Sinal barato de query degenerada (achado real, 2026-07-19): o modelo
+    pequeno, ao ser cobrado por queries em inglês, às vezes inventa palavras
+    ("urbanatura", "sufrufeauurafrius") em vez de gerar uma busca de verdade —
+    e como essas viravam tópicos "estudados" que voltavam pro PRÓPRIO prompt de
+    síntese (`_cluster_topics`/"Outros"), o modelo via as invenções no contexto
+    e continuava inventando mais, num loop que piorou por mais de um mês.
+
+    Dois sinais SEM dicionário (não temos um bundled — checagem determinística
+    e barata, não perfeita): (1) barra separando dois termos LONGOS — a forma
+    exata observada ("urburation/urbanatura"), diferente de abreviações reais
+    como "CI/CD" ou "pub/sub"; (2) uma palavra isolada absurdamente longa —
+    termos técnicos reais raramente passam de ~20 caracteres num token só."""
+    import re
+    slash_parts = q.split("/")
+    if len(slash_parts) > 1:
+        for i in range(len(slash_parts) - 1):
+            left = re.findall(r"[A-Za-zÀ-ÿ]+$", slash_parts[i].strip())
+            right = re.findall(r"^[A-Za-zÀ-ÿ]+", slash_parts[i + 1].strip())
+            if left and right and len(left[0]) > 6 and len(right[0]) > 6:
+                return True
+    if any(len(w) > 20 for w in re.findall(r"[A-Za-zÀ-ÿ]+", q)):
+        return True
+    return False
+
+
 def _extract_self_queries(synthesis: str) -> list[str]:
     """Extrai as queries auto-geradas (linhas '🎯 QUERY: ...') da síntese."""
     import re
@@ -27,8 +53,9 @@ def _extract_self_queries(synthesis: str) -> list[str]:
             continue
         q = line.split("QUERY:", 1)[1].strip(" *_`\"'-").strip()
         q = re.sub(r"\s+", " ", q)  # normaliza espaços internos
-        # Sanidade: precisa parecer uma query buscável de verdade
-        if 12 <= len(q) <= 140 and " " in q:
+        # Sanidade: precisa parecer uma query buscável de verdade E não ser
+        # o padrão degenerado observado (ver `_looks_degenerate`).
+        if 12 <= len(q) <= 140 and " " in q and not _looks_degenerate(q):
             queries.append(q)
     # Dedup por forma NORMALIZADA (ignora pontuação/maiúsculas) — assim
     # "Redis pub/sub" e "redis pub sub?" não viram dois estudos do mesmo tema.
@@ -92,8 +119,19 @@ Síntese em português brasileiro — seja estratégico, arquitetural e acionáv
 
 
 def _build_synthesis_prompt(clusters: dict[str, list[str]]) -> str:
+    """Achado real (2026-07-19): "Outros" acumulava tópicos NÃO classificados —
+    inclusive, com frequência, títulos degenerados que o próprio Auto-Currículo
+    gerou (o modelo pequeno inventa palavras como "urbanatura"/"urburation" ao
+    ser cobrado por queries em inglês). Mostrar esse lixo de volta ao modelo
+    como "tópicos que você estudou" alimentava um loop: ele via as palavras
+    inventadas no próprio contexto e continuava inventando mais. "Outros" fica
+    de FORA do prompt — não é conhecimento estruturado o suficiente pra guiar o
+    próximo estudo, e no caso comum é justamente o lixo que não queremos
+    realimentar."""
     lines = []
     for domain, topics in clusters.items():
+        if domain == "Outros":
+            continue
         lines.append(f"\n**{domain}** ({len(topics)} tópicos):")
         for t in topics[:6]:
             lines.append(f"  - {t}")
