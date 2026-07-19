@@ -38,7 +38,10 @@ MIN_CONTENT_CHARS = 100
 # [[lesson_silent_gibberish_feedback_loop]].
 _KNOWN_GIBBERISH_MORPHEMES = re.compile(
     r"urbanatur|urburation|urb[eé]la|sufr[ue]fe|sensor[ns]eto|"
-    r"sensori.{0,4}urb|friosu|susfra|futurota|neuroestabiliza",
+    r"sensori.{0,4}urb|friosu|susfra|futurota|neuroestabiliza|"
+    r"urbanidad.{0,3}suf|urb[uú]la|urbality|rurares|ruralesuf|ruraref|"
+    r"ruinasurb|neurosciencemapping|neurosci[eê]nica\b|sufria|sufrer\b|"
+    r"susfria|urbanasr|urbanosufr|urban[ao]rui\b|urba-narur|urb[ai]na-rur",
     re.IGNORECASE,
 )
 

@@ -647,6 +647,25 @@ _EXTRA_KEYWORDS_2: dict[str, list[str]] = {
     "frontend_web": ["accessibility", "aria", "acessibilidade"],
     "ai_agents": ["autoaprendizado", "auto-aprendizado", "self-learning"],
 }
+
+# Terceira passada (2026-07-19): amostra real do painel "Conhecimento por setor"
+# mostrou centenas de verbetes de enciclopédia legítimos ("Metabolismo
+# (enciclopédia)", "Grécia Antiga (enciclopédia)") sem cobertura — caíam em
+# "Outros" não por serem ruído, mas por falta de palavra-chave. Só termos
+# distintivos (sem risco de substring em palavra comum, ex.: "lógica" NÃO
+# entra — é substring de "biológica"/"ecológica"/"tecnológica").
+_EXTRA_KEYWORDS_3: dict[str, list[str]] = {
+    "medicine_health": ["psiquiatria", "neurologia", "neurociência", "microbiologia", "metabolismo", "longevidade"],
+    "science": ["antimatéria", "entropia"],
+    "space_astronomy": ["via láctea"],
+    "environment_sustainability": ["amazônia"],
+    "history_philosophy": ["grécia antiga", "império romano", "idade média", "antropologia",
+                             "retórica", "rota da seda", "teoria dos jogos"],
+    "robotics_automation": ["robô"],
+    "arts_creativity": ["fotografia"],
+}
+for _sector, _kws in _EXTRA_KEYWORDS_3.items():
+    SECTOR_KEYWORDS.setdefault(_sector, []).extend(_kws)
 for _sector, _kws in _EXTRA_KEYWORDS_2.items():
     SECTOR_KEYWORDS.setdefault(_sector, []).extend(_kws)
 

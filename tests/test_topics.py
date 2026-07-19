@@ -80,6 +80,22 @@ def test_classify_acid_nao_falsopositiva_em_capacidade():
     assert classify_sector("capacidade de armazenamento do sistema") == "outros"
 
 
+# ── cobertura de enciclopédia (achado real 2026-07-19, painel "Mente"):
+# centenas de verbetes legítimos ("Metabolismo (enciclopédia)") caiam em
+# "outros" só por falta de palavra-chave, não por serem lixo. ──
+def test_classify_verbetes_de_enciclopedia_reais():
+    assert classify_sector("Metabolismo (enciclopédia)") == "medicine_health"
+    assert classify_sector("Grécia Antiga (enciclopédia)") == "history_philosophy"
+    assert classify_sector("Via Láctea (enciclopédia)") == "space_astronomy"
+    assert classify_sector("Amazônia (enciclopédia)") == "environment_sustainability"
+    assert classify_sector("Neurociência (enciclopédia)") == "medicine_health"
+
+
+def test_classify_nao_falsopositiva_retorica_em_caracteristica():
+    # "retórica" foi adicionado como keyword — não deve casar em "característica".
+    assert classify_sector("característica marcante do produto") == "outros"
+
+
 # ── relearn_window_days (P2.7) ───────────────────────────────────
 def test_relearn_window_setor_volatil_e_mais_curto():
     dias = relearn_window_days("guia rápido de Kubernetes na AWS", base=21)
