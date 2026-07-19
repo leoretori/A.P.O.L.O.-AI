@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.content_hygiene import is_ingestible
+from src.content_hygiene import is_ingestible, looks_degenerate
 
 _ARTIGO = ("REST é um estilo de arquitetura para APIs web em que recursos são "
            "identificados por URLs e manipulados via métodos HTTP como GET e POST, "
@@ -37,6 +37,25 @@ def test_rejeita_conteudo_curto():
     ok, motivo = is_ingestible("Título ok", "curtinho demais")
     assert not ok
     assert "curto" in motivo
+
+
+# ── looks_degenerate (item 1 das melhorias de 2026-07-19: 2ª camada de
+# qualidade — pega o RESULTADO degenerado, não só a query que o gerou) ──
+def test_looks_degenerate_pega_o_padrao_real_observado():
+    assert looks_degenerate("Neurobiologia urburation/urbanatura da arte") is True
+    assert looks_degenerate("tecnologia urbanaturasensornetourbuacaoextrema real") is True
+
+
+def test_looks_degenerate_poupa_abreviacoes_reais():
+    assert looks_degenerate("CI/CD pipeline best practices") is False
+    assert looks_degenerate("Redis pub/sub patterns production") is False
+    assert looks_degenerate("Kubernetes containerization best practices") is False
+
+
+def test_is_ingestible_rejeita_titulo_degenerado():
+    ok, motivo = is_ingestible("Neurobiologia urburation/urbanatura da arte futura", _ARTIGO)
+    assert not ok
+    assert "degenerado" in motivo
 
 
 def test_scan_junk_acha_lixo_existente_e_poupa_artigo():

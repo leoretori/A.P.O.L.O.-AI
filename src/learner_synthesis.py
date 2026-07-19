@@ -1,6 +1,10 @@
 """Síntese cross-domain do Learner — agrupa o que foi aprendido por domínio,
 monta o prompt de síntese estratégica e extrai as auto-queries do LLM."""
 
+# `looks_degenerate` mora em `src.content_hygiene` (é o portão único de
+# qualidade por onde tudo passa antes de persistir) — mantém o nome antigo
+# aqui por compatibilidade com quem já importava daqui.
+from src.content_hygiene import looks_degenerate as _looks_degenerate  # noqa: F401
 
 # ── Helpers de síntese cross-domain ──────────────────────────
 
@@ -16,32 +20,6 @@ DOMAIN_KEYWORDS = {
     "Segurança":        ["auth","jwt","oauth","owasp","secret","security","ssl","zero trust"],
     "GitHub / OSS":     ["trending","github","readme","repository","open source"],
 }
-
-
-def _looks_degenerate(q: str) -> bool:
-    """Sinal barato de query degenerada (achado real, 2026-07-19): o modelo
-    pequeno, ao ser cobrado por queries em inglês, às vezes inventa palavras
-    ("urbanatura", "sufrufeauurafrius") em vez de gerar uma busca de verdade —
-    e como essas viravam tópicos "estudados" que voltavam pro PRÓPRIO prompt de
-    síntese (`_cluster_topics`/"Outros"), o modelo via as invenções no contexto
-    e continuava inventando mais, num loop que piorou por mais de um mês.
-
-    Dois sinais SEM dicionário (não temos um bundled — checagem determinística
-    e barata, não perfeita): (1) barra separando dois termos LONGOS — a forma
-    exata observada ("urburation/urbanatura"), diferente de abreviações reais
-    como "CI/CD" ou "pub/sub"; (2) uma palavra isolada absurdamente longa —
-    termos técnicos reais raramente passam de ~20 caracteres num token só."""
-    import re
-    slash_parts = q.split("/")
-    if len(slash_parts) > 1:
-        for i in range(len(slash_parts) - 1):
-            left = re.findall(r"[A-Za-zÀ-ÿ]+$", slash_parts[i].strip())
-            right = re.findall(r"^[A-Za-zÀ-ÿ]+", slash_parts[i + 1].strip())
-            if left and right and len(left[0]) > 6 and len(right[0]) > 6:
-                return True
-    if any(len(w) > 20 for w in re.findall(r"[A-Za-zÀ-ÿ]+", q)):
-        return True
-    return False
 
 
 def _extract_self_queries(synthesis: str) -> list[str]:
@@ -70,9 +48,17 @@ def _extract_self_queries(synthesis: str) -> list[str]:
 
 
 def _cluster_topics(history: list[dict]) -> dict[str, list[str]]:
+    """Achado real (item 3 das melhorias de 2026-07-19): rótulos internos
+    ("Síntese #23", "Síntese #24"...) apareciam nesta lista como se fossem
+    tópicos de estudo — o modelo via os próprios números e gerava a próxima
+    auto-query confundindo-os com um tema real ("Síntese #24 (ou qualquer
+    síndrome específica)"). `category == "synthesis"` fica de fora do
+    contexto — é meta-informação sobre o processo, não conhecimento."""
     clusters: dict[str, list[str]] = {d: [] for d in DOMAIN_KEYWORDS}
     clusters["Outros"] = []
     for item in history:
+        if item.get("category") == "synthesis":
+            continue
         text = (item["topic"] + " " + (item["summary"] or "")[:200]).lower()
         placed = False
         for domain, keywords in DOMAIN_KEYWORDS.items():

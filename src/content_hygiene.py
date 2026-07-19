@@ -30,6 +30,40 @@ def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
 
+def looks_degenerate(text: str) -> bool:
+    """Sinal barato de texto degenerado (achado real, 2026-07-19): um modelo
+    pequeno, cobrado por gerar texto técnico (ex.: auto-currículo pedindo
+    queries em inglês), às vezes INVENTA palavras ("urbanatura",
+    "sufrufeauurafrius") em vez de produzir algo de verdade — e se isso for
+    persistido e depois voltar como contexto pro próprio modelo (ex.: síntese
+    cross-domain), ele repete e piora a invenção, num loop que rodou por mais
+    de um mês sem ningém notar antes deste achado.
+
+    Três sinais SEM dicionário (não temos um bundled — checagem determinística
+    e barata, não perfeita): (1) barra separando dois termos LONGOS — a forma
+    exata observada ("urburation/urbanatura"), diferente de abreviações reais
+    como "CI/CD" ou "pub/sub"; (2) uma palavra isolada absurdamente longa —
+    termos técnicos reais raramente passam de ~20 caracteres num token só;
+    (3) comentário-META entre parênteses que o modelo deixou de propósito
+    (achado real: "Síntese #24 (ou qualquer síndrome específica)" — o modelo
+    viu seu próprio rótulo numerado "Síntese #23" no histórico e confundiu com
+    um tema real, gerando uma hedge/placeholder em vez de um tópico)."""
+    text = text or ""
+    slash_parts = text.split("/")
+    if len(slash_parts) > 1:
+        for i in range(len(slash_parts) - 1):
+            left = re.findall(r"[A-Za-zÀ-ÿ]+$", slash_parts[i].strip())
+            right = re.findall(r"^[A-Za-zÀ-ÿ]+", slash_parts[i + 1].strip())
+            if left and right and len(left[0]) > 6 and len(right[0]) > 6:
+                return True
+    if any(len(w) > 20 for w in re.findall(r"[A-Za-zÀ-ÿ]+", text)):
+        return True
+    if re.search(r"\(\s*ou\s+(qualquer|outr[oa])\b|\(\s*n[ãa]o\s+mencionad[oa]\s*\)",
+                text, re.IGNORECASE):
+        return True
+    return False
+
+
 def is_ingestible(title: str, content: str) -> tuple[bool, str]:
     """Decide se (title, content) merece virar conhecimento.
 
@@ -41,6 +75,13 @@ def is_ingestible(title: str, content: str) -> tuple[bool, str]:
         return False, "título parece comando/injeção, não conhecimento"
     if _INJECTION.match(c[:120]):
         return False, "conteúdo abre com comando/injeção"
+    # Item 1 (melhorias de 2026-07-19): 2ª camada de qualidade — pega o
+    # RESULTADO (título/síntese) degenerado, não só a query que o gerou
+    # (essa já é filtrada em `learner_synthesis._extract_self_queries`, mas
+    # nada impede outro caminho de gerar título ruim; esta é a rede de
+    # segurança no ÚNICO ponto por onde tudo passa antes de persistir).
+    if looks_degenerate(t):
+        return False, "título parece degenerado (palavra inventada/padrão de auto-currículo mal formado)"
     return True, ""
 
 

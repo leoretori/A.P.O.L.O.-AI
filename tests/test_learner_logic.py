@@ -93,7 +93,30 @@ def test_build_synthesis_prompt_exclui_outros_do_contexto():
     prompt = _build_synthesis_prompt(clusters)
     assert "asyncio patterns" in prompt
     assert "urburation" not in prompt
-    assert "Outros" not in prompt
+
+
+# ── item 3 das melhorias de 2026-07-19: rótulos internos ("Síntese #N") não
+# voltam pro contexto do modelo — ele via os próprios números e confundia com
+# um tema real, gerando placeholders tipo "(ou qualquer síndrome específica)" ──
+def test_cluster_topics_exclui_categoria_synthesis():
+    from src.learner_synthesis import _cluster_topics
+
+    history = [
+        {"topic": "asyncio patterns", "summary": "python async", "category": "web_search"},
+        {"topic": "Síntese #23", "summary": "cross-domain", "category": "synthesis"},
+    ]
+    clusters = _cluster_topics(history)
+    all_topics = [t for topics in clusters.values() for t in topics]
+    assert "Síntese #23" not in all_topics
+    assert any("asyncio" in t for t in all_topics)
+
+
+def test_looks_degenerate_pega_placeholder_meta_deixado_pelo_modelo():
+    from src.learner_synthesis import _looks_degenerate
+
+    assert _looks_degenerate("Síntese #24 (ou qualquer síndrome específica)") is True
+    assert _looks_degenerate("Próximos estudos (não mencionado)") is True
+    assert _looks_degenerate("Como escalar filas distribuídas em produção") is False
 
 
 def test_persist_nao_trava_com_save_lento(monkeypatch):

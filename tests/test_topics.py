@@ -68,6 +68,18 @@ def test_classify_desconhecido_vira_outros():
     assert classify_sector("") == "outros"
 
 
+# ── item 2 das melhorias de 2026-07-19: cobertura de setor achada real
+# (ACID/BASE caía em "outros" mesmo sendo claramente bancos de dados) ──
+def test_classify_acid_transaction_cai_em_databases():
+    assert classify_sector("ACID vs BASE consistency models explained") == "databases"
+
+
+def test_classify_acid_nao_falsopositiva_em_capacidade():
+    # "acid" É substring de "capacidade" — por isso o keyword é "acid transaction"/
+    # "acid properties" (multi-palavra), nunca "acid" isolado.
+    assert classify_sector("capacidade de armazenamento do sistema") == "outros"
+
+
 # ── relearn_window_days (P2.7) ───────────────────────────────────
 def test_relearn_window_setor_volatil_e_mais_curto():
     dias = relearn_window_days("guia rápido de Kubernetes na AWS", base=21)
