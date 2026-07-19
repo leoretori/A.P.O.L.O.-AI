@@ -172,6 +172,22 @@ class LearningMixin:
             s.commit()
             return {"topic": topic, "url": url}
 
+    def scan_learned_topics_junk(self, limit: int = 5000) -> list[dict]:
+        """Item 4 das melhorias de 2026-07-19: faxina retroativa — acha
+        tópicos degenerados que já foram salvos (ex.: auto-currículo antigo
+        inventando palavras) usando o MESMO portão de qualidade que agora
+        bloqueia novos (`content_hygiene.looks_degenerate`). Não restringe por
+        categoria: degenerado é degenerado, venha de onde vier. Só LEITURA —
+        quem chama decide se remove (mesmo espírito do `scan_rows` do
+        `content_hygiene` p/ a base de conhecimento)."""
+        from src.content_hygiene import looks_degenerate
+
+        with Session(self.engine) as s:
+            rows = (s.query(LearnedTopic.id, LearnedTopic.topic, LearnedTopic.url)
+                    .order_by(LearnedTopic.id.desc()).limit(limit).all())
+        return [{"id": rid, "topic": topic, "url": url}
+                for rid, topic, url in rows if looks_degenerate(topic or "")]
+
     def count_topic_duplicates(self) -> int:
         """Quantos registros são re-estudos do mesmo tópico (excedentes)."""
         with Session(self.engine) as s:

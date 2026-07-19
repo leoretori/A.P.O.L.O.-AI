@@ -63,6 +63,22 @@ def test_dedup_ignora_caixa_e_espacos(db):
     assert db.dedup_learned_topics() == 1
 
 
+# ── scan_learned_topics_junk (item 4 das melhorias de 2026-07-19: faxina
+# retroativa de tópicos degenerados, mesmo portão do content_hygiene) ──
+def test_scan_learned_topics_junk_acha_degenerado_poupa_legitimo(db):
+    db.save_learned_topic("Kubernetes autoscaling best practices", "u1", "s")
+    db.save_learned_topic("Neurobiologia urburation/urbanatura da arte futura", "u2", "s")
+    junk = db.scan_learned_topics_junk()
+    assert len(junk) == 1
+    assert "urburation" in junk[0]["topic"]
+    assert junk[0]["url"] == "u2"
+
+
+def test_scan_learned_topics_junk_vazio_quando_tudo_limpo(db):
+    db.save_learned_topic("Redis pub/sub patterns", "u1", "s")
+    assert db.scan_learned_topics_junk() == []
+
+
 # ── get_learning_history sem repetição ───────────────────────────
 def test_history_nao_repete_topico(db):
     db.save_learned_topic("A", "u1", "s")

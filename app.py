@@ -352,9 +352,10 @@ async def _run_answer_flywheel_cycle() -> None:
 
 async def _run_dedup_cycle() -> None:
     """Uma rodada de dedup automático (P2.4) — RAG (exato) + log de aprendizado
-    (SQLite). Nunca derruba o scheduler se falhar; cada destino se protege
-    sozinho (mesma disciplina do flywheel)."""
-    chroma_pruned = log_pruned = 0
+    (SQLite) + faxina de tópicos degenerados (item 4, 2026-07-19). Nunca
+    derruba o scheduler se falhar; cada destino se protege sozinho (mesma
+    disciplina do flywheel)."""
+    chroma_pruned = log_pruned = junk_pruned = 0
     try:
         if rag:
             chroma_pruned = await asyncio.to_thread(rag.dedup_exact)
@@ -365,8 +366,41 @@ async def _run_dedup_cycle() -> None:
             log_pruned = await asyncio.to_thread(db.dedup_learned_topics)
     except Exception as e:
         logger.warning(f"[dedup] log falhou: {e}")
-    if chroma_pruned or log_pruned:
-        logger.info(f"[dedup] noturno: {chroma_pruned} (recall) + {log_pruned} (log) removidos")
+    try:
+        if db:
+            junk_pruned = await asyncio.to_thread(_purge_learned_topics_junk)
+    except Exception as e:
+        logger.warning(f"[dedup] faxina de degenerados falhou: {e}")
+    if chroma_pruned or log_pruned or junk_pruned:
+        logger.info(f"[dedup] noturno: {chroma_pruned} (recall) + {log_pruned} (log) + "
+                   f"{junk_pruned} (degenerados) removidos")
+
+
+def _purge_learned_topics_junk() -> int:
+    """Acha e remove tópicos degenerados (achado real 2026-07-19: o
+    auto-currículo, num modelo pequeno, às vezes inventa palavras — ver
+    `content_hygiene.looks_degenerate`). Propaga a remoção aos TRÊS destinos
+    (SQLite + Supabase/local + RAG), mesmo caminho do "esquecer" manual
+    (`routers/knowledge.py::knowledge_forget`). Síncrono de propósito — roda
+    dentro de `asyncio.to_thread` no chamador."""
+    junk = db.scan_learned_topics_junk()
+    removed = 0
+    for item in junk:
+        info = db.delete_learned_topic(item["id"])
+        if not info:
+            continue
+        removed += 1
+        if knowledge_db and info.get("url"):
+            try:
+                knowledge_db.delete_by_url(info["url"])
+            except Exception as e:
+                logger.debug(f"[dedup] faxina: delete_by_url falhou p/ {info.get('url')}: {e}")
+        if rag and info.get("topic"):
+            try:
+                rag.forget_topic(info["topic"])
+            except Exception as e:
+                logger.debug(f"[dedup] faxina: forget_topic falhou p/ {info.get('topic')!r}: {e}")
+    return removed
 
 
 async def _run_quality_sample_cycle() -> None:
