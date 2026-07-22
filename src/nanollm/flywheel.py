@@ -54,8 +54,16 @@ def _default_train(data_dir: Path, init_from: Path, out_dir: Path, *,
 
 
 def _default_eval(ckpt_dir: Path, data_dir: Path) -> dict:
+    """Medidor do portão: `{"val": <ppl float>}` — o contrato que o ciclo usa.
+
+    `evaluate()` devolve `report["val"]` como DICT (`{"nll":…, "ppl":…}`); passar
+    isso adiante fazia `float(dict)` → TypeError, DEPOIS de treinar o candidato
+    por 400 passos, toda noite em que houvesse pares suficientes (E1). Aqui o
+    dict vira o número escalar, e `write_report=False` evita sobrescrever o
+    relatório oficial do checkpoint vivo (E12)."""
     from src.nanollm.eval import evaluate
-    return evaluate(ckpt_dir, data_dir, probes=False)
+    report = evaluate(ckpt_dir, data_dir, probes=False, write_report=False)
+    return {"val": float(report["val"]["ppl"]), "report": report}
 
 
 def _copy_model_files(src: Path, dst: Path) -> list[str]:
@@ -87,6 +95,7 @@ def run_nightly_flywheel(
     train_fn: Callable[..., dict] | None = None,
     eval_fn: Callable[..., dict] | None = None,
     min_pairs: int = 12,
+    min_val_tokens: int = 512,
     steps: int = 400,
     margin: float = 0.0,
     limit: int = 300,
@@ -136,6 +145,16 @@ def run_nightly_flywheel(
     summary["inputs_seen"] = meta.get("inputs_seen")
     if meta["pairs"] < min_pairs:
         summary["reason"] = f"poucos pares ({meta['pairs']} < {min_pairs}) — junte mais conversas"
+        return _log(work_root, summary)
+
+    # 1b) Val curto demais → a medição do passo 3 vira ruído (uma janela parcial
+    #     de ~60 tokens não decide nada). Melhor pular ANTES de queimar CPU do
+    #     que treinar 400 passos e promover com base em nada (E1b).
+    val_tokens = int(meta.get("val_tokens", 0))
+    summary["val_tokens"] = val_tokens
+    if val_tokens < min_val_tokens:
+        summary["reason"] = (f"val destilado com {val_tokens} tokens (< {min_val_tokens}) — "
+                             f"medição de ppl não seria confiável; esperando mais dado")
         return _log(work_root, summary)
 
     # 2) Treina o CANDIDATO a partir do titular (warm-start).

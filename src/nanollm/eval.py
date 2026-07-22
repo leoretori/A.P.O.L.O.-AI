@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ import numpy as np
 
 from src.nanollm.generate import load_model_and_tokenizer
 from src.nanollm.model import GPT
+
+logger = logging.getLogger("apolo.nano.eval")
 
 # Sondas versionadas: NUNCA edite uma lista publicada — crie PROBES_V2.
 PROBES_V1: list[str] = [
@@ -51,12 +54,23 @@ def perplexity(model: GPT, tokens: np.ndarray, batch_size: int = 8,
 
     Janelas não-sobrepostas de block_size+1 (x = janela[:-1], y = janela[1:]),
     começando do token 0 — determinístico por construção.
+
+    Corpus curto (menos que uma janela cheia — acontece no val destilado do
+    flywheel, que tem poucos pares) **não é erro**: a janela encolhe para caber.
+    O número medido continua determinístico, mas deixa de ser comparável com o
+    de uma janela cheia — por isso o `block` usado volta no relatório e um aviso
+    vai para o log. Antes isso era `ValueError` e matava o ciclo noturno (E1b).
     """
     block = model.config.block_size
+    if len(tokens) < 3:
+        raise ValueError(f"val com {len(tokens)} tokens — nem uma janela mínima cabe")
+    if len(tokens) - 2 < block:
+        block = int(len(tokens) - 2)
+        logger.warning(
+            f"[eval] val com só {len(tokens)} tokens: janela reduzida "
+            f"{model.config.block_size}→{block}; ppl NÃO é comparável com a de janela cheia")
     step = block + 1
     n_windows = min((len(tokens) - 1) // step, max_windows)
-    if n_windows < 1:
-        raise ValueError(f"val com {len(tokens)} tokens < janela de {step}")
     nlls: list[float] = []
     for start in range(0, n_windows * step, step * batch_size):
         rows = []
@@ -74,7 +88,8 @@ def perplexity(model: GPT, tokens: np.ndarray, batch_size: int = 8,
         nlls.extend([loss] * len(rows))  # janelas de tamanho igual → média simples
     nll = float(np.mean(nlls))
     return {"nll": round(nll, 4), "ppl": round(float(np.exp(nll)), 2),
-            "windows": len(nlls), "tokens_avaliados": len(nlls) * block}
+            "windows": len(nlls), "tokens_avaliados": len(nlls) * block,
+            "block": block}
 
 
 def run_probes(model: GPT, tok, n_tokens: int = _PROBE_TOKENS) -> list[dict]:
@@ -90,8 +105,14 @@ def run_probes(model: GPT, tok, n_tokens: int = _PROBE_TOKENS) -> list[dict]:
     return out
 
 
-def evaluate(ckpt_dir: str | Path, data_dir: str | Path, probes: bool = True) -> dict:
-    """Avalia um checkpoint e persiste o relatório. Retorna o dict do run."""
+def evaluate(ckpt_dir: str | Path, data_dir: str | Path, probes: bool = True,
+             write_report: bool = True) -> dict:
+    """Avalia um checkpoint e persiste o relatório. Retorna o dict do run.
+
+    `write_report=False` usa `evaluate` como MEDIDOR PURO (sem efeito colateral):
+    o flywheel mede o titular num dataset destilado qualquer, e gravar isso em
+    `<ckpt>/eval_report.json` sobrescrevia o relatório oficial que o
+    `/api/nano/status` mostra, com um número não comparável (E12)."""
     ckpt = Path(ckpt_dir)
     data = Path(data_dir)
     model, tok = load_model_and_tokenizer(ckpt)
@@ -118,11 +139,12 @@ def evaluate(ckpt_dir: str | Path, data_dir: str | Path, probes: bool = True) ->
     }
     report["duracao_s"] = round(time.time() - t0, 1)
 
-    (ckpt / "eval_report.json").write_text(
-        json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    resumo = {k: report[k] for k in ("quando", "params_m", "passo_treino", "val")}
-    with (ckpt / "evals.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(resumo, ensure_ascii=False) + "\n")
+    if write_report:
+        (ckpt / "eval_report.json").write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+        resumo = {k: report[k] for k in ("quando", "params_m", "passo_treino", "val")}
+        with (ckpt / "evals.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(resumo, ensure_ascii=False) + "\n")
     return report
 
 

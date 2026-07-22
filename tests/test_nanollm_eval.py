@@ -68,9 +68,17 @@ def test_ppl_cai_com_treino():
 
 
 def test_ppl_val_pequeno_demais_falha():
+    """Val curto encolhe a janela (E1b) — mas 2 tokens não dão nem x/y."""
     model = _tiny_model()
     with pytest.raises(ValueError):
-        perplexity(model, np.zeros(4, dtype=np.uint16))
+        perplexity(model, np.zeros(2, dtype=np.uint16))
+
+
+def test_ppl_val_curto_encolhe_a_janela(ckpt):
+    """Menos que uma janela cheia mede assim mesmo, e REPORTA o block usado."""
+    model, _, _, _ = ckpt
+    r = perplexity(model, np.zeros(10, dtype=np.uint16))
+    assert r["windows"] >= 1 and r["block"] == 8 < model.config.block_size
 
 
 def test_sondas_deterministicas(ckpt):

@@ -14,7 +14,7 @@
 ## 🔴 CRÍTICOS (quebram o ciclo de evolução da LLM)
 
 ### E1 — Flywheel de título crasha TODA noite em que finalmente tiver pares — `float(dict)` ✅ CONFIRMADO
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/flywheel.py:148-149](src/nanollm/flywheel.py) + [src/nanollm/flywheel.py:56-58](src/nanollm/flywheel.py) (`_default_eval`)
 - **O quê:** `_default_eval` retorna o `report` inteiro de `evaluate()` ([src/nanollm/eval.py:108-126](src/nanollm/eval.py)), onde `report["val"]` é um **dict** `{"nll":…, "ppl":…}`. O flywheel faz `float(ev(...)["val"])` → **TypeError**.
 - **Prova:** `float({'nll':1.0,'ppl':2.72})` → `TypeError: float() argument must be a string or a real number, not 'dict'`.
@@ -23,7 +23,7 @@
 - **Fix:** `_default_eval` retornar `{"val": report["val"]["ppl"]}` (ou o flywheel ler `["val"]["ppl"]`); + teste de integração que usa o `_default_eval` real com um mini-checkpoint.
 
 ### E1b — Mesmo com E1 consertado, a medição de ppl crasha com dataset pequeno
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/eval.py:57-59](src/nanollm/eval.py) (`perplexity`) — exige `val` com ≥ `block_size+1` = **257 tokens**.
 - **O quê:** com `FLYWHEEL_MIN_PAIRS=5` (env do app; a lib usa 12) e `val_fraction=0.1`, o val destilado tem ~1 par (~60-100 tokens) → `ValueError: val com N tokens < janela de 257`. O ciclo morre do mesmo jeito.
 - **Fix:** `perplexity` aceitar janela menor quando o corpus é curto (janela = min(block, len-1)), ou o flywheel exigir `val_tokens >= block+1` antes de treinar.
@@ -98,7 +98,7 @@
 - **Fix:** com ALiBi, deixar o cache crescer além de `block_size` (o viés é relativo, funciona) — só limitar por um teto de memória explícito.
 
 ### E12 — Avaliar o titular sobrescreve o `eval_report.json` do checkpoint vivo
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/eval.py:121-125](src/nanollm/eval.py) (grava sempre em `<ckpt>/eval_report.json` + `evals.jsonl`)
 - **O quê:** o flywheel usa `evaluate()` como medidor puro, mas ele tem efeito colateral: a medição noturna no dataset destilado (número não comparável) sobrescreve o report "oficial" do ckpt vivo que o `/api/nano/status` exibe ([src/nanollm/engine.py:60-67](src/nanollm/engine.py)).
 - **Fix:** parâmetro `write_report=False` para uso como medidor.
