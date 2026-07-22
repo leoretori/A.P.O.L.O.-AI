@@ -104,9 +104,11 @@ def test_perplexity_val_impossivel_ainda_falha(tok):
 
 
 def test_ciclo_completo_com_medidor_real(tmp_path, tok):
-    """O ciclo inteiro (destila → treina → MEDE → decide) sem `eval_fn` fake:
-    é a regressão do E1 de ponta a ponta. O treino continua fake (custo), mas
-    escreve um checkpoint REAL, que o medidor real carrega e avalia."""
+    """O ciclo inteiro (destila → treina → MEDE → decide) sem NENHUM fake de
+    medição: portão de tarefa real (gera título com o modelo e passa pelo
+    `title_ok`/`title_relevant`) + ppl real. É a regressão do E1 e do E6 de
+    ponta a ponta. O treino continua fake (custo), mas escreve um checkpoint
+    REAL, que os medidores reais carregam."""
     live = _real_ckpt(tmp_path / "live", tok, seed=1)
 
     def train_fn(dataset, init_from, out_dir, *, steps, **kw):
@@ -116,8 +118,12 @@ def test_ciclo_completo_com_medidor_real(tmp_path, tok):
     res = run_nightly_flywheel(
         _FakeDB(20), live_ckpt=live, work_root=tmp_path / "fw",
         teacher_fn=_good_teacher, train_fn=train_fn, steps=10,
-        min_pairs=12, min_val_tokens=0)                 # eval_fn REAL de propósito
+        min_pairs=5, min_val_tokens=0, min_gate_items=5,
+        title_messages_path=tmp_path / "held_out.json",
+        questions_path=tmp_path / "perguntas.json")
 
     assert res["status"] in ("promoted", "rejected")    # decidiu — não crashou
-    assert isinstance(res["candidate_val"], float)
+    assert isinstance(res["candidate_val"], float)      # ppl real (informativa)
     assert isinstance(res["incumbent_val"], float)
+    assert res["candidate_accept"] is not None          # tarefa real (decisiva)
+    assert res["teste_pareado"]["pareadas"] == 5

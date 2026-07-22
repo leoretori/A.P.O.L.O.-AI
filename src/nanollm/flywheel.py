@@ -31,6 +31,14 @@ from src.nanollm.distill import make_llm_teacher, run_distillation, run_reaction
 logger = logging.getLogger("apolo.nano.flywheel")
 
 DEFAULT_WORK_ROOT = "data/nano/flywheel"
+DEFAULT_ANSWER_DATASET = "data/nano/distill_answers"
+DEFAULT_BLIND_QUESTIONS = "data/nano/blind_eval_questions.json"
+DEFAULT_EXPERIMENT_LOG = "data/nano/experiment_history.jsonl"
+# Gabarito do professor por pergunta (E5): mesma referência para candidato,
+# titular e todas as noites futuras.
+DEFAULT_TEACHER_CACHE = "data/nano/blind_eval_teacher_cache.json"
+# Held-out congelado da tarefa de TÍTULO (E6) — excluído do treino.
+DEFAULT_TITLE_MESSAGES = "data/nano/title_eval_messages.json"
 
 
 def _default_live_ckpt() -> Path:
@@ -54,7 +62,11 @@ def _default_train(data_dir: Path, init_from: Path, out_dir: Path, *,
 
 
 def _default_eval(ckpt_dir: Path, data_dir: Path) -> dict:
-    """Medidor do portão: `{"val": <ppl float>}` — o contrato que o ciclo usa.
+    """Perplexidade do checkpoint no val destilado: `{"val": <ppl float>}`.
+
+    NÃO é mais o portão de promoção (ver E6 e `_title_gate`) — segue como
+    número INFORMATIVO no ledger, porque continua útil para diagnosticar
+    treino (divergiu? não aprendeu nada?).
 
     `evaluate()` devolve `report["val"]` como DICT (`{"nll":…, "ppl":…}`); passar
     isso adiante fazia `float(dict)` → TypeError, DEPOIS de treinar o candidato
@@ -64,6 +76,39 @@ def _default_eval(ckpt_dir: Path, data_dir: Path) -> dict:
     from src.nanollm.eval import evaluate
     report = evaluate(ckpt_dir, data_dir, probes=False, write_report=False)
     return {"val": float(report["val"]["ppl"]), "report": report}
+
+
+def _title_gate(ckpt_dir: Path, items: list[str]) -> dict:
+    """Portão da TAREFA de título: taxa de aceitação num held-out congelado."""
+    from src.nanollm.title_eval import title_gate_accept
+    return title_gate_accept(ckpt_dir, items)
+
+
+def _answer_gate(ckpt_dir: Path, items: list[str]) -> dict:
+    """Portão da tarefa de RESPOSTA: blind-eval pareado contra o professor."""
+    res = _default_answer_blind_eval(Path(ckpt_dir), items)
+    if res.get("status") == "ok":
+        res["ok_por_item"] = {r["i"]: r["winner"] == "nano" for r in res["rounds"]}
+        res["accept_rate"] = res["nano_win_rate"]
+    return res
+
+
+def _gate_items(db, source: str, questions_path, title_messages_path,
+                min_items: int) -> list[str]:
+    """Conjunto congelado de avaliação da tarefa, conforme a fonte."""
+    if source == "reactions":
+        from src.nanollm.blind_eval import freeze_questions
+        return freeze_questions(db, questions_path, min_questions=min_items)
+    from src.nanollm.title_eval import freeze_title_messages
+    return freeze_title_messages(db, title_messages_path, n=min_items,
+                                 min_messages=min_items)
+
+
+def _gate_flags(res: dict) -> dict[int, bool]:
+    """Veredito por item, no formato do teste pareado."""
+    if "ok_por_item" in res:
+        return res["ok_por_item"]
+    return {r["i"]: bool(r.get("ok")) for r in res.get("rounds", [])}
 
 
 def _copy_model_files(src: Path, dst: Path) -> list[str]:
@@ -94,11 +139,15 @@ def run_nightly_flywheel(
     teacher_fn: Callable[[str], str] | None = None,
     train_fn: Callable[..., dict] | None = None,
     eval_fn: Callable[..., dict] | None = None,
+    gate_fn: Callable[..., dict] | None = None,
     min_pairs: int = 12,
     min_val_tokens: int = 512,
+    min_gate_items: int = 20,
     steps: int = 400,
-    margin: float = 0.0,
+    alpha: float = 0.05,
     limit: int = 300,
+    questions_path: str | Path = DEFAULT_BLIND_QUESTIONS,
+    title_messages_path: str | Path = DEFAULT_TITLE_MESSAGES,
     promote: bool = True,
     now: datetime | None = None,
 ) -> dict:
@@ -109,8 +158,19 @@ def run_nightly_flywheel(
     - "title" (padrão): o professor (Qwen) rotula as conversas reais.
     - "reactions": os 👍 do Leo já são o rótulo — sem chamar o professor.
 
+    **O portão mede a TAREFA, não a perplexidade** (E6). O candidato treina na
+    mesma distribuição do val destilado, então quase sempre "ganha" no ppl — e
+    três experimentos manuais do projeto mediram ppl melhorando com a qualidade
+    real PIORANDO. Agora vale a métrica de produto, num conjunto congelado e
+    HELD-OUT (excluído do treino): taxa de aceitação do portão de título
+    (`title_ok`+`title_relevant`) para `source="title"`, blind-eval pareado
+    para `source="reactions"`. Promoção exige delta pareado significativo
+    (p ≤ `alpha`), nunca "ganhou por pouco". A ppl continua sendo medida e
+    registrada — como diagnóstico, não como juiz.
+
     `status`: "skipped" (pouco dado / sem titular), "rejected" (candidato não
     superou) ou "promoted". A decisão é sempre medida, nunca cega."""
+    from src.nanollm.blind_eval import paired_sign_test
     live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
     # A fonte entra no nome da pasta: duas rodadas na MESMA noite (título +
@@ -127,6 +187,17 @@ def run_nightly_flywheel(
         summary["reason"] = f"sem tokenizer em {tokenizer} — treine o Nano v1 primeiro"
         return _log(work_root, summary)
 
+    # 0) Conjunto de avaliação da TAREFA, congelado, ANTES de qualquer treino:
+    #    sem ele não há como decidir, e descobrir isso depois custaria uma noite
+    #    de CPU (E7). Para título, ele também sai do treino (held-out de verdade).
+    try:
+        gate_items = _gate_items(db, source, questions_path, title_messages_path,
+                                 min_gate_items)
+    except ValueError as e:
+        summary["reason"] = str(e)
+        return _log(work_root, summary)
+    summary["gate_items"] = len(gate_items)
+
     # 1) Destila as entradas reais no formato do fine-tune — a fonte depende
     #    de `source`: "title" chama o professor; "reactions" não precisa (o
     #    veredito do Leo já é o rótulo).
@@ -136,7 +207,8 @@ def run_nightly_flywheel(
             meta = run_reaction_distillation(db, tokenizer, dataset, limit=limit)
         else:
             teacher = teacher_fn or make_llm_teacher()
-            meta = run_distillation(db, tokenizer, dataset, teacher_fn=teacher, limit=limit)
+            meta = run_distillation(db, tokenizer, dataset, teacher_fn=teacher,
+                                    limit=limit, exclude=set(gate_items))
     except ValueError as e:
         summary["reason"] = str(e)
         return _log(work_root, summary)
@@ -162,18 +234,38 @@ def run_nightly_flywheel(
     train = train_fn or _default_train
     train(dataset, live, candidate, steps=steps)
 
-    # 3) Mede candidato E titular no MESMO val destilado — o portão honesto.
-    ev = eval_fn or _default_eval
-    cand_val = float(ev(candidate, dataset)["val"])
-    base_val = float(ev(live, dataset)["val"])
-    summary.update({"candidate_val": cand_val, "incumbent_val": base_val,
-                    "candidate_dir": str(candidate)})
+    summary["candidate_dir"] = str(candidate)
 
-    improved = cand_val < base_val - margin
-    if not (improved and promote):
+    # 3) Mede a TAREFA nos dois checkpoints, no mesmo conjunto congelado.
+    gate = gate_fn or (_answer_gate if source == "reactions" else _title_gate)
+    cand_res = gate(candidate, gate_items)
+    base_res = gate(live, gate_items)
+    if cand_res.get("status") != "ok" or base_res.get("status") != "ok":
+        summary["reason"] = (f"portão da tarefa não rodou: "
+                             f"{cand_res.get('reason') or base_res.get('reason')}")
+        return _log(work_root, summary)
+
+    teste = paired_sign_test(_gate_flags(cand_res), _gate_flags(base_res), alpha=alpha)
+    summary.update({"candidate_accept": cand_res.get("accept_rate"),
+                    "incumbent_accept": base_res.get("accept_rate"),
+                    "teste_pareado": teste})
+
+    # 3b) Perplexidade: diagnóstico, NÃO juiz (E6). Se falhar, não derruba o
+    #     ciclo — a decisão não depende dela.
+    try:
+        ev = eval_fn or _default_eval
+        summary["candidate_val"] = float(ev(candidate, dataset)["val"])
+        summary["incumbent_val"] = float(ev(live, dataset)["val"])
+    except Exception as e:
+        logger.info(f"[flywheel] ppl informativa não pôde ser medida: {e}")
+
+    if not (teste["significativo"] and promote):
         summary["status"] = "rejected"
-        summary["reason"] = (f"candidato {cand_val:.4f} não superou titular "
-                             f"{base_val:.4f} (margem {margin})")
+        summary["reason"] = (
+            f"tarefa: candidato {cand_res.get('accept_rate')}% vs titular "
+            f"{base_res.get('accept_rate')}% — delta pareado não significativo "
+            f"(ganhou {teste['candidato_ganhou']}, perdeu {teste['titular_ganhou']} "
+            f"de {teste['discordantes']} discordantes, p={teste['p_value']} > α={alpha})")
         logger.info(f"[flywheel] rejeitado: {summary['reason']}")
         return _log(work_root, summary)
 
@@ -184,9 +276,11 @@ def run_nightly_flywheel(
     promoted = _copy_model_files(candidate, live)
     summary["status"] = "promoted"
     summary["promoted_files"] = promoted
-    summary["gain"] = round(base_val - cand_val, 4)
-    logger.info(f"[flywheel] PROMOVIDO: val {base_val:.4f} → {cand_val:.4f} "
-                f"(ganho {summary['gain']}); backup em {backup}")
+    summary["gain"] = round((cand_res.get("accept_rate") or 0)
+                            - (base_res.get("accept_rate") or 0), 1)
+    logger.info(f"[flywheel] PROMOVIDO: tarefa {base_res.get('accept_rate')}% → "
+                f"{cand_res.get('accept_rate')}% (p={teste['p_value']}); "
+                f"backup em {backup}")
     return _log(work_root, summary)
 
 
@@ -209,14 +303,6 @@ def _log(work_root: str | Path, summary: dict) -> dict:
 # três. Reusar o gate por ppl aqui repetiria o mesmo erro, só que automático e
 # sem ninguém olhando. Este flywheel promove só por blind-eval real (win-rate
 # no conjunto congelado de perguntas, contra o motor real de produção).
-DEFAULT_ANSWER_DATASET = "data/nano/distill_answers"
-DEFAULT_BLIND_QUESTIONS = "data/nano/blind_eval_questions.json"
-DEFAULT_EXPERIMENT_LOG = "data/nano/experiment_history.jsonl"
-# Gabarito do professor por pergunta (E5): mesma referência para candidato,
-# titular e todas as noites futuras.
-DEFAULT_TEACHER_CACHE = "data/nano/blind_eval_teacher_cache.json"
-
-
 def _default_answer_train(dataset_dir: Path, init_from: Path, out_dir: Path, *,
                           steps: int, lr: float, patience: int, freeze_blocks: int,
                           seed: int = 1337) -> dict:
@@ -418,9 +504,11 @@ def main(argv: list[str] | None = None) -> int:
                                min_pairs=args.min_pairs, limit=args.limit)
     st = res.get("status")
     if st == "promoted":
-        print(f"✓ PROMOVIDO — perplexidade {res['incumbent_val']:.3f} → "
-              f"{res['candidate_val']:.3f} (ganho {res.get('gain')}); "
-              f"{res.get('pairs')} pares. Reinicie/recarregue p/ servir o novo cérebro.")
+        teste = res.get("teste_pareado", {})
+        print(f"✓ PROMOVIDO — tarefa {res.get('incumbent_accept')}% → "
+              f"{res.get('candidate_accept')}% em {res.get('gate_items')} itens "
+              f"congelados (p={teste.get('p_value')}); {res.get('pairs')} pares. "
+              f"Reinicie/recarregue p/ servir o novo cérebro.")
     elif st == "rejected":
         print(f"• candidato não superou o titular ({res.get('reason')}). Nada mudou.")
     else:

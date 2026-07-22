@@ -139,30 +139,37 @@ def _binomial_two_sided_p(b: int, n: int) -> float:
     return min(1.0, 2 * cauda)
 
 
-def paired_win_test(cand_rounds: list[dict], base_rounds: list[dict],
-                    *, alpha: float = 0.05) -> dict:
+def paired_sign_test(cand: dict[int, bool], base: dict[int, bool],
+                     *, alpha: float = 0.05) -> dict:
     """Candidato é MELHOR que o titular, ou é sorteio? (teste de sinais pareado)
 
-    As duas medições rodam nas MESMAS perguntas, então a comparação certa é
-    pareada (McNemar/sinais): conta só as perguntas em que os dois discordam —
-    `b` = candidato ganhou e titular não, `c` = o contrário. Sob a hipótese
-    nula, b ~ Binomial(b+c, ½).
+    `cand`/`base` mapeiam item → acertou/ganhou. Como as duas medições rodam
+    nos MESMOS itens, a comparação certa é pareada (McNemar/sinais): conta só
+    os itens em que os dois discordam — `b` = só o candidato acertou, `c` = só
+    o titular. Sob a hipótese nula, b ~ Binomial(b+c, ½).
 
     Por que isto substitui a "margem de 5pp": com n=15 o desvio-padrão de um
     win-rate de ~40% é ~12,6pp; o MESMO checkpoint marcou 33,3% e 46,7% em
     duas noites sem mudar um peso (E5). 5pp de margem não distingue nada — o
     que distingue é o p-valor do delta pareado."""
-    cand = {r["i"]: r["winner"] for r in cand_rounds if "i" in r}
-    base = {r["i"]: r["winner"] for r in base_rounds if "i" in r}
     comuns = sorted(set(cand) & set(base))
-    b = sum(1 for i in comuns if cand[i] == "nano" and base[i] != "nano")
-    c = sum(1 for i in comuns if base[i] == "nano" and cand[i] != "nano")
+    b = sum(1 for i in comuns if cand[i] and not base[i])
+    c = sum(1 for i in comuns if base[i] and not cand[i])
     p = _binomial_two_sided_p(b, b + c)
     return {
         "pareadas": len(comuns), "candidato_ganhou": b, "titular_ganhou": c,
         "discordantes": b + c, "p_value": round(p, 4), "alpha": alpha,
         "significativo": bool(b > c and p <= alpha),
     }
+
+
+def paired_win_test(cand_rounds: list[dict], base_rounds: list[dict],
+                    *, alpha: float = 0.05) -> dict:
+    """`paired_sign_test` sobre os `rounds` do blind-eval (vitória = "nano")."""
+    return paired_sign_test(
+        {r["i"]: r["winner"] == "nano" for r in cand_rounds if "i" in r},
+        {r["i"]: r["winner"] == "nano" for r in base_rounds if "i" in r},
+        alpha=alpha)
 
 
 def make_llm_judge(model: str | None = None, *, temperature: float = 0.0):

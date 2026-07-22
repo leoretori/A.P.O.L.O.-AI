@@ -4182,9 +4182,13 @@
         ? '<span style="color:#4ade80">promovido</span>'
         : (r.status === 'rejected' ? '<span style="color:#fbbf24">rejeitado</span>'
                                    : '<span style="color:#888">pulado</span>');
-      const det = r.status === 'promoted'
-        ? `ppl ${num(r.incumbent_val)} → ${num(r.candidate_val)}`
-        : (r.reason || '');
+      // desde o E6 o que decide é a TAREFA (aceitação do título / blind-eval),
+      // não a ppl — rodadas antigas do ledger só têm ppl, então cai nela.
+      const det = r.status !== 'promoted' ? (r.reason || '')
+        : (typeof r.candidate_accept === 'number'
+            ? `tarefa ${num(r.incumbent_accept)}% → ${num(r.candidate_accept)}%`
+              + ` (p=${r.teste_pareado ? r.teste_pareado.p_value : '—'})`
+            : `ppl ${num(r.incumbent_val)} → ${num(r.candidate_val)}`);
       return `<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:4px 0;border-top:1px solid #1a1a22">
         <span style="color:#888">${escHtml(r.quando || '')}</span>${st}
         <span style="color:#666;flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(det)}</span></div>`;

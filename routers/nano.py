@@ -95,8 +95,9 @@ async def _run_flywheel_bg(steps: int, min_pairs: int):
             if rt.nano:
                 rt.nano.reload()
             rt.db.add_notification(
-                f"🌀 Nano evoluiu: perplexidade {res['incumbent_val']:.2f} → "
-                f"{res['candidate_val']:.2f} (ganho {res.get('gain')}, "
+                f"🌀 Nano evoluiu: tarefa {res.get('incumbent_accept')}% → "
+                f"{res.get('candidate_accept')}% em {res.get('gate_items')} itens "
+                f"congelados (p={res.get('teste_pareado', {}).get('p_value')}, "
                 f"{res.get('pairs')} pares). Já servindo o novo cérebro.", kind="info")
         elif st == "rejected":
             rt.db.add_notification(

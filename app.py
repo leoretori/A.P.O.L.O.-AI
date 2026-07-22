@@ -313,9 +313,11 @@ async def _run_flywheel_cycle(source: str) -> None:
             if rt.nano:            # serve o cérebro novo já
                 rt.nano.reload()
             db.add_notification(
-                f"🌀 Nano evoluiu de madrugada ({source}): perplexidade "
-                f"{res['incumbent_val']:.2f} → {res['candidate_val']:.2f} "
-                f"(ganho {res.get('gain')}, {res.get('pairs')} pares). "
+                f"🌀 Nano evoluiu de madrugada ({source}): tarefa "
+                f"{res.get('incumbent_accept')}% → {res.get('candidate_accept')}% "
+                f"em {res.get('gate_items')} itens congelados "
+                f"(p={res.get('teste_pareado', {}).get('p_value')}, "
+                f"{res.get('pairs')} pares de treino). "
                 f"Já estou servindo o novo cérebro.", kind="info")
             logger.info(f"[flywheel] promovido ({source}): {res}")
         elif st == "rejected":

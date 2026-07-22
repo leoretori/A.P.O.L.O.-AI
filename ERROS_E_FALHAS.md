@@ -58,7 +58,7 @@
 - **Fix:** congelar 60-100 perguntas; **cachear as respostas do professor** (mesmo gabarito p/ todos); julgar cada par 2× com posições trocadas e só contar vereditos consistentes; promover só se o IC binomial do delta não cruzar zero.
 
 ### E6 — Flywheel de título ainda promove por **perplexidade**, o critério que o próprio projeto já mediu como enganoso
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/flywheel.py:146-159](src/nanollm/flywheel.py) (`margin=0.0`)
 - **O quê:** o comentário no próprio arquivo (linhas 186-192) documenta o achado: *"ppl melhorou mas o BLIND-EVAL mostrou piora nos três [experimentos]"*. Mesmo assim, `run_nightly_flywheel` segue com portão de ppl **e margem 0.0** — o candidato treina na MESMA distribuição do val destilado, então quase sempre "ganha" no ppl; uma vez com pares suficientes (pós-E1), ele vai promover fine-tunes noturnos destrutivos para o checkpoint que também serve título/setor/chat.
 - **Fix:** portão do título medir a **tarefa** (taxa de aceitação `title_ok`+`title_relevant` num conjunto held-out congelado, como o `gate_accept` do M26), não ppl; margem > 0.

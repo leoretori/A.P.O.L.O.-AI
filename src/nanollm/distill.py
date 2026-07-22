@@ -381,6 +381,7 @@ def run_distillation(
     limit: int = 300,
     max_pairs: int | None = None,
     val_fraction: float = 0.1,
+    exclude: set[str] | None = None,
 ) -> dict:
     """FLYWHEEL, ponta a ponta (M25.2): banco → professor rotula → dataset.
 
@@ -389,8 +390,14 @@ def run_distillation(
     distribuição de inferência, (3) grava no formato do fine-tune. Devolve o
     `meta` com um resumo (quantas entradas viraram quantos pares). O TREINO em
     si é o `train.py` apontado para `out_dir` — de propósito um passo à parte,
-    para rodar de madrugada (M25.3) sem segurar este processo."""
+    para rodar de madrugada (M25.3) sem segurar este processo.
+
+    `exclude` tira entradas do treino — é como o conjunto de avaliação do
+    portão fica HELD-OUT de verdade (senão o candidato é medido nas mesmas
+    mensagens em que treinou, e a taxa de aceitação sai inflada)."""
     inputs = source_title_inputs(db, limit=limit)
+    if exclude:
+        inputs = [i for i in inputs if i not in exclude]
     if not inputs:
         raise ValueError("sem entradas no banco para destilar — converse com o A.P.O.L.O. primeiro")
     teacher = teacher_fn or make_llm_teacher()
