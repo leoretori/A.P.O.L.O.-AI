@@ -436,6 +436,14 @@ python -m src.nanollm.eval --ckpt data/nanollm/ckpt --data data/nanollm
 python -m src.nanollm.title_eval --ckpt data/nanollm/ckpt
 ```
 
+**Amostragem e arquitetura** (2026-07-22): `_sample` tem penalidade de repetição (só sobre os
+tokens GERADOS — as tarefas do Nano precisam reusar palavras do prompt), top-p e stop-strings,
+tudo **desligado por padrão** porque a medição (16 mensagens reais × 5 seeds) mostrou ganho de
+FORMA mas nenhum ganho no portão — ligue com `NANO_REPEAT_PENALTY`/`NANO_TOP_P`. Pré-treinos
+novos nascem com **weight tying** (`lm_head` reusa `wte`): 23% dos parâmetros do v1 liberados
+sem tirar nada do modelo (`--no-tie-weights` desliga; checkpoints existentes não são
+reinterpretados). O split de validação é **por documento sorteado**, não a cauda do corpus.
+
 **Como o Nano é promovido** (`flywheel.py`, revisado em 2026-07-22 pela auditoria
 [`ERROS_E_FALHAS.md`](ERROS_E_FALHAS.md)): o ciclo noturno destila → treina um candidato → e só
 troca o checkpoint vivo se o candidato **vencer na tarefa** — taxa de aceitação do título

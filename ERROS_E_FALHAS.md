@@ -9,15 +9,36 @@
 > Este documento é a lista de trabalho: cada item tem checkbox. Marcar só depois do fix + teste
 > de regressão. Ordenado por gravidade.
 
-## Andamento (2026-07-22)
+## ✅ Andamento — TODOS OS 28 ITENS FECHADOS (2026-07-22)
 
-**Fase 0 do [PLANO_MELHORIA_GIGANTE_LLM.md](PLANO_MELHORIA_GIGANTE_LLM.md) fechada** — os
-críticos E1→E4→E2→E5→E6→E8 corrigidos na ordem sugerida, cada um com teste que exercita o
-caminho REAL (E28), suíte 1731→1765 verde. Foram junto, por dependência direta: **E1b** e
-**E12** (mesma função do E1), **E11** e **E20** (mesma reescrita do E2), **E7** (a ordem do
-`freeze_questions` piorava com o E5).
+Branch `claude/llm-improvement-error-fixes-ef871c`. Suíte **1731 → 1823 testes, verde**.
 
-Ainda abertos: E9, E10, E13–E19, E21–E27.
+1. **Fase 0** (ordem sugerida no plano): E1 → E4 → E2 → E5 → E6 → E8, mais os que vieram
+   por dependência direta: E1b/E12 (mesma função do E1), E11/E20 (mesma reescrita do E2),
+   E7 (a ordem do `freeze_questions` piorava com o E5).
+2. **Restante**: E3, E13, E15 (arquitetura/amostragem), E14/E25/E27 (dados e tokenizer),
+   E16–E19/E21/E26 (higiene do pipeline), E9/E10/E22–E24 (learner e destilação).
+3. **E28** (cobertura): cumprido item a item — cada fix entrou com teste do caminho REAL, e os
+   principais foram verificados reintroduzindo o bug para ver o teste falhar. O arquivo
+   `tests/test_nanollm_flywheel_real.py` existe só para isso: rodar o ciclo SEM fakes de medição.
+
+**Medições honestas feitas no caminho** (não são só refactors):
+
+| O quê | Antes | Depois |
+|---|---|---|
+| Prompt de ~1400 chars no ckpt vivo | 0 tokens, texto `''` | 50 tokens, `truncated: true` |
+| `gate_accept` do ckpt_v1 (métrica que decide) | não existia | **6,2% (1/16)** — a régua nova |
+| Weight tying na config real do v1 | 3,39M params | 2,61M (**23% liberados**) |
+| top_p=0,95 na tarefa de título (n=80) | forma 67,5% | forma 76,2%, **relevância ~0% nos dois** |
+
+O último explica por que a amostragem nova entrou **desligada** por padrão: melhora a forma,
+não move o portão. A regra do projeto vale para os fixes também — nada é ligado sem medição
+a favor.
+
+**O que isto NÃO resolve:** o banco real tem **16** primeiras-mensagens válidas. Os portões
+honestos (60 perguntas congeladas, 50 pares, 20 itens de held-out) vão PULAR os ciclos
+noturnos, registrando o motivo, até o volume chegar. Isso é a Fase 2 do plano (dados), não um
+erro pendente.
 
 ---
 
@@ -176,7 +197,7 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - ✅ **E25** [src/nanollm/tokenizer.py:144](src/nanollm/tokenizer.py) — `decode` ignora ids desconhecidos silenciosamente (`b""`). Bom para robustez, ruim para debug: um bug de vocab viraria texto "encolhido" sem sinal. Logar em debug.
 - ✅ **E26** [src/nanollm/distill.py:41](src/nanollm/distill.py) — `MAX_INPUT_CHARS=300` no treino, mas o blind-eval pergunta com o texto INTEIRO — leve descasamento treino/inferência (o mesmo pecado que o M14.2 diagnosticou).
 - ✅ **E27** [src/nanollm/data.py:110](src/nanollm/data.py) — `rng.integers(0, len-block-1)` nunca sorteia a última janela válida (off-by-one inofensivo).
-- **E28** — a suíte (1731 testes) não cobre NENHUM dos erros críticos acima: todos os caminhos reais (`_default_eval`, `_default_answer_blind_eval`, prompt longo no engine, resume+freeze) são substituídos por fakes nos testes. Cada fix deve entrar com teste que exercite o caminho REAL (mini-checkpoint de verdade, sem LLM).
+- ✅ **E28** — RESOLVIDO item a item: cada fix entrou com teste do caminho REAL (mini-checkpoint de verdade, sem LLM), e os principais foram validados reintroduzindo o bug para ver o teste falhar. `tests/test_nanollm_flywheel_real.py` roda o ciclo inteiro sem nenhum fake de medição. Suíte 1731 → 1823.
 
 ---
 
