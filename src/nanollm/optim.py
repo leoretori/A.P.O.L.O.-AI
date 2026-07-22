@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
 
 import numpy as np
 
 from src.nanollm.layers import Param
+
+logger = logging.getLogger("apolo.nano.optim")
 
 
 def clip_grad_norm(params: list[Param], max_norm: float) -> float:
@@ -74,9 +77,32 @@ class Adam:
             arrays[f"v::{name}"] = arr
         np.savez_compressed(path, **arrays)
 
-    def load(self, path: str | Path) -> None:
+    def load(self, path: str | Path) -> int:
+        """Restaura o estado do otimizador. Devolve quantos params ficaram SEM
+        estado salvo (momento zerado — começam como se fossem novos).
+
+        Tolerar ausência é o que permite retomar um run cujo conjunto de params
+        treináveis mudou (ex.: `--freeze-blocks` diferente da rodada anterior):
+        antes isso levantava `KeyError: 'm::wte.w is not a file in the archive'`
+        e matava a retomada (E3). Zerar o momento de um param novo é
+        exatamente o que o Adam faz para qualquer param no passo 0."""
+        faltando: list[str] = []
         with np.load(path) as data:
             self.t = int(data["__t__"][0])
             for p in self.params:
-                self.m[p.name][...] = data[f"m::{p.name}"]
-                self.v[p.name][...] = data[f"v::{p.name}"]
+                mk, vk = f"m::{p.name}", f"v::{p.name}"
+                if mk not in data or vk not in data:
+                    faltando.append(p.name)
+                    continue
+                if data[mk].shape != p.data.shape:
+                    faltando.append(p.name)
+                    continue
+                self.m[p.name][...] = data[mk]
+                self.v[p.name][...] = data[vk]
+        if faltando:
+            logger.warning(
+                f"[optim] {len(faltando)} param(s) sem estado no {Path(path).name} "
+                f"— momento zerado para: {', '.join(faltando[:5])}"
+                f"{'…' if len(faltando) > 5 else ''}. Normal se o conjunto treinável "
+                f"mudou (--freeze-blocks) entre as rodadas.")
+        return len(faltando)

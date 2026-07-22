@@ -96,11 +96,12 @@ def train(args: argparse.Namespace) -> dict:
     optim_path = out / "optim.npz"
     state_path = out / "state.json"
 
+    resumed_state: dict = {}
     if args.resume and ckpt_path.exists():
         model = GPT.load(ckpt_path)
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        start_step = state["step"]
-        best_val = state.get("best_val", float("inf"))
+        resumed_state = json.loads(state_path.read_text(encoding="utf-8"))
+        start_step = resumed_state["step"]
+        best_val = resumed_state.get("best_val", float("inf"))
         print(f"retomando do passo {start_step} (val {best_val:.4f})")
     elif args.init_from:
         # Fine-tune: parte dos PESOS de outro checkpoint, mas com run NOVO
@@ -130,6 +131,10 @@ def train(args: argparse.Namespace) -> dict:
             n_embd=preset["n_embd"],
             seed=args.seed,
             pos_encoding=getattr(args, "pos_encoding", "learned"),
+            # E15: pré-treino NOVO nasce amarrado (a cabeça reusa `wte`) — libera
+            # ~23% dos params do v1 para investir em camada/contexto. Não afeta
+            # `--resume` nem `--init-from`: nesses a config vem do checkpoint.
+            tie_weights=getattr(args, "tie_weights", True),
         )
         model = GPT(config)
         start_step = 0
@@ -140,14 +145,33 @@ def train(args: argparse.Namespace) -> dict:
             shutil.copy(tok_src, out / "tokenizer.json")
 
     freeze_blocks = getattr(args, "freeze_blocks", 0)
+    # E3: o `optim.npz` só guarda o estado dos params TREINÁVEIS. Retomar com um
+    # `--freeze-blocks` diferente do da rodada anterior levantava KeyError e
+    # matava a retomada. O valor usado fica no state.json e MANDA no resume — o
+    # otimizador salvo casa com ele; a flag divergente só vira aviso.
+    if resumed_state and "freeze_blocks" in resumed_state:
+        salvo = int(resumed_state["freeze_blocks"])
+        if salvo != freeze_blocks:
+            print(f"⚠️ --freeze-blocks={freeze_blocks} diverge do run retomado "
+                  f"({salvo}) — seguindo com {salvo} para casar com o otimizador "
+                  f"salvo. Para mudar o congelamento, comece um run novo "
+                  f"(--init-from em vez de --resume).")
+        freeze_blocks = salvo
+
     trainable = select_trainable(model.params(), freeze_blocks)
     optim = Adam(trainable, lr=args.lr, weight_decay=args.weight_decay)
     if args.resume and optim_path.exists():
         optim.load(optim_path)
 
-    print(f"modelo: {model.num_params / 1e6:.2f}M params | "
+    print(f"modelo: {model.num_params / 1e6:.2f}M params"
+          f"{' (lm_head amarrado a wte)' if model.tie_weights else ''} | "
           f"corpus: {len(train_tokens):,} tokens | batch {batch_size} | "
           f"contexto {model.config.block_size}")
+    if freeze_blocks > 0 and model.tie_weights:
+        print("⚠️ modelo AMARRADO (E15): congelar `wte` congela também a cabeça de "
+              "saída — é o mesmo peso. O fine-tune parcial vai ajustar só os "
+              "blocos finais + ln_f. Use --no-tie-weights no pré-treino se quiser "
+              "adaptar a cabeça separadamente.")
     if freeze_blocks > 0:
         n_treinaveis = sum(p.data.size for p in trainable)
         print(f"fine-tune PARCIAL: {freeze_blocks} blocos + embeddings congelados | "
@@ -198,7 +222,8 @@ def train(args: argparse.Namespace) -> dict:
             else:
                 evals_no_improve += 1
             state_path.write_text(
-                json.dumps({"step": step + 1, "best_val": best_val, "last_val": val}),
+                json.dumps({"step": step + 1, "best_val": best_val, "last_val": val,
+                            "freeze_blocks": freeze_blocks}),
                 encoding="utf-8",
             )
             t_last = time.time()
@@ -229,6 +254,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=1337)
     ap.add_argument("--pos-encoding", choices=["learned", "alibi"], default="learned",
                     help="alibi: sem tabela de posição, generaliza a contexto maior (P1.5)")
+    ap.add_argument("--no-tie-weights", dest="tie_weights", action="store_false",
+                    help="não amarrar lm_head a wte (E15) — o padrão AMARRA, o que "
+                         "libera ~23%% dos params do v1 sem tirar nada do modelo")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--init-from", default=None,
                     help="fine-tune: warm-start dos pesos deste checkpoint (run novo)")

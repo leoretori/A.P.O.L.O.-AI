@@ -47,7 +47,7 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **Fix:** (a) fatiar pelo tamanho REAL pós-truncagem (devolver `prompt_tokens_used` do `generate_fast`); (b) janela deslizante de verdade: quando o cache enche, re-prefill com a janela recente (custo O(T) a cada `block_size` tokens) em vez de `break`.
 
 ### E3 — `--resume` + `--freeze-blocks`: retomada quebra com KeyError ✅ CONFIRMADO
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/train.py:142-146](src/nanollm/train.py) + [src/nanollm/optim.py:77-82](src/nanollm/optim.py)
 - **O quê:** o `optim.npz` só guarda estado dos params **treináveis**. Retomar um run congelado sem repassar exatamente o mesmo `--freeze-blocks` (ou vice-versa) → `KeyError: 'm::wte.w is not a file in the archive'`.
 - **Prova:** reproduzido em sonda (Adam com freeze=1 salvo, load com freeze=0 → KeyError).
@@ -118,7 +118,7 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 ## 🟡 MÉDIOS
 
 ### E13 — `NanoEngine` gera sem penalidade de repetição nem top-p nem stop-strings
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/model.py:189-199](src/nanollm/model.py) (`_sample`: só temperatura + top-k)
 - **O quê:** modelo pequeno degenera em loop (o próprio projeto mediu: "gcloud components install ×132" no llama.cpp; a amostra real do Nano repetiu "engenheiro sênior" 2× em 50 tokens). O motor llama.cpp ganhou `repeat_penalty` configurável; o Nano, que é MENOR e degenera MAIS, não tem nada.
 - **Fix:** repetition penalty simples no `_sample` (dividir logits dos tokens já gerados), top-p, e stop-sequences por string (ex.: parar em `"Pergunta:"`).
@@ -130,7 +130,7 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **Fix:** split por DOCUMENTO sorteado com semente fixa; sample do tokenizer também amostrado por documento.
 
 ### E15 — ~62% dos parâmetros do Nano são embedding+head duplicados (sem weight tying)
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/model.py:44-52](src/nanollm/model.py)
 - **O quê:** no ckpt de 3,39M: `wte` 4096×256 = 1,05M **e** `lm_head` 256×4096 = 1,05M. GPT-2 e todos os modelos pequenos modernos amarram os dois (mesma matriz). Sem tying, um terço dos parâmetros é redundante — num modelo em que cada parâmetro conta.
 - **Fix:** `lm_head.w = wte.w.T` (compartilhar o buffer; backward acumula nos dois papéis). Ganha ~31% de parâmetros de graça para camadas/contexto.

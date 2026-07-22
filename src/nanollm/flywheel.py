@@ -347,7 +347,10 @@ def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
         return {"status": "skipped", "reason": f"sem checkpoint em {ckpt_dir}"}
 
     def nano_fn(q: str) -> str:
-        out = engine.complete(f"Pergunta: {q}\n\nResposta:", max_tokens=max_tokens).get("text", "")
+        # stop em "Pergunta:" (E13): o modelo base tende a emendar uma pergunta
+        # nova depois da resposta — o juiz não deve ver esse rabicho.
+        out = engine.complete(f"Pergunta: {q}\n\nResposta:", max_tokens=max_tokens,
+                              stop=["Pergunta:", "\nP:"]).get("text", "")
         return first_answer_block(out)
 
     teacher = cached_teacher(make_llm_teacher(max_tokens=max_tokens), teacher_cache)

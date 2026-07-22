@@ -303,3 +303,60 @@ def test_finetune_init_from_warm_start(tmp_path):
     assert trained.config.n_embd == 32  # config veio dos PESOS, não do preset nano(128)
     assert not np.array_equal(trained.wte.w.data, w0)  # treinou (pesos mudaram)
     assert PRESETS["nano"]["n_embd"] == 128  # sanidade: o preset seria outro
+
+
+# ── E3: retomar um run congelado não pode quebrar ────────────────────────
+def test_resume_com_freeze_blocks_diferente_nao_quebra(tmp_path, capsys):
+    """O `optim.npz` só guarda o estado dos params TREINÁVEIS: retomar com
+    outro `--freeze-blocks` levantava KeyError e matava a retomada (E3)."""
+    from src.nanollm.train import train
+
+    args = _tiny_run_args(tmp_path, steps=4, eval_every=2, freeze_blocks=1)
+    train(args)
+
+    # retomada com a flag DIVERGENTE (o caso que crashava)
+    retomada = _tiny_run_args(tmp_path, steps=8, eval_every=2, freeze_blocks=0,
+                              resume=True)
+    res = train(retomada)
+    assert res["step"] == 8
+    assert "diverge do run retomado" in capsys.readouterr().out
+
+    import json as _json
+    state = _json.loads((tmp_path / "ckpt" / "state.json").read_text(encoding="utf-8"))
+    assert state["freeze_blocks"] == 1        # manda o do run, não o da flag
+
+
+def test_resume_sem_freeze_no_state_antigo_continua_funcionando(tmp_path):
+    """Checkpoint gravado ANTES do E3 não tem `freeze_blocks` no state.json."""
+    from src.nanollm.train import train
+
+    train(_tiny_run_args(tmp_path, steps=4, eval_every=2))
+    import json as _json
+    sp = tmp_path / "ckpt" / "state.json"
+    state = _json.loads(sp.read_text(encoding="utf-8"))
+    state.pop("freeze_blocks", None)                  # simula o formato antigo
+    sp.write_text(_json.dumps(state), encoding="utf-8")
+
+    res = train(_tiny_run_args(tmp_path, steps=8, eval_every=2, resume=True))
+    assert res["step"] == 8
+
+
+def test_adam_load_tolera_param_sem_estado(tmp_path, caplog):
+    """`Adam.load` zera o momento do que faltar, com aviso — em vez de KeyError."""
+    from src.nanollm.layers import Param
+    from src.nanollm.optim import Adam
+
+    a = Param("so_esse", np.zeros((2, 2)))
+    b = Param("param_novo", np.zeros((2, 2)))
+    salvo = Adam([a])
+    salvo.m["so_esse"][...] = 7.0
+    salvo.t = 42
+    salvo.save(tmp_path / "optim.npz")
+
+    carregado = Adam([a, b])
+    with caplog.at_level("WARNING"):
+        faltando = carregado.load(tmp_path / "optim.npz")
+    assert faltando == 1 and carregado.t == 42
+    assert carregado.m["so_esse"][0, 0] == 7.0
+    assert carregado.m["param_novo"].sum() == 0.0
+    assert any("param_novo" in r.message for r in caplog.records)

@@ -37,6 +37,13 @@ class GPTConfig:
     # tabela de posição, então o mesmo checkpoint funciona em qualquer T,
     # inclusive T > block_size de treino (P1.5 do PLANO_7_PILARES.md).
     pos_encoding: str = "learned"
+    # Weight tying (E15): a cabeça de saída REUSA a matriz de embedding
+    # (lm_head.w = wte.wᵀ). No v1 de 3,39M, `wte` e `lm_head.w` eram 1,05M cada
+    # — um terço dos parâmetros duplicado. GPT-2, Pythia e SmolLM amarram os
+    # dois. Default False para NÃO reinterpretar checkpoints antigos (que têm
+    # as duas matrizes de verdade); `load()` detecta pelo arquivo, e o treino
+    # novo liga por padrão (`--tie-weights`).
+    tie_weights: bool = False
 
 
 class GPT(Module):
@@ -55,6 +62,14 @@ class GPT(Module):
         ]
         self.ln_f = LayerNorm("ln_f", c.n_embd, dtype=c.dtype)
         self.lm_head = Linear("lm_head", c.n_embd, c.vocab_size, rng, dtype=c.dtype)
+        # E15: com tying, a matriz da cabeça é uma VISTA transposta de `wte` —
+        # os dois papéis leem o MESMO buffer, e o Adam atualiza in-place
+        # (`p.data -= …`), então a vista nunca desanda. `params()` devolve o
+        # peso uma vez só (senão levaria dois updates por passo) e o `backward`
+        # soma o gradiente do papel de saída no de embedding.
+        self.tie_weights = bool(getattr(c, "tie_weights", False))
+        if self.tie_weights:
+            self.lm_head.w.data = self.wte.w.data.T
         # caches p/ backward
         self._probs: np.ndarray | None = None
         self._targets: np.ndarray | None = None
@@ -65,7 +80,9 @@ class GPT(Module):
         out = self.wte.params() + ([self.wpe] if self.wpe is not None else [])
         for b in self.blocks:
             out += b.params()
-        return out + self.ln_f.params() + self.lm_head.params()
+        head = [p for p in self.lm_head.params()
+                if not (self.tie_weights and p is self.lm_head.w)]
+        return out + self.ln_f.params() + head
 
     @property
     def num_params(self) -> int:
@@ -113,6 +130,11 @@ class GPT(Module):
         dlogits /= n
 
         dx = self.lm_head.backward(dlogits)
+        if self.tie_weights:
+            # o MESMO peso serviu como embedding e como cabeça: o gradiente dos
+            # dois papéis soma (é o que torna o tying correto, não só barato).
+            self.wte.w.grad += self.lm_head.w.grad.T
+            self.lm_head.w.grad[...] = 0.0
         dx = self.ln_f.backward(dx)
         for block in reversed(self.blocks):
             dx = block.backward(dx)
@@ -131,13 +153,20 @@ class GPT(Module):
         top_k: int = 40,
         rng: np.random.Generator | None = None,
         stop_id: int | None = None,
+        top_p: float = 0.0,
+        repeat_penalty: float = 1.0,
+        repeat_window: int = 64,
     ) -> np.ndarray:
         """Amostragem autoregressiva. idx (B,T) → (B, T+n)."""
         rng = rng or np.random.default_rng()
+        n_prompt = idx.shape[1]
         for _ in range(max_new_tokens):
             ctx = idx if self.wpe is None else idx[:, -self.config.block_size :]
             logits, _ = self.forward(ctx)
-            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype)
+            gerados = idx[:, n_prompt:][:, -repeat_window:]
+            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype,
+                               top_p=top_p, repeat_penalty=repeat_penalty,
+                               recent=gerados)
             idx = np.concatenate([idx, nxt], axis=1)
             if stop_id is not None and bool((nxt == stop_id).all()):
                 break
@@ -195,6 +224,9 @@ class GPT(Module):
         rng: np.random.Generator | None = None,
         stop_id: int | None = None,
         max_context: int | None = None,
+        top_p: float = 0.0,
+        repeat_penalty: float = 1.0,
+        repeat_window: int = 64,
     ) -> np.ndarray:
         """Igual a generate(), mas O(T) por token via KV cache.
 
@@ -217,7 +249,11 @@ class GPT(Module):
 
         logits = self._prefill(window)
         for _ in range(max_new_tokens):
-            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, window.dtype)
+            recent = (np.concatenate(gerados[-repeat_window:], axis=1)
+                      if gerados else None)     # só o que ESTE modelo gerou
+            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, window.dtype,
+                               top_p=top_p, repeat_penalty=repeat_penalty,
+                               recent=recent)
             window = np.concatenate([window, nxt], axis=1)
             gerados.append(nxt)
             if stop_id is not None and bool((nxt == stop_id).all()):
@@ -233,11 +269,44 @@ class GPT(Module):
 
     @staticmethod
     def _sample(logits: np.ndarray, temperature: float, top_k: int,
-                rng: np.random.Generator, dtype) -> np.ndarray:
+                rng: np.random.Generator, dtype, *,
+                top_p: float = 0.0, repeat_penalty: float = 1.0,
+                recent: np.ndarray | None = None) -> np.ndarray:
+        """Amostra o próximo token (B,1).
+
+        Além de temperatura + top-k, o modo de falha nº 1 de modelo pequeno
+        (E13): degenerar em loop. Contramedidas, na ordem do llama.cpp —
+        1. **repeat_penalty**: logit de token já emitido em `recent` é dividido
+           por `repeat_penalty` se positivo, multiplicado se negativo (assim
+           penaliza nos dois sinais). `recent` são os tokens GERADOS, nunca os
+           do prompt: as tarefas do Nano completam um padrão que precisa REUSAR
+           palavras do prompt (é literalmente o que `title_relevant` exige) —
+           medido no ckpt vivo, penalizar o prompt derrubou o gate_accept;
+        2. **top_p** (nucleus): mantém só o menor conjunto de tokens cuja massa
+           acumulada chega a `top_p` — corta a cauda longa de lixo;
+        3. **top_k** como já era.
+        """
+        logits = logits.astype(np.float64, copy=True)
+        if repeat_penalty and repeat_penalty != 1.0 and recent is not None and recent.size:
+            for b in range(logits.shape[0]):
+                ids = np.unique(recent[b]) if recent.ndim > 1 else np.unique(recent)
+                ids = ids[(ids >= 0) & (ids < logits.shape[-1])]
+                vals = logits[b, ids]
+                logits[b, ids] = np.where(vals > 0, vals / repeat_penalty,
+                                          vals * repeat_penalty)
         logits = logits / max(temperature, 1e-6)
         if top_k and top_k < logits.shape[-1]:
             kth = np.partition(logits, -top_k, axis=-1)[:, [-top_k]]
             logits = np.where(logits < kth, -np.inf, logits)
+        if 0.0 < top_p < 1.0:
+            probs = softmax(logits)
+            ordem = np.argsort(-probs, axis=-1)
+            acum = np.cumsum(np.take_along_axis(probs, ordem, axis=-1), axis=-1)
+            # mantém o 1º token que cruza o limiar (nunca zera a linha inteira)
+            corta = acum - np.take_along_axis(probs, ordem, axis=-1) >= top_p
+            fora = np.zeros_like(corta)
+            np.put_along_axis(fora, ordem, corta, axis=-1)
+            logits = np.where(fora, -np.inf, logits)
         probs = softmax(logits)
         return np.array(
             [rng.choice(probs.shape[-1], p=row) for row in probs], dtype=dtype
@@ -278,6 +347,11 @@ class GPT(Module):
         with np.load(path) as data:
             cfg_json = bytes(data["__config__"]).decode("utf-8")
             config = GPTConfig(**json.loads(cfg_json))
+            # Quem manda sobre o tying é o ARQUIVO, não a config: checkpoint com
+            # `lm_head.w` próprio tem duas matrizes de verdade e amarrá-las
+            # jogaria fora a cabeça treinada, em silêncio. Checkpoints anteriores
+            # ao E15 nem têm a chave `tie_weights` na config.
+            config.tie_weights = not ("lm_head.w" in data or "lm_head.w.q8" in data)
             model = cls(config)
             for p in model.params():
                 qkey = f"{p.name}.q8"
