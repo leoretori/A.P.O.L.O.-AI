@@ -13,9 +13,12 @@ merge — viável em Python puro para amostras de alguns MB.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+
+logger = logging.getLogger("apolo.nano.tokenizer")
 
 # Palavra com (no máximo um) espaço à esquerda, ou sobra de whitespace.
 _CHUNK_RE = re.compile(r" ?\S+|\s+")
@@ -141,8 +144,24 @@ class ByteBPETokenizer:
         return seq
 
     def decode(self, ids: list[int]) -> str:
-        data = b"".join(self._vocab_bytes.get(int(i), b"") for i in ids)
-        return data.decode("utf-8", errors="replace")
+        """ids → texto. Id fora do vocabulário vira nada (robusto por escolha),
+        mas AVISA no log: sem isso, um bug de vocab (modelo e tokenizer
+        dessincronizados, por exemplo) viraria só um texto "encolhido", sem
+        nenhum sinal de que algo estava errado (E25)."""
+        pedacos = []
+        desconhecidos = 0
+        for i in ids:
+            b = self._vocab_bytes.get(int(i))
+            if b is None:
+                desconhecidos += 1
+                continue
+            pedacos.append(b)
+        if desconhecidos:
+            logger.warning(
+                f"[tokenizer] decode ignorou {desconhecidos}/{len(ids)} id(s) fora do "
+                f"vocabulário (tamanho {self.vocab_size}) — modelo e tokenizer podem "
+                f"estar dessincronizados")
+        return b"".join(pedacos).decode("utf-8", errors="replace")
 
     # ------------------------------------------------------- persistência
     def save(self, path: str | Path) -> None:

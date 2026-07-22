@@ -124,7 +124,7 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **Fix:** repetition penalty simples no `_sample` (dividir logits dos tokens já gerados), top-p, e stop-sequences por string (ex.: parar em `"Pergunta:"`).
 
 ### E14 — Split de validação do pré-treino é a CAUDA do corpus em ordem alfabética de arquivo
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/data.py:80-82](src/nanollm/data.py) + [src/nanollm/data.py:34](src/nanollm/data.py) (`sorted(root.rglob)`)
 - **O quê:** o val é os últimos 2% dos tokens = o fim do último arquivo em ordem alfabética (uma fonte só, distribuição diferente do treino). O `best_val`/early-stop otimizam contra um val enviesado. O sample do tokenizer também é "os primeiros 2M chars" da mesma ordenação.
 - **Fix:** split por DOCUMENTO sorteado com semente fixa; sample do tokenizer também amostrado por documento.
@@ -173,9 +173,9 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **E22** [src/learner.py:786-809](src/learner.py) — `learn_from_web` incrementa `_saved_count` mas não dispara o gatilho de síntese (`% SYNTHESIS_EVERY`) — pode pular um marco de síntese.
 - **E23** [src/learner.py:281-305](src/learner.py) — `study_now` não passa pelo dedup in-flight (`_reserve`) nem incrementa `_saved_count`; dois cliques rápidos estudam o mesmo tópico 2×.
 - **E24** [src/learner.py:212-222](src/learner.py) — `_already_known`/`is_topic_studied` são chamadas SQLite **síncronas** dentro do event loop (fetchers). Latência pequena, mas é o único lugar do pipeline que fura o padrão `asyncio.to_thread`.
-- **E25** [src/nanollm/tokenizer.py:144](src/nanollm/tokenizer.py) — `decode` ignora ids desconhecidos silenciosamente (`b""`). Bom para robustez, ruim para debug: um bug de vocab viraria texto "encolhido" sem sinal. Logar em debug.
+- ✅ **E25** [src/nanollm/tokenizer.py:144](src/nanollm/tokenizer.py) — `decode` ignora ids desconhecidos silenciosamente (`b""`). Bom para robustez, ruim para debug: um bug de vocab viraria texto "encolhido" sem sinal. Logar em debug.
 - **E26** [src/nanollm/distill.py:41](src/nanollm/distill.py) — `MAX_INPUT_CHARS=300` no treino, mas o blind-eval pergunta com o texto INTEIRO — leve descasamento treino/inferência (o mesmo pecado que o M14.2 diagnosticou).
-- **E27** [src/nanollm/data.py:110](src/nanollm/data.py) — `rng.integers(0, len-block-1)` nunca sorteia a última janela válida (off-by-one inofensivo).
+- ✅ **E27** [src/nanollm/data.py:110](src/nanollm/data.py) — `rng.integers(0, len-block-1)` nunca sorteia a última janela válida (off-by-one inofensivo).
 - **E28** — a suíte (1731 testes) não cobre NENHUM dos erros críticos acima: todos os caminhos reais (`_default_eval`, `_default_answer_blind_eval`, prompt longo no engine, resume+freeze) são substituídos por fakes nos testes. Cada fix deve entrar com teste que exercite o caminho REAL (mini-checkpoint de verdade, sem LLM).
 
 ---
