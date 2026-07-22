@@ -155,7 +155,11 @@ FLYWHEEL_HOUR = int(os.getenv("FLYWHEEL_HOUR", 3))
 FLYWHEEL_STEPS = int(os.getenv("FLYWHEEL_STEPS", 400))
 # Piso de pares pro treino valer a pena (2026-07-15): 12 supõe volume que o Leo
 # ainda não tem — configurável pra destravar o ciclo com o corpus real de hoje.
-FLYWHEEL_MIN_PAIRS = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
+# E16: um piso ÚNICO, definido em src/nanollm/flywheel.py (DEFAULT_MIN_PAIRS,
+# ajustável por FLYWHEEL_MIN_PAIRS). O 5 daqui divergia do 12 da lib: treinar
+# 400 passos com 5 pares é overfit garantido.
+from src.nanollm.flywheel import default_min_pairs
+FLYWHEEL_MIN_PAIRS = default_min_pairs()
 _last_flywheel_date = None
 
 # Flywheel de RESPOSTA (item 2 do PLANO_FLYWHEEL_AUTOMATICO.md): DELIBERADAMENTE
@@ -165,7 +169,7 @@ _last_flywheel_date = None
 # automática (nunca starta do zero a cada noite). -1 desliga.
 ANSWER_FLYWHEEL_HOUR = int(os.getenv("ANSWER_FLYWHEEL_HOUR", 3))
 ANSWER_FLYWHEEL_STEPS = int(os.getenv("ANSWER_FLYWHEEL_STEPS", 2000))
-ANSWER_FLYWHEEL_MIN_PAIRS = int(os.getenv("ANSWER_FLYWHEEL_MIN_PAIRS", 50))
+ANSWER_FLYWHEEL_MIN_PAIRS = int(os.getenv("ANSWER_FLYWHEEL_MIN_PAIRS", FLYWHEEL_MIN_PAIRS))
 ANSWER_FLYWHEEL_MIN_GROWTH = int(os.getenv("ANSWER_FLYWHEEL_MIN_GROWTH", 200))
 # Portão estatístico (E5): promoção exige delta pareado improvável ao acaso
 # (p ≤ α) num conjunto congelado de pelo menos ANSWER_FLYWHEEL_MIN_QUESTIONS

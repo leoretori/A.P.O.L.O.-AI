@@ -28,6 +28,9 @@ from src.nanollm.taskdata import (
     _valid_title,
     _write_tokenized,
 )
+# Um número só para treino e inferência (E26): o corte da entrada mora no lado
+# do produto (`tasks.py`), que é quem monta o prompt de verdade.
+from src.nanollm.tasks import MAX_INPUT_CHARS  # noqa: F401 (re-export histórico)
 
 logger = logging.getLogger("apolo.nano.distill")
 
@@ -38,7 +41,6 @@ TITLE_TEACHER_PROMPT = (
     "conversa que começa com esta mensagem do usuário:\n\n{input}\n\nTítulo:"
 )
 
-MAX_INPUT_CHARS = 300
 
 
 def generate_distill_pairs(
@@ -209,6 +211,20 @@ def _parse_qa(text: str) -> tuple[str | None, str | None]:
             a.group(1).strip() if a else None)
 
 
+def is_meta_item(item: dict) -> bool:
+    """O item é META-informação sobre o processo, não conhecimento? (E18)
+
+    As "Síntese #N" (cruzamentos de domínio que o próprio Apolo escreve) viravam
+    pares Q&A "ancorados" com perguntas artificiais sobre um documento interno —
+    e entravam no prompt do auto-currículo. A clusterização do learner já
+    filtrava (`learner_synthesis.py`); a destilação, não. Mesma regra nos dois:
+    categoria `synthesis` ou tópico que começa com "Síntese"."""
+    if (item.get("category") or "").strip().lower() == "synthesis":
+        return True
+    topico = (item.get("topic") or "").strip().lower()
+    return topico.startswith("síntese") or topico.startswith("sintese")
+
+
 def _stratify_by_sector(history: list[dict], max_per_sector: int) -> list[dict]:
     """Teto de `max_per_sector` itens por setor (via `classify_sector`), preservando
     a ordem original dentro de cada setor. Achado real (PLANO_CORPUS_DIVERSO.md): um
@@ -244,7 +260,7 @@ def source_knowledge_grounded_pairs(
     `max_per_sector`, se dado, estratifica por setor ANTES de chamar o professor
     (economiza chamadas também) — sem isso, "as primeiras N sínteses" pode ficar
     dominado por 1-2 setores (medido: ~80% num caso real)."""
-    history = db.get_learning_history(limit=limit)
+    history = [h for h in db.get_learning_history(limit=limit) if not is_meta_item(h)]
     if max_per_sector:
         history = _stratify_by_sector(history, max_per_sector)
     pairs: list[tuple[str, str]] = []

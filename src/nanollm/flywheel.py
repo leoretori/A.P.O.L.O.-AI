@@ -31,6 +31,17 @@ from src.nanollm.distill import make_llm_teacher, run_distillation, run_reaction
 logger = logging.getLogger("apolo.nano.flywheel")
 
 DEFAULT_WORK_ROOT = "data/nano/flywheel"
+# Piso ÚNICO de pares para treinar (E16). Antes o scheduler noturno usava 5, a
+# lib 12 e a rota outro valor conforme o caminho — 400 passos com 5 pares é
+# overfit garantido, e ainda alimentava o val minúsculo do E1b. Um número só,
+# aqui, usado por app/rota/CLI; `FLYWHEEL_MIN_PAIRS` no ambiente ajusta (lido a
+# cada chamada, então mudar o .env não exige reiniciar).
+FALLBACK_MIN_PAIRS = 50
+
+
+def default_min_pairs() -> int:
+    """Piso de pares do projeto — o MESMO em todos os caminhos (E16)."""
+    return int(os.getenv("FLYWHEEL_MIN_PAIRS", FALLBACK_MIN_PAIRS))
 DEFAULT_ANSWER_DATASET = "data/nano/distill_answers"
 DEFAULT_BLIND_QUESTIONS = "data/nano/blind_eval_questions.json"
 DEFAULT_EXPERIMENT_LOG = "data/nano/experiment_history.jsonl"
@@ -140,7 +151,7 @@ def run_nightly_flywheel(
     train_fn: Callable[..., dict] | None = None,
     eval_fn: Callable[..., dict] | None = None,
     gate_fn: Callable[..., dict] | None = None,
-    min_pairs: int = 12,
+    min_pairs: int | None = None,
     min_val_tokens: int = 512,
     min_gate_items: int = 20,
     steps: int = 400,
@@ -171,6 +182,7 @@ def run_nightly_flywheel(
     `status`: "skipped" (pouco dado / sem titular), "rejected" (candidato não
     superou) ou "promoted". A decisão é sempre medida, nunca cega."""
     from src.nanollm.blind_eval import paired_sign_test
+    min_pairs = default_min_pairs() if min_pairs is None else min_pairs
     live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
     # A fonte entra no nome da pasta: duas rodadas na MESMA noite (título +
@@ -368,7 +380,7 @@ def run_answer_flywheel(
     work_root: str | Path = DEFAULT_WORK_ROOT,
     questions_path: str | Path = DEFAULT_BLIND_QUESTIONS,
     experiment_log_path: str | Path = DEFAULT_EXPERIMENT_LOG,
-    min_pairs: int = 50,
+    min_pairs: int | None = None,
     min_growth_pairs: int = 200,
     steps: int = 2000,
     lr: float = 2e-4,
@@ -397,6 +409,7 @@ def run_answer_flywheel(
     registrada no histórico de experimentos."""
     from src.nanollm.experiment_log import log_experiment, read_experiment_history
 
+    min_pairs = default_min_pairs() if min_pairs is None else min_pairs
     live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
     dataset = Path(dataset_dir)
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
@@ -496,7 +509,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--source", choices=("title", "reactions"), default="title",
                    help="title → o professor rotula; reactions → os 👍 do Leo já são o rótulo")
     p.add_argument("--steps", type=int, default=400, help="passos de treino do candidato")
-    p.add_argument("--min-pairs", type=int, default=12, help="mínimo de pares p/ treinar")
+    p.add_argument("--min-pairs", type=int, default=None,
+                   help="mínimo de pares p/ treinar (padrão único do projeto)")
     p.add_argument("--limit", type=int, default=300, help="máx. de conversas a destilar")
     p.add_argument("--seed", type=int, default=1337)
     args = p.parse_args(argv)

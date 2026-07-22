@@ -19,13 +19,19 @@ logger = logging.getLogger(__name__)
 TITLE_MAX_CHARS = 60
 TITLE_MAX_WORDS = 8
 
+# Quanto da mensagem do usuário entra no prompt — o MESMO número no treino
+# (destilação) e na inferência (E26). Estavam diferentes (300 na destilação,
+# 200 aqui, texto INTEIRO no blind-eval): é o mesmo pecado que o M14.2
+# diagnosticou — treinar numa distribuição e perguntar noutra.
+MAX_INPUT_CHARS = 300
+
 _MD_NOISE = re.compile(r"(#{2,}|\*\*|\||https?://|<[^>]+>|```)")
 _LETTER = re.compile(r"[a-zA-Zà-üÀ-Ü]")
 
 
 def title_prompt(message: str) -> str:
     """Formata a 1ª mensagem como contexto e pede a continuação 'Tópico:'."""
-    return f"{(message or '').strip()[:200]}\n\nTópico: "
+    return f"{(message or '').strip()[:MAX_INPUT_CHARS]}\n\nTópico: "
 
 
 def extract_title(completion: str) -> str:

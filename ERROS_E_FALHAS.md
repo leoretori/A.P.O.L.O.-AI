@@ -136,25 +136,25 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **Fix:** `lm_head.w = wte.w.T` (compartilhar o buffer; backward acumula nos dois papéis). Ganha ~31% de parâmetros de graça para camadas/contexto.
 
 ### E16 — `run_nightly_flywheel` ignora `min_pairs` divergente entre app (5) e lib (12)
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [app.py:158](app.py) (`FLYWHEEL_MIN_PAIRS=5`) vs [src/nanollm/flywheel.py:89](src/nanollm/flywheel.py) (`min_pairs=12`)
 - **O quê:** o scheduler noturno roda com 5 — treino de 400 passos com 5 pares é overfit garantido e alimenta o E1b (val minúsculo). CLI e rota usam 12/5 conforme o caminho.
 - **Fix:** um único default (sugerido ≥ 50), documentado.
 
 ### E17 — `first_user_messages`/`diagnose_pair_sourcing` carregam TODAS as mensagens de usuário na memória
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/storage_conversations.py:93-110](src/storage_conversations.py)
 - **O quê:** `query(...).all()` sem limite, chamado por flywheel/diagnóstico/blind-eval. Cresce linearmente com o uso do app para sempre.
 - **Fix:** window function (`ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp)`) ou subquery `MIN(id)` por sessão, com `LIMIT`.
 
 ### E18 — Fontes destiladas incluem as "Síntese #N" como se fossem tópicos
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/distill.py:247-256](src/nanollm/distill.py) (`source_knowledge_grounded_pairs` ← `get_learning_history`, sem filtro de categoria) — a clusterização do learner já filtra (`learner_synthesis.py:60`), a destilação não.
 - **O quê:** resumos meta ("Síntese #12", cruzamentos de domínios) viram pares Q&A "ancorados" com perguntas artificiais sobre um documento interno; também entram no prompt do auto-currículo via `_replenish_curriculum`.
 - **Fix:** filtrar `category == "synthesis"` (e `topic` iniciando com "Síntese") nas fontes de destilação e do replenish.
 
 ### E19 — `repeat_penalty=1.3` global no motor llama.cpp castiga também o modelo de chat 7B
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/providers.py:93](src/providers.py) e [src/providers.py:159-161](src/providers.py)
 - **O quê:** 1.3 é agressivo (default llama.cpp: 1.1); em código/listas/JSON o 7B perde qualidade — penaliza reusar tokens obrigatórios (`{`, `def`, vírgulas). O problema real era o 1.5B degenerar.
 - **Fix:** penalidade por MODELO (ex.: 1.3 só p/ o 1.5B; 1.1 p/ o 7B/14B), ou expor por chamada.
@@ -169,12 +169,12 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 
 ## 🔵 MENORES / OBSERVAÇÕES
 
-- **E21** [src/nanollm/routing.py:46](src/nanollm/routing.py) — `served_by = "nano" if result else "teacher"`: um resultado falsy legítimo (ex.: `False` de um futuro gate binário roteado) seria descartado e recomputado no professor. Hoje só título passa por aqui (truthy sempre); vira bug quando o gate binário for promovido. Usar sentinela `None` explícita.
+- ✅ **E21** [src/nanollm/routing.py:46](src/nanollm/routing.py) — `served_by = "nano" if result else "teacher"`: um resultado falsy legítimo (ex.: `False` de um futuro gate binário roteado) seria descartado e recomputado no professor. Hoje só título passa por aqui (truthy sempre); vira bug quando o gate binário for promovido. Usar sentinela `None` explícita.
 - **E22** [src/learner.py:786-809](src/learner.py) — `learn_from_web` incrementa `_saved_count` mas não dispara o gatilho de síntese (`% SYNTHESIS_EVERY`) — pode pular um marco de síntese.
 - **E23** [src/learner.py:281-305](src/learner.py) — `study_now` não passa pelo dedup in-flight (`_reserve`) nem incrementa `_saved_count`; dois cliques rápidos estudam o mesmo tópico 2×.
 - **E24** [src/learner.py:212-222](src/learner.py) — `_already_known`/`is_topic_studied` são chamadas SQLite **síncronas** dentro do event loop (fetchers). Latência pequena, mas é o único lugar do pipeline que fura o padrão `asyncio.to_thread`.
 - ✅ **E25** [src/nanollm/tokenizer.py:144](src/nanollm/tokenizer.py) — `decode` ignora ids desconhecidos silenciosamente (`b""`). Bom para robustez, ruim para debug: um bug de vocab viraria texto "encolhido" sem sinal. Logar em debug.
-- **E26** [src/nanollm/distill.py:41](src/nanollm/distill.py) — `MAX_INPUT_CHARS=300` no treino, mas o blind-eval pergunta com o texto INTEIRO — leve descasamento treino/inferência (o mesmo pecado que o M14.2 diagnosticou).
+- ✅ **E26** [src/nanollm/distill.py:41](src/nanollm/distill.py) — `MAX_INPUT_CHARS=300` no treino, mas o blind-eval pergunta com o texto INTEIRO — leve descasamento treino/inferência (o mesmo pecado que o M14.2 diagnosticou).
 - ✅ **E27** [src/nanollm/data.py:110](src/nanollm/data.py) — `rng.integers(0, len-block-1)` nunca sorteia a última janela válida (off-by-one inofensivo).
 - **E28** — a suíte (1731 testes) não cobre NENHUM dos erros críticos acima: todos os caminhos reais (`_default_eval`, `_default_answer_blind_eval`, prompt longo no engine, resume+freeze) são substituídos por fakes nos testes. Cada fix deve entrar com teste que exercite o caminho REAL (mini-checkpoint de verdade, sem LLM).
 

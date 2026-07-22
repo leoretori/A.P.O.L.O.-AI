@@ -379,3 +379,65 @@ def test_migracao_adiciona_coluna_verified_em_banco_legado(tmp_path):
     # E a coluna aceita escrita normalmente daqui pra frente.
     db.save_learned_topic("Y", "u2", "s", "web", verified="verified")
     assert db.get_verification_stats()["verified"] == 1
+
+
+# ── E17: a 1ª mensagem por sessão sai do BANCO, não da memória ───────────
+def test_first_user_messages_pega_a_PRIMEIRA_e_nao_a_ultima(db):
+    db.save_message("s1", "user", "primeira pergunta da sessao um, bem longa")
+    db.save_message("s1", "assistant", "resposta")
+    db.save_message("s1", "user", "segunda pergunta da MESMA sessao, tambem longa")
+    db.save_message("s2", "user", "primeira pergunta da sessao dois, bem longa")
+
+    msgs = db.first_user_messages()
+    assert len(msgs) == 2                                   # 1 por sessão
+    assert any(m.startswith("primeira pergunta da sessao um") for m in msgs)
+    assert not any("segunda pergunta" in m for m in msgs)
+
+
+def test_first_user_messages_ordena_da_mais_recente(db):
+    for i in range(5):
+        db.save_message(f"s{i}", "user", f"pergunta numero {i} com tamanho suficiente")
+    msgs = db.first_user_messages()
+    assert msgs[0].endswith("4 com tamanho suficiente")
+    assert msgs[-1].endswith("0 com tamanho suficiente")
+
+
+def test_first_user_messages_respeita_limit_e_min_len(db):
+    db.save_message("curta", "user", "oi")
+    for i in range(6):
+        db.save_message(f"s{i}", "user", f"pergunta longa numero {i} aqui")
+    assert len(db.first_user_messages(limit=3)) == 3
+    assert all(len(m) >= 8 for m in db.first_user_messages())
+    assert "oi" not in db.first_user_messages()
+
+
+def test_first_user_messages_nao_carrega_tudo_na_memoria(db, monkeypatch):
+    """A consulta tem que LIMITAR no banco: sem isso ela crescia linearmente
+    com o uso do app, para sempre (E17)."""
+    for i in range(40):
+        db.save_message(f"s{i}", "user", f"pergunta longa numero {i} aqui")
+        for j in range(3):                                   # conversa continua
+            db.save_message(f"s{i}", "user", f"seguimento {j} da sessao {i} aqui")
+
+    import sqlalchemy
+    consultas: list[str] = []
+    orig = sqlalchemy.orm.Query.all
+
+    def espiao(self):
+        consultas.append(str(self))
+        return orig(self)
+
+    monkeypatch.setattr(sqlalchemy.orm.Query, "all", espiao)
+    msgs = db.first_user_messages(limit=5)
+    assert len(msgs) == 5
+    assert any("LIMIT" in q.upper() for q in consultas)       # o corte é no SQL
+    assert any("min(" in q.lower() or "MIN(" in q for q in consultas)
+
+
+def test_diagnose_amostra_de_curtas_e_limitada(db):
+    for i in range(10):
+        db.save_message(f"curta{i}", "user", "oi")
+    diag = db.diagnose_pair_sourcing(sample=3)
+    assert diag["total_sessoes"] == 10
+    assert diag["descartadas_curtas_demais"] == 10          # a CONTAGEM é completa
+    assert len(diag["amostra_descartadas"]) == 3            # a amostra, não

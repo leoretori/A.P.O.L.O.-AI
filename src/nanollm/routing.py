@@ -36,15 +36,21 @@ def route_task(
     `nano_fn()` devolve o resultado ou **None** (o portão de qualidade do próprio
     Nano rejeitou). Qualquer exceção do Nano também cai no fallback — nunca
     derruba a tarefa. Registra quem serviu via `recorder(task, served_by)`.
-    Retorna `(resultado, served_by)` com `served_by ∈ {"nano","teacher"}`."""
+    Retorna `(resultado, served_by)` com `served_by ∈ {"nano","teacher"}`.
+
+    A recusa é sinalizada por `None` EXPLÍCITO, não por valor falsy (E21): hoje
+    só título passa por aqui (string não-vazia sempre), mas um gate binário
+    respondendo `False` — legítimo — seria lido como recusa, descartado e
+    recomputado no professor, com o painel creditando o professor por uma
+    resposta que o Nano deu certo."""
     result = None
     if nano_available and task_enabled(task):
         try:
             result = nano_fn()
         except Exception:
             result = None
-    served_by = "nano" if result else "teacher"
-    if not result:
+    served_by = "nano" if result is not None else "teacher"
+    if result is None:
         result = fallback_fn()
     if recorder is not None:
         try:

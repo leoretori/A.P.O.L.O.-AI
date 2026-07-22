@@ -323,3 +323,38 @@ def test_run_reaction_distillation(tokenizer, tmp_path):
 def test_run_reaction_distillation_sem_pares_falha(tokenizer, tmp_path):
     with pytest.raises(ValueError):
         run_reaction_distillation(_FakeDB([], reaction_pairs=[]), tokenizer, tmp_path / "x")
+
+
+# ── E18: "Síntese #N" é meta-informação, não conhecimento ────────────────
+def test_is_meta_item_pega_sintese_por_categoria_e_por_titulo():
+    from src.nanollm.distill import is_meta_item
+
+    assert is_meta_item({"category": "synthesis", "topic": "qualquer"})
+    assert is_meta_item({"topic": "Síntese #12"})
+    assert is_meta_item({"topic": "sintese #3 sem acento"})
+    assert not is_meta_item({"topic": "Redes neurais", "category": "docs"})
+    assert not is_meta_item({})
+
+
+def test_destilacao_de_conhecimento_ignora_sinteses():
+    """As sínteses viravam pares Q&A 'ancorados' num documento INTERNO."""
+    from src.nanollm.distill import source_knowledge_grounded_pairs
+
+    class _DB:
+        def get_learning_history(self, limit=200):
+            return [
+                {"topic": "Síntese #7", "summary": "cruzamento de dominios " * 10,
+                 "category": "synthesis"},
+                {"topic": "Índices no Postgres", "summary": "como o btree funciona " * 10,
+                 "category": "docs"},
+            ]
+
+    vistos = []
+
+    def teacher(prompt):
+        vistos.append(prompt)
+        return "P: pergunta boa aqui?\nR: resposta factual suficientemente longa."
+
+    pares = source_knowledge_grounded_pairs(_DB(), teacher, limit=10)
+    assert len(pares) == 1                       # só o conhecimento de verdade
+    assert not any("cruzamento de dominios" in p for p in vistos)

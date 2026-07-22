@@ -45,3 +45,28 @@ def test_nano_indisponivel_vai_direto_ao_professor():
                          recorder=rec, nano_available=False)
     assert out == "PROF" and by == "teacher"
     assert seen == [("title", "teacher")]
+
+
+# ── E21: recusa é None EXPLÍCITO, não "valor falsy" ──────────────────────
+def test_resultado_falsy_legitimo_conta_como_nano():
+    """Um gate binário roteado responde `False` legitimamente — isso NÃO é
+    recusa. Antes, o professor era chamado por cima e levava o crédito."""
+    chamou_professor = {"n": 0}
+
+    def professor():
+        chamou_professor["n"] += 1
+        return True
+
+    resultado, quem = route_task("binary", lambda: False, professor)
+    assert resultado is False and quem == "nano"
+    assert chamou_professor["n"] == 0
+
+
+def test_string_vazia_do_nano_tambem_e_resposta():
+    resultado, quem = route_task("tags", lambda: "", lambda: "do professor")
+    assert resultado == "" and quem == "nano"
+
+
+def test_none_continua_sendo_recusa():
+    resultado, quem = route_task("title", lambda: None, lambda: "do professor")
+    assert resultado == "do professor" and quem == "teacher"

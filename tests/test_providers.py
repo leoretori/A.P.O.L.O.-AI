@@ -138,8 +138,9 @@ def test_opts_traduz_num_predict_para_max_tokens(monkeypatch):
     monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
     p = LlamaCppProvider()
     opts = p._opts({"num_predict": 32, "temperature": 0.2, "top_p": 0.9})
-    # num_predict do chamador vence; repeat_penalty entra por padrão.
-    assert opts == {"max_tokens": 32, "temperature": 0.2, "top_p": 0.9, "repeat_penalty": 1.3}
+    # num_predict do chamador vence; repeat_penalty entra por padrão (E19: o
+    # piso agora é 1.1, do llama.cpp — 1.3 fica para os modelos pequenos).
+    assert opts == {"max_tokens": 32, "temperature": 0.2, "top_p": 0.9, "repeat_penalty": 1.1}
 
 
 def test_opts_teto_padrao_sempre_presente(monkeypatch):
@@ -150,7 +151,7 @@ def test_opts_teto_padrao_sempre_presente(monkeypatch):
     p = LlamaCppProvider()
     opts = p._opts(None)
     assert opts["max_tokens"] == 2048          # teto de segurança
-    assert opts["repeat_penalty"] == 1.3       # anti-loop
+    assert opts["repeat_penalty"] == 1.1       # piso; o pequeno sobe p/ 1.3
     opts2 = p._opts({})
     assert opts2["max_tokens"] == 2048
 
@@ -278,3 +279,36 @@ def test_ollama_stream_produz_strings():
 def test_ollama_list_models_dedup_e_ordena():
     p = _ollama_provider_with_fake()
     assert p.list_models() == ["qwen:14b", "qwen:3b"]
+
+
+# ── E19: penalidade de repetição POR MODELO ─────────────────────────────
+def test_penalidade_maior_so_para_o_modelo_pequeno(monkeypatch):
+    """1.3 existia por causa do 1.5B degenerar — mas castigava o 7B, que
+    precisa reusar tokens em código/JSON (`{`, `def`, vírgulas)."""
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY_MAP", raising=False)
+    p = LlamaCppProvider()
+    assert p._opts(None, "qwen-1.5b")["repeat_penalty"] == 1.3
+    assert p._opts(None, "qwen-7b")["repeat_penalty"] == 1.1
+    assert p._opts(None, "")["repeat_penalty"] == 1.1
+
+
+def test_penalidade_por_heuristica_de_nome(monkeypatch):
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
+    monkeypatch.setenv("LLAMACPP_REPEAT_PENALTY_MAP", "")
+    p = LlamaCppProvider()
+    assert p._penalty_for("algum-modelo-0.5b-instruct") == 1.3
+    assert p._penalty_for("llama-3-8b") == 1.1
+
+
+def test_mapa_de_penalidade_por_env(monkeypatch):
+    monkeypatch.setenv("LLAMACPP_REPEAT_PENALTY_MAP", "meu-modelo=1.05;outro=1.4")
+    p = LlamaCppProvider()
+    assert p._penalty_for("meu-modelo") == 1.05
+    assert p._penalty_for("outro") == 1.4
+
+
+def test_chamador_ainda_manda_na_penalidade(monkeypatch):
+    monkeypatch.delenv("LLAMACPP_REPEAT_PENALTY", raising=False)
+    p = LlamaCppProvider()
+    assert p._opts({"repeat_penalty": 1.02}, "qwen-1.5b")["repeat_penalty"] == 1.02

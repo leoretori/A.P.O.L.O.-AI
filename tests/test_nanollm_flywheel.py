@@ -88,9 +88,12 @@ def _eval_fn(cand_val, base_val):
 
 
 def _paths(tmp_path):
-    """Conjuntos congelados sempre em tmp — nunca no data/ do repositório."""
+    """Conjuntos congelados sempre em tmp — nunca no data/ do repositório.
+    `min_pairs` explícito: o piso do projeto é 50 (E16) e estes testes usam
+    poucos pares fake de propósito — o que eles exercitam é a DECISÃO."""
     return {"title_messages_path": tmp_path / "held_out.json",
-            "questions_path": tmp_path / "perguntas.json"}
+            "questions_path": tmp_path / "perguntas.json",
+            "min_pairs": 12}
 
 
 def test_promove_quando_candidato_melhora(live_ckpt, tmp_path):
@@ -161,7 +164,8 @@ def test_pula_com_poucos_pares(live_ckpt, tmp_path):
     res = run_nightly_flywheel(
         _FakeDB(40), live_ckpt=live_ckpt, work_root=tmp_path / "fw",
         teacher_fn=_good_teacher, train_fn=lambda *a, **k: pytest.fail("não devia treinar"),
-        gate_fn=_gate_fn([], []), min_pairs=100, min_gate_items=15, **_paths(tmp_path))
+        gate_fn=_gate_fn([], []), min_gate_items=15,
+        **{**_paths(tmp_path), "min_pairs": 100})
     assert res["status"] == "skipped" and "poucos pares" in res["reason"]
 
 
@@ -183,7 +187,7 @@ def test_pula_com_val_curto_demais(live_ckpt, tmp_path):
         _FakeDB(40), live_ckpt=live_ckpt, work_root=tmp_path / "fw",
         teacher_fn=_good_teacher,
         train_fn=lambda *a, **k: pytest.fail("não devia treinar com val curto"),
-        gate_fn=_gate_fn([], []), min_pairs=12, min_gate_items=15,
+        gate_fn=_gate_fn([], []), min_gate_items=15,
         min_val_tokens=10_000, **_paths(tmp_path))
     assert res["status"] == "skipped" and "não seria confiável" in res["reason"]
     assert res["val_tokens"] < 10_000
@@ -240,7 +244,7 @@ def test_reactions_pula_com_poucos_pares(live_ckpt, tmp_path):
         _FakeDB(40, reaction_pairs=_REACTION_PAIRS[:3]), live_ckpt=live_ckpt,
         work_root=tmp_path / "fw", source="reactions",
         train_fn=lambda *a, **k: pytest.fail("não devia treinar"),
-        gate_fn=_gate_fn([], []), min_pairs=12, min_gate_items=15, **_paths(tmp_path))
+        gate_fn=_gate_fn([], []), min_gate_items=15, **_paths(tmp_path))
     assert res["status"] == "skipped" and "poucos pares" in res["reason"]
 
 

@@ -988,7 +988,13 @@ class LearningEngine:
         self._replenishing = True
         try:
             history = await asyncio.to_thread(self.db.get_learning_history, 40)
-            conhecidos = [h.get("topic", "") for h in history if h.get("topic")]
+            # "Síntese #N" é meta-informação do processo, não tema estudado: no
+            # prompt do currículo o modelo lia os próprios números como assunto
+            # e gerava auto-queries sobre eles (E18 — a clusterização já
+            # filtrava; aqui não filtrava).
+            from src.nanollm.distill import is_meta_item
+            conhecidos = [h.get("topic", "") for h in history
+                          if h.get("topic") and not is_meta_item(h)]
             amostra = "; ".join(conhecidos[:30])[:1500]
             needs = self._active_needs_context()
             needs_block = (

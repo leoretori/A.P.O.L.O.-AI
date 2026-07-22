@@ -3,6 +3,7 @@ agendamentos e import/export de backup. Mixin composto em src/storage.py."""
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from src.storage_models import (
@@ -90,6 +91,19 @@ class ConversationsMixin:
                     }
             return list(seen.values())[:limit]
 
+    def _first_user_message_ids(self, s: Session):
+        """Subconsulta: o menor id de mensagem de usuário POR SESSÃO.
+
+        `id` é autoincremento, então MIN(id) é a 1ª mensagem da sessão e serve
+        de desempate determinístico quando dois timestamps coincidem. Existe
+        para o banco fazer o trabalho: carregar TODAS as mensagens do usuário na
+        memória e deduplicar em Python crescia linearmente com o uso do app,
+        para sempre (E17)."""
+        return (s.query(func.min(SessionMessage.id).label("mid"))
+                .filter(SessionMessage.role == "user")
+                .group_by(SessionMessage.session_id)
+                .subquery())
+
     def first_user_messages(self, limit: int = 300, min_len: int = 8) -> list[str]:
         """A PRIMEIRA mensagem do usuário de cada sessão — a entrada real na
         distribuição de inferência (pergunta que abre a conversa). É exatamente
@@ -97,17 +111,14 @@ class ConversationsMixin:
         recebe pergunta) some quando o professor rotula ESTAS entradas.
         Mais recentes primeiro; deduplicadas por sessão; sem as curtas demais."""
         with Session(self.engine) as s:
-            rows = (s.query(SessionMessage)
-                    .filter(SessionMessage.role == "user")
-                    .order_by(SessionMessage.timestamp.asc()).all())
-            first_by_session: dict[str, SessionMessage] = {}
-            for r in rows:                       # asc → o 1º visto é o mais antigo
-                if r.session_id not in first_by_session:
-                    first_by_session[r.session_id] = r
-            firsts = sorted(first_by_session.values(),
-                            key=lambda r: r.timestamp, reverse=True)
-            out = [(r.content or "").strip() for r in firsts]
-            return [c for c in out if len(c) >= min_len][:limit]
+            sub = self._first_user_message_ids(s)
+            rows = (s.query(SessionMessage.content)
+                    .join(sub, SessionMessage.id == sub.c.mid)
+                    .filter(func.length(func.trim(SessionMessage.content)) >= min_len)
+                    .order_by(SessionMessage.timestamp.desc(), SessionMessage.id.desc())
+                    .limit(limit).all())
+            out = [(c or "").strip() for (c,) in rows]
+            return [c for c in out if len(c) >= min_len]
 
     def diagnose_pair_sourcing(self, min_len: int = 8, sample: int = 5) -> dict:
         """Por que o flywheel mostra 'poucos pares' mesmo com várias conversas
@@ -119,28 +130,24 @@ class ConversationsMixin:
         (curtas demais, tipo 'oi'). Não chama o professor — é só leitura/contagem,
         o passo ANTES da validação do teacher (que reduz o número de novo)."""
         with Session(self.engine) as s:
-            rows = (s.query(SessionMessage)
-                    .filter(SessionMessage.role == "user")
-                    .order_by(SessionMessage.timestamp.asc()).all())
-            first_by_session: dict[str, SessionMessage] = {}
-            for r in rows:
-                if r.session_id not in first_by_session:
-                    first_by_session[r.session_id] = r
-            total = len(first_by_session)
-            valid, curtas = [], []
-            for r in first_by_session.values():
-                text = (r.content or "").strip()
-                if len(text) >= min_len:
-                    valid.append(text)
-                else:
-                    curtas.append(text)
+            sub = self._first_user_message_ids(s)
+            # contagens no BANCO (E17): só a amostra de curtas vem para a memória
+            base = s.query(SessionMessage).join(sub, SessionMessage.id == sub.c.mid)
+            longa = func.length(func.trim(SessionMessage.content)) >= min_len
+            total = base.count()
+            n_valid = base.filter(longa).count()
+            n_curtas = total - n_valid
+            amostra_curtas = [(c or "").strip() for (c,) in
+                              s.query(SessionMessage.content)
+                              .join(sub, SessionMessage.id == sub.c.mid)
+                              .filter(~longa).limit(sample).all()]
         reacted = len(self.positive_reaction_pairs(limit=10_000, min_len=min_len))
         return {
                 "total_sessoes": total,
-                "com_1a_mensagem_valida": len(valid),
-                "descartadas_curtas_demais": len(curtas),
+                "com_1a_mensagem_valida": n_valid,
+                "descartadas_curtas_demais": n_curtas,
                 "min_len": min_len,
-                "amostra_descartadas": curtas[:sample],
+                "amostra_descartadas": amostra_curtas,
                 "pares_de_reacoes_up": reacted,
                 "nota": "cada SESSÃO conta 1 vez (a 1ª mensagem que abre ela) — "
                         "continuar uma conversa existente não soma; abrir '+ Nova' soma. "

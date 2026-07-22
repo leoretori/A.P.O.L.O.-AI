@@ -22,6 +22,13 @@ logger = logging.getLogger("apolo.routers.nano")
 _flywheel_running = False
 
 
+def _min_pairs_padrao() -> int:
+    """Piso de pares do projeto (E16) — import preguiçoso p/ o router não puxar
+    NumPy no boot."""
+    from src.nanollm.flywheel import default_min_pairs
+    return default_min_pairs()
+
+
 class NanoCompleteRequest(BaseModel):
     """Contrato honesto (E20): o prompt pode passar da janela do modelo — nesse
     caso valem os tokens FINAIS e a resposta traz `truncated: true` com
@@ -67,7 +74,7 @@ async def nano_flywheel_diagnose():
     if not rt.db:
         return {"enabled": False}
     diag = await asyncio.to_thread(rt.db.diagnose_pair_sourcing)
-    min_pairs = int(os.getenv("FLYWHEEL_MIN_PAIRS", 5))
+    min_pairs = _min_pairs_padrao()
     diag["min_pairs"] = min_pairs
     diag["faltam_titulo"] = max(0, min_pairs - diag["com_1a_mensagem_valida"])
     diag["faltam_reacoes"] = max(0, min_pairs - diag["pares_de_reacoes_up"])
@@ -117,8 +124,8 @@ async def _run_flywheel_bg(steps: int, min_pairs: int):
 
 class FlywheelRunRequest(BaseModel):
     steps: int = Field(default=400, ge=20, le=5000)
-    min_pairs: int = Field(default_factory=lambda: int(os.getenv("FLYWHEEL_MIN_PAIRS", 5)),
-                            ge=1, le=1000)
+    # E16: o mesmo piso do scheduler noturno e da CLI — um número só.
+    min_pairs: int = Field(default_factory=_min_pairs_padrao, ge=1, le=1000)
 
 
 @router.post("/api/nano/flywheel/run")

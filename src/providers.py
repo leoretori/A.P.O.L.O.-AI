@@ -76,6 +76,10 @@ class OllamaProvider:
 
 
 # ── Backend llama.cpp (motor próprio) ────────────────────────────
+# Padrão do mapa de penalidade: os modelos pequenos do setup atual (E19).
+SMALL_MODEL_PENALTY_DEFAULT = "qwen-1.5b=1.3"
+
+
 class LlamaCppProvider:
     """Motor embutido via `llama-cpp-python`. Carrega arquivos GGUF locais e os
     mantém em cache (carregar um modelo é caro). Sem processo/serviço externo."""
@@ -90,7 +94,19 @@ class LlamaCppProvider:
         # encher o contexto (max_tokens=None) — o 1.5B entrava em loop e segurava o
         # lock indefinidamente, travando o chat E o estudo ao mesmo tempo.
         self._max_tokens = int(os.getenv("LLAMACPP_MAX_TOKENS", "2048"))
-        self._repeat_penalty = float(os.getenv("LLAMACPP_REPEAT_PENALTY", "1.3"))
+        # Penalidade de repetição POR MODELO (E19). O 1.3 global existia por causa
+        # do 1.5B degenerando em loop, mas castigava também o 7B/14B: em código,
+        # listas e JSON o modelo PRECISA reusar tokens (`{`, `def`, vírgulas) e
+        # 1.3 é agressivo (default do llama.cpp: 1.1). Agora o piso é 1.1 e os
+        # modelos pequenos levam o 1.3 pelo mapa — ajustável por env:
+        #   LLAMACPP_REPEAT_PENALTY=1.1
+        #   LLAMACPP_REPEAT_PENALTY_MAP="qwen-1.5b=1.3;outro=1.2"
+        self._repeat_penalty = float(os.getenv("LLAMACPP_REPEAT_PENALTY", "1.1"))
+        self._repeat_penalty_map = {
+            k: float(v) for k, v in
+            self._parse_model_map(os.getenv("LLAMACPP_REPEAT_PENALTY_MAP",
+                                            SMALL_MODEL_PENALTY_DEFAULT)).items()
+        }
         self._loaded: dict[str, object] = {}
         # Um lock POR instância: o llama.cpp NÃO é thread-safe num mesmo contexto —
         # duas gerações simultâneas no mesmo modelo (ex.: o chat e o summarizer do
@@ -146,7 +162,18 @@ class LlamaCppProvider:
                     )
         return self._loaded[path], self._locks[path]
 
-    def _opts(self, options):
+    def _penalty_for(self, model: str) -> float:
+        """Penalidade de repetição deste modelo (E19): mapa explícito primeiro,
+        depois heurística de tamanho pelo nome (1.5b/0.5b são os que degeneram),
+        senão o padrão global."""
+        if model in self._repeat_penalty_map:
+            return self._repeat_penalty_map[model]
+        nome = (model or "").lower()
+        if any(t in nome for t in ("0.5b", "1.5b", "1b-", "nano", "tiny")):
+            return max(self._repeat_penalty, 1.3)
+        return self._repeat_penalty
+
+    def _opts(self, options, model: str = ""):
         options = options or {}
         out = {}
         if "temperature" in options:
@@ -156,9 +183,11 @@ class LlamaCppProvider:
         # llama.cpp gera até encher o contexto e um modelo pequeno degenera em loop,
         # segurando o lock por minutos e derrubando chat + estudo juntos.
         out["max_tokens"] = int(options.get("num_predict") or self._max_tokens)
-        # Penalidade de repetição: o default do llama.cpp (1.1) é fraco para modelos
-        # pequenos, que repetem o mesmo trecho (ex.: "gcloud components install" ×132).
-        out["repeat_penalty"] = float(options.get("repeat_penalty") or self._repeat_penalty)
+        # Penalidade de repetição POR MODELO: o pequeno repete trecho inteiro
+        # ("gcloud components install" ×132) e precisa de 1.3; o grande escreve
+        # código/JSON e é castigado por isso (E19). O chamador ainda manda.
+        out["repeat_penalty"] = float(options.get("repeat_penalty")
+                                      or self._penalty_for(model))
         if "top_p" in options:
             out["top_p"] = options["top_p"]
         return out
@@ -166,7 +195,8 @@ class LlamaCppProvider:
     def complete(self, model, messages, options=None, keep_alive=None) -> str:
         llm, lock = self._get(model)
         with lock:   # serializa: uma geração por vez neste modelo (thread-safety)
-            resp = llm.create_chat_completion(messages=messages, stream=False, **self._opts(options))
+            resp = llm.create_chat_completion(messages=messages, stream=False,
+                                              **self._opts(options, model))
         return resp["choices"][0]["message"]["content"]
 
     def stream(self, model, messages, options=None, keep_alive=None, cancel=None):
@@ -174,7 +204,8 @@ class LlamaCppProvider:
         # Segura o lock durante TODA a geração em streaming — só um gerador ativo
         # por modelo (evita o crash de acesso concorrente ao mesmo contexto).
         with lock:
-            for chunk in llm.create_chat_completion(messages=messages, stream=True, **self._opts(options)):
+            for chunk in llm.create_chat_completion(messages=messages, stream=True,
+                                                    **self._opts(options, model)):
                 # Aborto cooperativo: quando o cliente clica "parar" (fetch abortado →
                 # conexão fecha), o consumidor sinaliza `cancel` e nós paramos AQUI —
                 # senão a thread seguiria gerando até o teto, segurando o lock e
