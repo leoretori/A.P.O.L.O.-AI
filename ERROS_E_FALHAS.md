@@ -74,7 +74,7 @@
 - **Fix:** mover `freeze_questions` para antes do `train(...)`.
 
 ### E8 — `asyncio.create_task` sem guardar referência no learner — risco real de perda silenciosa
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/learner.py:572](src/learner.py) (`_save_and_record` — o caminho do SAVE de cada conhecimento!), [src/learner.py:598](src/learner.py), [src/learner.py:617](src/learner.py), [src/learner.py:667](src/learner.py)
 - **O quê:** a doc do asyncio é explícita: o loop guarda só referência fraca; task sem referência forte **pode ser coletada pelo GC no meio da execução**. Além disso, exceção nessas tasks nunca é coletada (aparece, se muito, como "Task exception was never retrieved" no stderr). O projeto já teve a lição do except silencioso — este é o mesmo padrão em outra roupa.
 - **Fix:** manter um `set` de tasks (`self._bg_tasks.add(t); t.add_done_callback(...)` que loga exceção e descarta).

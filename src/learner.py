@@ -141,6 +141,9 @@ class LearningEngine:
 
         # Tasks do pipeline
         self._tasks: list[asyncio.Task] = []
+        # Tasks avulsas de fundo (save, síntese, recall, currículo) — precisam de
+        # referência FORTE, senão o GC pode coletá-las no meio da execução (E8).
+        self._bg_tasks: set[asyncio.Task] = set()
 
         # Contadores e estado
         self._saved_count        = 0
@@ -173,6 +176,33 @@ class LearningEngine:
         consumidor do Ollama (harness de avaliação) rode um-de-cada-vez com ele e
         não reintroduza o thrash 14b+3b que travava a máquina."""
         return self._llm_lock
+
+    # ── Tasks de fundo ────────────────────────────────────────
+
+    def _spawn(self, coro, *, name: str) -> asyncio.Task:
+        """`create_task` com referência FORTE e exceção logada (E8).
+
+        A doc do asyncio é explícita: o event loop guarda apenas uma referência
+        FRACA à task — sem guardar a nossa, o coletor de lixo pode destruí-la no
+        meio da execução. E uma exceção numa task solta nunca chega ao logger da
+        app: some como "Task exception was never retrieved" no stderr cru, se
+        tanto. Era exatamente o caminho do SAVE de cada conhecimento
+        (`_save_and_record`) — este projeto já perdeu um mês de aprendizado para
+        um except silencioso; o padrão aqui é o mesmo em outra roupa.
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_task_done)
+        return task
+
+    def _bg_task_done(self, task: asyncio.Task) -> None:
+        self._bg_tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning(f"[learner] task de fundo '{task.get_name()}' falhou: "
+                           f"{type(exc).__name__}: {exc}", exc_info=exc)
 
     # ── Anti-repetição ────────────────────────────────────────
 
@@ -275,6 +305,13 @@ class LearningEngine:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        # Tasks avulsas NÃO são canceladas: cancelar um `_save_and_record` no
+        # meio perderia o conhecimento já sintetizado. Esperamos as que estão
+        # em voo terminarem (com teto — parar não pode travar o app).
+        if self._bg_tasks:
+            pendentes = list(self._bg_tasks)
+            logger.info(f"[learner] esperando {len(pendentes)} task(s) de fundo terminarem…")
+            await asyncio.wait(pendentes, timeout=30)
         self.stats.update({"current_topic": "", "current_source": "", "agents": []})
         logger.info("A.P.O.L.O. Learner PARADO")
 
@@ -569,7 +606,7 @@ class LearningEngine:
                 verified=verified,
             )
             # Passa para o saver via atributo (evita mais uma fila)
-            asyncio.create_task(self._save_and_record(learned))
+            self._spawn(self._save_and_record(learned), name="save-and-record")
         finally:
             self._active_summarizing = ""
 
@@ -595,7 +632,7 @@ class LearningEngine:
                 # M8 8.1: recall ativo periódico (~10 min). Só RAG+DB, sem LLM → não
                 # concorre com o summarizer; re-enfileira o que o A.P.O.L.O. esqueceu.
                 if cycle % 20 == 0:
-                    asyncio.create_task(self._run_active_recall())
+                    self._spawn(self._run_active_recall(), name="active-recall")
                 # Sem progresso (nem salvou, nem buscou) desde o último ciclo?
                 no_progress = (self._saved_count == prev_saved and
                                self._fetched_count == prev_fetched)
@@ -614,7 +651,7 @@ class LearningEngine:
                         and self._self_queue.empty()
                         and not self._llm_down and not self._replenishing):
                     logger.info("[curriculo] rotação parece esgotada — gerando temas novos…")
-                    asyncio.create_task(self._replenish_curriculum())
+                    self._spawn(self._replenish_curriculum(), name="replenish-curriculum")
                 # ~2 min parado com o motor ligado → algo travou; exponha a causa provável.
                 if stalled_cycles >= 4:
                     causa = ("Ollama fora do ar" if self._llm_down else
@@ -664,7 +701,7 @@ class LearningEngine:
 
         # Dispara síntese cross-domain a cada N itens
         if self._saved_count % SYNTHESIS_EVERY == 0:
-            asyncio.create_task(self._run_deep_synthesis())
+            self._spawn(self._run_deep_synthesis(), name="deep-synthesis")
 
     async def _link_related(self, topic: str, summary: str) -> None:
         """M8 8.3: liga o tópico recém-aprendido aos tópicos recentes com que ele

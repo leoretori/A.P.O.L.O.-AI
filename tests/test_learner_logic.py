@@ -557,3 +557,64 @@ def test_summarize_worker_sobrevive_a_erro_no_process():
 def test_normaliza_espacos_internos():
     r = _extract_self_queries("QUERY:   como   escalar    filas   distribuídas")
     assert r == ["como escalar filas distribuídas"]
+
+
+# ── E8: tasks de fundo com referência forte e exceção visível ────────────
+def test_spawn_mantem_referencia_forte_e_limpa_no_fim():
+    """Sem referência forte, o event loop guarda só uma FRACA e o GC pode
+    coletar a task no meio do save (E8)."""
+    async def cenario():
+        eng = LearningEngine.__new__(LearningEngine)
+        eng._bg_tasks = set()
+        começou = asyncio.Event()
+
+        async def trabalho():
+            começou.set()
+            await asyncio.sleep(0.01)
+            return "feito"
+
+        t = eng._spawn(trabalho(), name="teste")
+        await começou.wait()
+        assert t in eng._bg_tasks          # referência viva enquanto roda
+        import gc
+        gc.collect()                        # o GC não pode levar a task embora
+        assert await t == "feito"
+        await asyncio.sleep(0)              # deixa o callback rodar
+        assert eng._bg_tasks == set()       # e some quando termina
+
+    asyncio.run(cenario())
+
+
+def test_spawn_loga_excecao_da_task(caplog):
+    """Exceção em task solta some como 'Task exception was never retrieved' no
+    stderr; aqui ela vai para o logger da app, com o nome da task."""
+    async def cenario():
+        eng = LearningEngine.__new__(LearningEngine)
+        eng._bg_tasks = set()
+
+        async def explode():
+            raise RuntimeError("o save falhou feio")
+
+        t = eng._spawn(explode(), name="save-and-record")
+        await asyncio.gather(t, return_exceptions=True)
+        await asyncio.sleep(0)
+
+    with caplog.at_level("WARNING"):
+        asyncio.run(cenario())
+    assert any("save-and-record" in r.message and "o save falhou feio" in r.message
+               for r in caplog.records)
+
+
+def test_spawn_ignora_cancelamento():
+    """Cancelar não é falha — não deve poluir o log nem levantar."""
+    async def cenario():
+        eng = LearningEngine.__new__(LearningEngine)
+        eng._bg_tasks = set()
+        t = eng._spawn(asyncio.sleep(5), name="longa")
+        await asyncio.sleep(0)
+        t.cancel()
+        await asyncio.gather(t, return_exceptions=True)
+        await asyncio.sleep(0)
+        assert eng._bg_tasks == set()
+
+    asyncio.run(cenario())
