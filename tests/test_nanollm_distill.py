@@ -358,3 +358,82 @@ def test_destilacao_de_conhecimento_ignora_sinteses():
     pares = source_knowledge_grounded_pairs(_DB(), teacher, limit=10)
     assert len(pares) == 1                       # só o conhecimento de verdade
     assert not any("cruzamento de dominios" in p for p in vistos)
+
+
+# ── E10: destilação de conhecimento é APPEND-ONLY com dedup ──────────────
+class _DBSinteses:
+    def __init__(self, temas):
+        self._temas = temas
+
+    def get_learning_history(self, limit=200):
+        return [{"topic": t, "summary": f"resumo sobre {t}. " * 10, "category": "docs"}
+                for t in self._temas]
+
+
+def _teacher_por_tema(chamadas):
+    def teacher(prompt):
+        chamadas.append(prompt)
+        tema = prompt.split("resumo sobre ")[1].split(".")[0]
+        return f"P: o que e {tema}?\nR: e um assunto tecnico sobre {tema}, em resumo."
+    return teacher
+
+
+def test_destilacao_acumula_em_vez_de_regerar(tmp_path, monkeypatch):
+    """E10: o corpus era reescrito do zero toda noite — pares diferentes para
+    o MESMO conteúdo e split re-sorteado, com o portão de crescimento medindo
+    um dataset que trocava de identidade."""
+    from src.nanollm.distill import run_knowledge_distillation
+    from src.nanollm.tokenizer import ByteBPETokenizer
+
+    tok = ByteBPETokenizer()
+    tok.train("resumo sobre assunto tecnico em portugues. " * 40, vocab_size=300)
+    tokenizer = tmp_path / "tokenizer.json"
+    tok.save(tokenizer)
+    out = tmp_path / "dataset"
+
+    chamadas = []
+    m1 = run_knowledge_distillation(_DBSinteses(["redis", "postgres"]), tokenizer, out,
+                                    teacher_fn=_teacher_por_tema(chamadas))
+    assert m1["pairs"] == 2 and m1["pares_novos"] == 2
+
+    # segunda noite: um tema NOVO + os dois de ontem
+    m2 = run_knowledge_distillation(_DBSinteses(["redis", "postgres", "kafka"]),
+                                    tokenizer, out, teacher_fn=_teacher_por_tema(chamadas))
+    assert m2["pairs"] == 3                      # acumulou, não regerou
+    assert m2["pares_novos"] == 1                # só o kafka é novo
+    assert m2["pares_anteriores"] == 2
+
+
+def test_professor_nao_rotula_a_mesma_sintese_duas_vezes(tmp_path):
+    """O gabarito em disco corta o custo de professor da 2ª noite em diante."""
+    from src.nanollm.distill import run_knowledge_distillation
+    from src.nanollm.tokenizer import ByteBPETokenizer
+
+    tok = ByteBPETokenizer()
+    tok.train("resumo sobre assunto tecnico em portugues. " * 40, vocab_size=300)
+    tokenizer = tmp_path / "tokenizer.json"
+    tok.save(tokenizer)
+    out = tmp_path / "dataset"
+
+    chamadas = []
+    db = _DBSinteses(["redis", "postgres"])
+    run_knowledge_distillation(db, tokenizer, out, teacher_fn=_teacher_por_tema(chamadas))
+    assert len(chamadas) == 2
+    run_knowledge_distillation(db, tokenizer, out, teacher_fn=_teacher_por_tema(chamadas))
+    assert len(chamadas) == 2                    # 0 chamadas novas — veio do gabarito
+
+
+def test_append_false_ainda_regera(tmp_path):
+    from src.nanollm.distill import run_knowledge_distillation
+    from src.nanollm.tokenizer import ByteBPETokenizer
+
+    tok = ByteBPETokenizer()
+    tok.train("resumo sobre assunto tecnico em portugues. " * 40, vocab_size=300)
+    tokenizer = tmp_path / "tokenizer.json"
+    tok.save(tokenizer)
+    out = tmp_path / "dataset"
+    run_knowledge_distillation(_DBSinteses(["redis", "postgres"]), tokenizer, out,
+                               teacher_fn=_teacher_por_tema([]))
+    m = run_knowledge_distillation(_DBSinteses(["kafka"]), tokenizer, out,
+                                   teacher_fn=_teacher_por_tema([]), append=False)
+    assert m["pairs"] == 1 and m["pares_anteriores"] == 0

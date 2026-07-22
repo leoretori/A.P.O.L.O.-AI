@@ -485,7 +485,7 @@ def test_already_known_usa_janela_efetiva(monkeypatch):
     eng.profile = None
     eng.db = _DB()
     eng._skip_session = set()
-    eng._already_known("guia rápido de Kubernetes na AWS")
+    eng._already_known_sync("guia rápido de Kubernetes na AWS")
     assert chamado["relearn_days"] == eng._effective_relearn_days("guia rápido de Kubernetes na AWS")
     assert chamado["relearn_days"] < 21
 
@@ -618,3 +618,93 @@ def test_spawn_ignora_cancelamento():
         assert eng._bg_tasks == set()
 
     asyncio.run(cenario())
+
+
+# ── E9: reparo de sínteses não pode virar moto-perpétuo ──────────────────
+def test_looks_raw_aceita_sintese_sem_cabecalho():
+    """O 1.5B escreve sínteses válidas SEM '##' — marcá-las como cruas para
+    sempre gastava 1 chamada de LLM por rodada, para sempre (E9)."""
+    eng = LearningEngine.__new__(LearningEngine)
+    corrido = "texto corrido sem nenhuma estrutura. " * 20
+    assert eng._looks_raw(corrido)                       # isto SIM é cru
+
+    com_lista = "Resumo do tema:\n- ponto um aqui\n- ponto dois aqui\n" + corrido
+    assert not eng._looks_raw(com_lista)
+    com_negrito = "**Conceito:** " + corrido
+    assert not eng._looks_raw(com_negrito)
+    varios_paragrafos = corrido[:200] + "\n\n" + corrido[:200] + "\n\n" + corrido[:200]
+    assert not eng._looks_raw(varios_paragrafos)
+    assert not eng._looks_raw("curto demais para julgar")
+    assert not eng._looks_raw("## Conceitos\n" + corrido)
+
+
+def test_reparo_desiste_depois_de_n_tentativas(tmp_path, monkeypatch):
+    import src.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "MAX_REPAIR_TRIES", 2)
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.repair_ledger = str(tmp_path / "repair.jsonl")
+    assert eng._repair_giveups() == set()
+
+    eng._record_repair_attempt(42, "tema teimoso")
+    assert eng._repair_giveups() == set()                 # 1 falha: ainda tenta
+    eng._record_repair_attempt(42, "tema teimoso")
+    assert eng._repair_giveups() == {eng._repair_key(42, "tema teimoso")}
+
+
+def test_reparo_pula_os_desistidos(tmp_path, monkeypatch):
+    """Item que falhou o bastante sai da fila — não gasta LLM de novo."""
+    import src.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "MAX_REPAIR_TRIES", 1)
+
+    cru = "texto corrido sem estrutura nenhuma. " * 20
+    eng = LearningEngine.__new__(LearningEngine)
+    eng.repair_ledger = str(tmp_path / "repair.jsonl")
+    eng.db = type("_DB", (), {
+        "get_learning_history": lambda self, n: [
+            {"id": 1, "topic": "teimoso", "summary": cru, "category": "docs"},
+            {"id": 2, "topic": "novo", "summary": cru, "category": "docs"},
+        ],
+        "add_notification": lambda self, *a, **k: None,
+        "update_topic_summary": lambda self, *a, **k: None,
+    })()
+    eng.rag = None
+    tentados = []
+
+    async def _fake_summarize(topic, content, category):
+        tentados.append(topic)
+        return None                                       # falha sempre
+
+    eng._summarize = _fake_summarize
+    eng._record_repair_attempt(1, "teimoso")              # já desistido
+
+    res = asyncio.run(eng.repair_raw_summaries(limit=5))
+    assert res["found"] == 1 and tentados == ["novo"]
+
+
+# ── E22/E23: contadores e dedup consistentes em TODOS os caminhos ────────
+def test_maybe_synthesize_dispara_no_marco(monkeypatch):
+    import src.learner as learner_mod
+
+    monkeypatch.setattr(learner_mod, "SYNTHESIS_EVERY", 3)
+    eng = LearningEngine.__new__(LearningEngine)
+    disparos = []
+    eng._spawn = lambda coro, name: (coro.close(), disparos.append(name))[1]
+
+    for n in (1, 2, 3, 4, 5, 6):
+        eng._saved_count = n
+        eng._maybe_synthesize()
+    assert disparos == ["deep-synthesis", "deep-synthesis"]   # nos passos 3 e 6
+
+
+def test_maybe_synthesize_ignora_contador_zero():
+    eng = LearningEngine.__new__(LearningEngine)
+    eng._saved_count = 0
+    eng._spawn = lambda coro, name: pytest_fail_spawn()
+
+    def pytest_fail_spawn():
+        raise AssertionError("não devia sintetizar com 0 salvos")
+
+    eng._maybe_synthesize()

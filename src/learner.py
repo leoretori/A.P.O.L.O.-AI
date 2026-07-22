@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 SUMMARY_MAX_TOKENS = int(os.getenv("SUMMARY_MAX_TOKENS", 600))
 SYNTHESIS_MAX_TOKENS = int(os.getenv("SYNTHESIS_MAX_TOKENS", 1000))
 
+# Reparo de sínteses cruas (E9): ledger append-only das tentativas que
+# falharam. Sem ele, um item que o modelo não consegue re-sintetizar volta em
+# TODA rodada, gastando 1 chamada de LLM por vez, para sempre.
+REPAIR_LEDGER = os.getenv("REPAIR_LEDGER", "data/repair_attempts.jsonl")
+MAX_REPAIR_TRIES = int(os.getenv("MAX_REPAIR_TRIES", 2))
+
 from src.learner_types import (  # noqa: F401 (re-exporta p/ compat)
     FETCH_QUEUE_MAX, SYNTHESIS_EVERY, LLM_DOWN_BACKOFF, MAX_CONTENT_CHARS,
     PERSIST_TIMEOUT, VERIFY_SAMPLE_EVERY, CURRICULUM_RELEVANCE_MIN, CURRICULUM_MAX_WORDS,
@@ -144,6 +150,8 @@ class LearningEngine:
         # Tasks avulsas de fundo (save, síntese, recall, currículo) — precisam de
         # referência FORTE, senão o GC pode coletá-las no meio da execução (E8).
         self._bg_tasks: set[asyncio.Task] = set()
+        # Ledger das tentativas de reparo (E9) — atributo p/ os testes isolarem.
+        self.repair_ledger = REPAIR_LEDGER
 
         # Contadores e estado
         self._saved_count        = 0
@@ -195,6 +203,15 @@ class LearningEngine:
         task.add_done_callback(self._bg_task_done)
         return task
 
+    def _maybe_synthesize(self) -> None:
+        """Marco de síntese cross-domain: a cada `SYNTHESIS_EVERY` itens salvos.
+
+        Um lugar só (E22): `learn_from_web` também incrementa `_saved_count`,
+        mas não checava o marco — quando o Coder salvava o item de número N×20,
+        a síntese daquele ciclo simplesmente não acontecia."""
+        if self._saved_count and self._saved_count % SYNTHESIS_EVERY == 0:
+            self._spawn(self._run_deep_synthesis(), name="deep-synthesis")
+
     def _bg_task_done(self, task: asyncio.Task) -> None:
         self._bg_tasks.discard(task)
         if task.cancelled():
@@ -239,9 +256,8 @@ class LearningEngine:
             days = max(1, days // 2)
         return max(3, days)
 
-    def _already_known(self, topic: str, url: str = "") -> bool:
-        """Já estudado (por tópico OU por URL) ou desistido nesta sessão? Vale
-        para TODOS os agentes — antes só o doc_agent checava URL."""
+    def _already_known_sync(self, topic: str, url: str = "") -> bool:
+        """Núcleo síncrono de `_already_known` (roda em thread)."""
         if self._norm(topic) in self._skip_session:
             return True
         if not self.db:
@@ -250,6 +266,15 @@ class LearningEngine:
         if url and self.db.is_url_studied(url, relearn_days=relearn_days):
             return True
         return self.db.is_topic_studied(topic, relearn_days=relearn_days)
+
+    async def _already_known(self, topic: str, url: str = "") -> bool:
+        """Já estudado (por tópico OU por URL) ou desistido nesta sessão? Vale
+        para TODOS os agentes — antes só o doc_agent checava URL.
+
+        Vai para thread (E24): era a única consulta SQLite SÍNCRONA dentro do
+        event loop em todo o pipeline — os fetchers a chamam por tópico, e um
+        banco lento (ou um lock do SQLite) travaria o loop inteiro."""
+        return await asyncio.to_thread(self._already_known_sync, topic, url)
 
     # ── API pública ───────────────────────────────────────────
 
@@ -318,35 +343,90 @@ class LearningEngine:
     async def study_now(self, topic: str) -> dict:
         """Estuda tópico imediatamente — injeta na fila de usuário com prioridade."""
         logger.info(f"[study_now] {topic}")
+        # E23: passa pelo MESMO dedup in-flight dos fetchers — dois cliques
+        # rápidos (ou um clique junto com o pipeline pegando o tema) estudavam
+        # o mesmo tópico 2×, gastando duas chamadas de LLM para o mesmo texto.
+        if not self._reserve(topic):
+            return {"ok": False, "topic": topic, "error": "já estou estudando este tópico"}
         self.stats["current_topic"] = topic
         try:
-            web_context, sources = await asyncio.wait_for(
-                web_research(topic, max_results=2), timeout=20.0
-            )
-        except asyncio.TimeoutError:
-            return {"ok": False, "topic": topic, "error": "timeout"}
+            try:
+                web_context, sources = await asyncio.wait_for(
+                    web_research(topic, max_results=2), timeout=20.0
+                )
+            except asyncio.TimeoutError:
+                return {"ok": False, "topic": topic, "error": "timeout"}
 
-        if not web_context or not sources:
-            return {"ok": False, "topic": topic, "error": "sem resultados"}
+            if not web_context or not sources:
+                return {"ok": False, "topic": topic, "error": "sem resultados"}
 
-        url = sources[0]["url"]
-        summary = await self._summarize(topic, web_context, "user_question")
-        if summary is None:
-            return {"ok": False, "topic": topic, "error": "síntese falhou — tente de novo"}
-        item = LearnedItem(topic=topic, url=url, summary=summary,
-                           category="user_question", agent_name="study_now")
-        await self._persist(item)
-        self._record_activity(item)
-        self.stats["current_topic"] = ""
-        return {"ok": True, "topic": topic, "url": url, "summary": summary,
-                "agent": "study_now", "time": item.timestamp}
+            url = sources[0]["url"]
+            summary = await self._summarize(topic, web_context, "user_question")
+            if summary is None:
+                return {"ok": False, "topic": topic, "error": "síntese falhou — tente de novo"}
+            item = LearnedItem(topic=topic, url=url, summary=summary,
+                               category="user_question", agent_name="study_now")
+            await self._persist(item)
+            self._record_activity(item)
+            # E23: conta como conhecimento salvo, como qualquer outro caminho —
+            # senão o painel e o marco de síntese ignoram o que o Leo pediu.
+            self._saved_count += 1
+            self._maybe_synthesize()
+            self.stats["current_topic"] = ""
+            return {"ok": True, "topic": topic, "url": url, "summary": summary,
+                    "agent": "study_now", "time": item.timestamp}
+        finally:
+            self._release(topic)
 
     @staticmethod
     def _looks_raw(summary: str) -> bool:
-        """Heurística: síntese de verdade tem estrutura markdown (seções '##');
-        conteúdo cru salvo pelos timeouts antigos não tem — é texto corrido."""
+        """Parece conteúdo CRU salvo por timeout antigo (não uma síntese)?
+
+        Só "não tem `##`" era severo demais (E9): o 1.5B escreve sínteses
+        válidas sem cabeçalho, e elas eram marcadas como cruas PARA SEMPRE —
+        cada rodada de reparo gastava uma chamada de LLM nelas, e se a
+        re-síntese também viesse sem `##`, contava como falha e voltava na
+        rodada seguinte. Moto-perpétuo de custo. Agora qualquer sinal de
+        ESTRUTURA vale: cabeçalho, lista, negrito ou vários parágrafos."""
         s = (summary or "").strip()
-        return len(s) >= 300 and "##" not in s
+        if len(s) < 300:
+            return False
+        if "##" in s or "**" in s:
+            return False
+        linhas = [ln.strip() for ln in s.splitlines() if ln.strip()]
+        if sum(1 for ln in linhas if ln.startswith(("- ", "* ", "• "))) >= 2:
+            return False
+        if s.count("\n\n") >= 2:                 # 3+ parágrafos = texto organizado
+            return False
+        return True
+
+    @staticmethod
+    def _repair_key(item_id, topic: str) -> str:
+        """Chave da tentativa de reparo: id E tópico. Só o id não serve — ids
+        são sequenciais por banco, então o "1" de um banco casaria com o "1" de
+        outro (foi o que embaralhou os testes)."""
+        return f"{item_id}:{re.sub(r'\\s+', ' ', (topic or '').strip().lower())[:60]}"
+
+    def _repair_giveups(self) -> set[str]:
+        """Itens que já falharam `MAX_REPAIR_TRIES` vezes no reparo (E9)."""
+        from src.jsonl_history import read_entries
+        tentativas: dict[str, int] = {}
+        for e in read_entries(self.repair_ledger, limit=5000):
+            key = e.get("key") or str(e.get("id"))
+            tentativas[key] = tentativas.get(key, 0) + 1
+        return {k for k, n in tentativas.items() if n >= MAX_REPAIR_TRIES}
+
+    def _record_repair_attempt(self, item_id, topic: str) -> None:
+        """Anota a tentativa fracassada no ledger append-only (E9)."""
+        if item_id is None:
+            return
+        try:
+            from src.jsonl_history import append_entry
+            append_entry(self.repair_ledger,
+                         {"key": self._repair_key(item_id, topic),
+                          "id": str(item_id), "topic": topic[:80]})
+        except Exception as e:
+            logger.debug(f"[repair] não consegui registrar a tentativa: {e}")
 
     async def repair_raw_summaries(self, limit: int = 8) -> dict:
         """Repara conhecimentos salvos CRUS (timeouts antigos que gravaram o
@@ -356,13 +436,21 @@ class LearningEngine:
         if not self.db:
             return {"ok": False, "error": "sem banco"}
         rows = await asyncio.to_thread(self.db.get_learning_history, 300)
-        raw_rows = [r for r in rows if self._looks_raw(r.get("summary", ""))][:limit]
+        desistidos = self._repair_giveups()
+        candidatos = [r for r in rows
+                      if self._looks_raw(r.get("summary", ""))
+                      and self._repair_key(r.get("id"), r.get("topic", "")) not in desistidos]
+        raw_rows = candidatos[:limit]
         repaired, failed = 0, 0
         for r in raw_rows:
             summary = await self._summarize(
                 r["topic"], r["summary"], r.get("category") or "web_search")
             if not summary or self._looks_raw(summary):
                 failed += 1
+                # E9: registra a tentativa; depois de MAX_REPAIR_TRIES o item
+                # sai da fila para sempre em vez de queimar 1 chamada de LLM
+                # por rodada, para sempre.
+                self._record_repair_attempt(r.get("id"), r.get("topic", ""))
                 continue
             await asyncio.to_thread(self.db.update_topic_summary, r["id"], summary)
             # Reindexa o recall com a síntese boa (doc_id por tópico → upsert).
@@ -462,7 +550,8 @@ class LearningEngine:
                     # Anti-repetição em DUAS camadas: já estudado (tópico OU URL,
                     # p/ todos os agentes) e in-flight (já está na fila esperando
                     # sumarização — a janela em que o bug das cópias acontecia).
-                    if self._already_known(topic, url_hint) or not self._reserve(topic):
+                    if (await self._already_known(topic, url_hint)
+                            or not self._reserve(topic)):
                         agent.active = False
                         agent.current_topic = ""
                         await asyncio.sleep(1)
@@ -500,7 +589,8 @@ class LearningEngine:
     async def _fetch_and_enqueue_search(self, topic: str, category: str, agent_name: str) -> None:
         # Anti-duplicação: não re-estuda tópicos de rotação já aprendidos. Perguntas do
         # usuário e o currículo auto-dirigido podem repetir de propósito, então passam.
-        if category not in ("user_question", "self_directed") and self._already_known(topic):
+        if (category not in ("user_question", "self_directed")
+                and await self._already_known(topic)):
             return
         # In-flight: nunca duas cópias do mesmo tópico na fila ao mesmo tempo
         # (vale para todas as categorias — repetir DEPOIS de salvo é permitido).
@@ -699,9 +789,7 @@ class LearningEngine:
             # "estudado" no banco, então os fetchers não o pegam de novo.
             self._release(item.topic)
 
-        # Dispara síntese cross-domain a cada N itens
-        if self._saved_count % SYNTHESIS_EVERY == 0:
-            self._spawn(self._run_deep_synthesis(), name="deep-synthesis")
+        self._maybe_synthesize()
 
     async def _link_related(self, topic: str, summary: str) -> None:
         """M8 8.3: liga o tópico recém-aprendido aos tópicos recentes com que ele
@@ -837,6 +925,7 @@ class LearningEngine:
         await self._persist(item)
         self._record_activity(item)
         self._saved_count += 1
+        self._maybe_synthesize()          # E22: este caminho pulava o marco
         if self.db:
             try:
                 self.db.add_notification(

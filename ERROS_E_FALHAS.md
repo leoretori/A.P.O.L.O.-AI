@@ -90,13 +90,13 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 - **Fix:** manter um `set` de tasks (`self._bg_tasks.add(t); t.add_done_callback(...)` que loga exceção e descarta).
 
 ### E9 — Faxina/reparo de sínteses "cruas" pode re-sintetizar conteúdo BOM repetidamente
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/learner.py:307-312](src/learner.py) (`_looks_raw`: `len>=300 and "##" not in s`)
 - **O quê:** qualquer síntese válida que o modelo tenha escrito **sem** cabeçalhos markdown (acontece com o 1.5B) é tratada como "crua" para sempre: cada rodada de reparo gasta 1 chamada de LLM nela, e se a re-síntese também vier sem `##`, conta como "failed" e será tentada de novo na próxima rodada — moto-perpétuo de custo.
 - **Fix:** marcar tentativas de reparo no banco (não re-tentar o mesmo id); heurística adicional (ex.: densidade de linhas de lista/parágrafos) em vez de só `##`.
 
 ### E10 — Destilação noturna de conhecimento REGERA o dataset do zero e embaralha o alvo do portão de crescimento
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [app.py:436-447](app.py) (`_run_knowledge_distill_cycle`) + [src/nanollm/flywheel.py:286-292](src/nanollm/flywheel.py)
 - **O quê:** toda noite o corpus `data/nano/distill_answers` é reescrito inteiro (novas chamadas ao professor para os MESMOS resumos → pares diferentes para o mesmo conteúdo, split train/val re-sorteado). O gate `pairs - last_pairs < min_growth_pairs` mede crescimento de um dataset que muda de identidade a cada noite; e paga-se custo de professor re-rotulando o que já foi rotulado.
 - **Fix:** dataset **append-only com dedup por pergunta** (cache professor→resposta por hash da síntese); regenerar split só quando treinar.
@@ -170,9 +170,9 @@ Ainda abertos: E9, E10, E13–E19, E21–E27.
 ## 🔵 MENORES / OBSERVAÇÕES
 
 - ✅ **E21** [src/nanollm/routing.py:46](src/nanollm/routing.py) — `served_by = "nano" if result else "teacher"`: um resultado falsy legítimo (ex.: `False` de um futuro gate binário roteado) seria descartado e recomputado no professor. Hoje só título passa por aqui (truthy sempre); vira bug quando o gate binário for promovido. Usar sentinela `None` explícita.
-- **E22** [src/learner.py:786-809](src/learner.py) — `learn_from_web` incrementa `_saved_count` mas não dispara o gatilho de síntese (`% SYNTHESIS_EVERY`) — pode pular um marco de síntese.
-- **E23** [src/learner.py:281-305](src/learner.py) — `study_now` não passa pelo dedup in-flight (`_reserve`) nem incrementa `_saved_count`; dois cliques rápidos estudam o mesmo tópico 2×.
-- **E24** [src/learner.py:212-222](src/learner.py) — `_already_known`/`is_topic_studied` são chamadas SQLite **síncronas** dentro do event loop (fetchers). Latência pequena, mas é o único lugar do pipeline que fura o padrão `asyncio.to_thread`.
+- ✅ **E22** [src/learner.py:786-809](src/learner.py) — `learn_from_web` incrementa `_saved_count` mas não dispara o gatilho de síntese (`% SYNTHESIS_EVERY`) — pode pular um marco de síntese.
+- ✅ **E23** [src/learner.py:281-305](src/learner.py) — `study_now` não passa pelo dedup in-flight (`_reserve`) nem incrementa `_saved_count`; dois cliques rápidos estudam o mesmo tópico 2×.
+- ✅ **E24** [src/learner.py:212-222](src/learner.py) — `_already_known`/`is_topic_studied` são chamadas SQLite **síncronas** dentro do event loop (fetchers). Latência pequena, mas é o único lugar do pipeline que fura o padrão `asyncio.to_thread`.
 - ✅ **E25** [src/nanollm/tokenizer.py:144](src/nanollm/tokenizer.py) — `decode` ignora ids desconhecidos silenciosamente (`b""`). Bom para robustez, ruim para debug: um bug de vocab viraria texto "encolhido" sem sinal. Logar em debug.
 - ✅ **E26** [src/nanollm/distill.py:41](src/nanollm/distill.py) — `MAX_INPUT_CHARS=300` no treino, mas o blind-eval pergunta com o texto INTEIRO — leve descasamento treino/inferência (o mesmo pecado que o M14.2 diagnosticou).
 - ✅ **E27** [src/nanollm/data.py:110](src/nanollm/data.py) — `rng.integers(0, len-block-1)` nunca sorteia a última janela válida (off-by-one inofensivo).

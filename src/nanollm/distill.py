@@ -322,6 +322,40 @@ def run_reaction_distillation(
     return meta
 
 
+def _read_pairs_jsonl(path: str | Path) -> list[tuple[str, str]]:
+    """Lê os pares já destilados (`pairs.jsonl`) — vazio se não existir."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    out: list[tuple[str, str]] = []
+    for linha in p.read_text(encoding="utf-8").splitlines():
+        try:
+            d = json.loads(linha)
+        except json.JSONDecodeError:
+            continue
+        c, t = d.get("context"), d.get("title")
+        if c and t:
+            out.append((c, t))
+    return out
+
+
+def _merge_pairs(anteriores: list[tuple[str, str]],
+                 novos: list[tuple[str, str]]) -> tuple[list[tuple[str, str]], int]:
+    """Junta preservando os antigos e a ordem; dedup pela PERGUNTA normalizada.
+    Devolve (lista, quantos entraram de novo)."""
+    vistos = {c.strip().lower()[:120] for c, _ in anteriores}
+    saida = list(anteriores)
+    n = 0
+    for c, t in novos:
+        chave = c.strip().lower()[:120]
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        saida.append((c, t))
+        n += 1
+    return saida, n
+
+
 def run_knowledge_distillation(
     db,
     tokenizer_path: str | Path,
@@ -332,14 +366,31 @@ def run_knowledge_distillation(
     max_pairs: int | None = None,
     max_per_sector: int | None = None,
     val_fraction: float = 0.1,
+    append: bool = True,
+    teacher_cache: str | Path | None = None,
 ) -> dict:
     """Destila o banco de conhecimento em Q&A ancorado (M28), ponta a ponta.
     Dataset SEPARADO (task `answer_distill_grounded`), no formato do fine-tune.
     `max_per_sector`: teto por setor (ver `_stratify_by_sector`) — sem ele, o
-    dataset pode ficar dominado por 1-2 setores (medido: ~80% num caso real)."""
+    dataset pode ficar dominado por 1-2 setores (medido: ~80% num caso real).
+
+    **Append-only com dedup por pergunta** (E10): toda noite o corpus era
+    reescrito do zero — o professor re-rotulava as MESMAS sínteses (pagando de
+    novo, e produzindo pares diferentes), e o split train/val era re-sorteado.
+    O portão de crescimento do flywheel (`pairs - last_pairs`) media um dataset
+    que trocava de identidade a cada noite. Agora os pares antigos ficam, os
+    novos são acrescentados, e o professor tem GABARITO em disco
+    (`teacher_cache`, padrão `<out_dir>/teacher_cache.json`) — a mesma síntese
+    nunca é rotulada duas vezes."""
+    from src.nanollm.blind_eval import cached_teacher
+
+    out = Path(out_dir)
     teacher = teacher_fn or make_llm_teacher()
-    pairs = source_knowledge_grounded_pairs(db, teacher, limit=limit, max_pairs=max_pairs,
+    teacher = cached_teacher(teacher, teacher_cache or (out / "teacher_cache.json"))
+    novos = source_knowledge_grounded_pairs(db, teacher, limit=limit, max_pairs=max_pairs,
                                             max_per_sector=max_per_sector)
+    anteriores = _read_pairs_jsonl(out / "pairs.jsonl") if append else []
+    pairs, n_novos = _merge_pairs(anteriores, novos)
     if not pairs:
         raise ValueError("sem sínteses aproveitáveis no banco de conhecimento — "
                          "deixe os 7 agentes estudarem primeiro")
@@ -347,6 +398,9 @@ def run_knowledge_distillation(
                                  template=ANSWER_TEMPLATE, task="answer_distill_grounded",
                                  val_fraction=val_fraction)
     meta["source"] = "knowledge grounded (7 agentes → Qwen Q&A)"
+    meta["pares_novos"] = n_novos
+    meta["pares_anteriores"] = len(anteriores)
+    meta["append_only"] = append
     (Path(out_dir) / "meta.json").write_text(
         json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     return meta

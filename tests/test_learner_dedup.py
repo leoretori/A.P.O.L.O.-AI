@@ -63,14 +63,14 @@ def test_start_limpa_inflight(eng):
 def test_already_known_por_topico_e_url():
     eng = LearningEngine(model="m", db=FakeDB(topics={"Evolução (enciclopédia)"},
                                               urls={"https://pt.wikipedia.org/wiki/DNA"}))
-    assert eng._already_known("Evolução (enciclopédia)")
-    assert eng._already_known("DNA (enciclopédia)", "https://pt.wikipedia.org/wiki/DNA")
-    assert not eng._already_known("Fotossíntese (enciclopédia)")
+    assert eng._already_known_sync("Evolução (enciclopédia)")
+    assert eng._already_known_sync("DNA (enciclopédia)", "https://pt.wikipedia.org/wiki/DNA")
+    assert not eng._already_known_sync("Fotossíntese (enciclopédia)")
 
 
 def test_already_known_sem_db():
     eng = LearningEngine(model="m")
-    assert not eng._already_known("qualquer tópico")
+    assert not eng._already_known_sync("qualquer tópico")
 
 
 # ── Fila nunca recebe duas cópias do mesmo tópico ─────────────────
@@ -136,15 +136,15 @@ def test_sintese_falha_2x_desiste_sem_salvar(eng, monkeypatch):
     asyncio.run(eng._process_item(_item(retries=1)))
     assert eng._fetch_queue.qsize() == 0          # não re-enfileira
     assert saved == []                            # NADA salvo (sem lixo cru)
-    assert eng._already_known("tema x")           # desistido nesta sessão
+    assert eng._already_known_sync("tema x")           # desistido nesta sessão
     assert eng._norm("tema x") not in eng._inflight   # reserva liberada
 
 
 def test_skip_session_limpo_no_start(eng):
     eng._skip_session.add("tema desistido")
-    assert eng._already_known("tema desistido")
+    assert eng._already_known_sync("tema desistido")
     eng._skip_session.clear()
-    assert not eng._already_known("tema desistido")
+    assert not eng._already_known_sync("tema desistido")
 
 
 def test_prompt_por_categoria():
@@ -202,7 +202,7 @@ def test_ollama_fora_pausa_sem_descartar(eng, monkeypatch):
     assert eng._fetch_queue.qsize() == 1
     requeued = eng._fetch_queue.get_nowait()
     assert requeued.retries == 0                     # NÃO contou tentativa
-    assert not eng._already_known("tema x")          # NÃO desistiu do tópico
+    assert not eng._already_known_sync("tema x")          # NÃO desistiu do tópico
     assert eng._norm("tema x") in eng._inflight      # reserva mantida
 
 
@@ -475,3 +475,92 @@ def test_persist_verified_none_vira_unchecked_no_rag():
                        category="web", agent_name="a", verified=None)
     asyncio.run(eng._persist(item))
     assert captured_rag["metadata"]["verified"] == "unchecked"
+
+
+# ── E23: study_now passa pelo MESMO dedup dos fetchers ───────────────────
+def test_study_now_recusa_topico_ja_em_estudo(monkeypatch):
+    """Dois cliques rápidos estudavam o mesmo tópico 2× — duas chamadas de LLM
+    para o mesmo texto (E23)."""
+    import src.learner as learner_mod
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng._inflight = set()
+    eng.stats = {"current_topic": ""}
+    eng._reserve("Kubernetes")                    # o pipeline já pegou o tema
+
+    res = asyncio.run(eng.study_now("kubernetes"))   # normalização casa
+    assert res["ok"] is False and "já estou estudando" in res["error"]
+
+
+def test_study_now_conta_como_salvo_e_libera_o_topico(monkeypatch):
+    import src.learner as learner_mod
+
+    async def _pesquisa(topic, max_results=2):
+        return "conteudo da web sobre o tema", [{"url": "https://x/y"}]
+
+    monkeypatch.setattr(learner_mod, "web_research", _pesquisa)
+
+    eng = LearningEngine.__new__(LearningEngine)
+    eng._inflight = set()
+    eng.stats = {"current_topic": ""}
+    eng._saved_count = 0
+    eng.db = None
+    sinteses = []
+
+    async def _fake_summarize(topic, content, category):
+        return "## Resumo\nconteudo sintetizado"
+
+    async def _fake_persist(item):
+        sinteses.append(item.topic)
+
+    eng._summarize = _fake_summarize
+    eng._persist = _fake_persist
+    eng._record_activity = lambda item: None
+    eng._maybe_synthesize = lambda: None
+
+    res = asyncio.run(eng.study_now("Redis Streams"))
+    assert res["ok"] is True and sinteses == ["Redis Streams"]
+    assert eng._saved_count == 1                  # entra na contagem, como os outros
+    assert eng._inflight == set()                 # e o tópico foi liberado
+
+
+def test_study_now_libera_o_topico_mesmo_falhando(monkeypatch):
+    import src.learner as learner_mod
+
+    async def _pesquisa_vazia(topic, max_results=2):
+        return "", []
+
+    monkeypatch.setattr(learner_mod, "web_research", _pesquisa_vazia)
+    eng = LearningEngine.__new__(LearningEngine)
+    eng._inflight = set()
+    eng.stats = {"current_topic": ""}
+
+    res = asyncio.run(eng.study_now("tema sem resultado"))
+    assert res["ok"] is False
+    assert eng._inflight == set()                 # não fica preso para sempre
+
+
+# ── E24: nenhuma consulta SQLite SÍNCRONA dentro do event loop ───────────
+def test_already_known_roda_em_thread(monkeypatch):
+    """Era o único ponto do pipeline que furava o padrão `asyncio.to_thread`:
+    um banco lento (ou um lock do SQLite) travaria o loop inteiro."""
+    eng = LearningEngine.__new__(LearningEngine)
+    eng._inflight, eng._skip_session = set(), set()
+    eng.db = type("_DB", (), {
+        "is_url_studied": lambda self, u, relearn_days=0: False,
+        "is_topic_studied": lambda self, t, relearn_days=0: t == "ja estudado",
+    })()
+    eng._effective_relearn_days = lambda t: 7
+
+    loops = []
+    import asyncio as aio
+    orig = aio.to_thread
+
+    async def espiao(fn, *a, **k):
+        loops.append(fn.__name__)
+        return await orig(fn, *a, **k)
+
+    monkeypatch.setattr(aio, "to_thread", espiao)
+    assert asyncio.run(eng._already_known("ja estudado")) is True
+    assert asyncio.run(eng._already_known("tema novo")) is False
+    assert loops == ["_already_known_sync", "_already_known_sync"]
