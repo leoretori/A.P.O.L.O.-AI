@@ -2,6 +2,8 @@
 
 O ponto crítico: o placar tem que mapear a escolha do juiz de volta ao modelo
 certo APESAR do embaralhamento A/B. Os fakes fixam isso."""
+import json
+
 import pytest
 
 from src.nanollm.blind_eval import (
@@ -204,3 +206,93 @@ def test_run_tracked_blind_eval_pulado_nao_registra(tmp_path, monkeypatch):
                                  history_path=hpath, limit=30, min_questions=30, seed=0)
     assert res["status"] == "skipped"
     assert read_history(hpath) == []
+
+
+# ── E5: gabarito cacheado, juiz 2× e portão estatístico ──────────────────
+def test_cached_teacher_congela_a_referencia(tmp_path):
+    """O professor gera com temperatura > 0: sem cache, candidato e titular
+    eram comparados contra gabaritos DIFERENTES (E5)."""
+    from src.nanollm.blind_eval import cached_teacher
+
+    chamadas = {"n": 0}
+
+    def instavel(q):
+        chamadas["n"] += 1
+        return f"resposta {chamadas['n']}"
+
+    path = tmp_path / "gabarito.json"
+    t = cached_teacher(instavel, path)
+    assert t("pergunta A") == "resposta 1"
+    assert t("pergunta A") == "resposta 1"      # mesma referência
+    assert t("pergunta B") == "resposta 2"
+    assert chamadas["n"] == 2
+
+    # persiste entre execuções (outra noite, outro processo)
+    t2 = cached_teacher(instavel, path)
+    assert t2("pergunta A") == "resposta 1"
+    assert chamadas["n"] == 2                   # não chamou o professor de novo
+
+
+def test_two_pass_transforma_viés_de_posicao_em_empate():
+    """Juiz que sempre escolhe 'A' não tem preferência: nas duas ordens ele
+    aponta modelos diferentes → inconsistente → empate, não vitória."""
+    res = blind_compare([f"p{i}" for i in range(10)], _nano, _teacher,
+                        lambda q, a, b: "A", seed=3, two_pass=True)
+    assert res["wins"]["tie"] == 10 and res["inconsistentes"] == 10
+    assert res["nano_win_rate"] == 0.0
+
+
+def test_two_pass_mantem_veredito_consistente():
+    """Juiz que escolhe pela IDENTIDADE responde igual nas duas ordens."""
+    def judge(q, a, b):
+        return "A" if a == "RESPOSTA_NANO" else "B"
+    res = blind_compare([f"p{i}" for i in range(6)], _nano, _teacher, judge,
+                        seed=3, two_pass=True)
+    assert res["wins"]["nano"] == 6 and res["inconsistentes"] == 0
+
+
+def test_paired_win_test_delta_grande_e_significativo():
+    from src.nanollm.blind_eval import paired_win_test
+
+    cand = [{"i": i, "winner": "nano" if i < 20 else "teacher"} for i in range(60)]
+    base = [{"i": i, "winner": "teacher"} for i in range(60)]
+    t = paired_win_test(cand, base)
+    assert t["candidato_ganhou"] == 20 and t["titular_ganhou"] == 0
+    assert t["p_value"] < 0.001 and t["significativo"] is True
+
+
+def test_paired_win_test_delta_pequeno_nao_e_significativo():
+    """O caso real do E5: candidato 'na frente' por poucas perguntas — que é
+    exatamente a oscilação medida no MESMO checkpoint em noites diferentes."""
+    from src.nanollm.blind_eval import paired_win_test
+
+    cand = [{"i": i, "winner": "nano" if i < 8 else "teacher"} for i in range(60)]
+    base = [{"i": i, "winner": "nano" if 3 <= i < 9 else "teacher"} for i in range(60)]
+    t = paired_win_test(cand, base)
+    assert t["candidato_ganhou"] == 3 and t["titular_ganhou"] == 1
+    assert t["significativo"] is False
+
+
+def test_paired_win_test_empate_nao_promove():
+    from src.nanollm.blind_eval import paired_win_test
+
+    iguais = [{"i": i, "winner": "nano"} for i in range(30)]
+    t = paired_win_test(iguais, list(iguais))
+    assert t["discordantes"] == 0 and t["significativo"] is False
+    assert t["p_value"] == 1.0
+
+
+def test_freeze_questions_cresce_sem_re_sortear(tmp_path):
+    """E5: o conjunto congelado com 15 perguntas (ruído) cresce até o alvo —
+    mantendo as antigas, na ordem."""
+    path = tmp_path / "q.json"
+    db_antigo = _FakeDB([f"antiga {i}" for i in range(15)])
+    qs1 = freeze_questions(db_antigo, path, limit=15, min_questions=15)
+    assert len(qs1) == 15
+
+    db_maior = _FakeDB([f"antiga {i}" for i in range(15)] +
+                       [f"nova {i}" for i in range(60)])
+    qs2 = freeze_questions(db_maior, path, limit=60, min_questions=60)
+    assert len(qs2) == 60
+    assert qs2[:15] == qs1                      # as antigas continuam, na ordem
+    assert json.loads(path.read_text(encoding="utf-8")) == qs2

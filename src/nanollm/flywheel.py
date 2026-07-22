@@ -212,6 +212,9 @@ def _log(work_root: str | Path, summary: dict) -> dict:
 DEFAULT_ANSWER_DATASET = "data/nano/distill_answers"
 DEFAULT_BLIND_QUESTIONS = "data/nano/blind_eval_questions.json"
 DEFAULT_EXPERIMENT_LOG = "data/nano/experiment_history.jsonl"
+# Gabarito do professor por pergunta (E5): mesma referência para candidato,
+# titular e todas as noites futuras.
+DEFAULT_TEACHER_CACHE = "data/nano/blind_eval_teacher_cache.json"
 
 
 def _default_answer_train(dataset_dir: Path, init_from: Path, out_dir: Path, *,
@@ -242,10 +245,15 @@ def first_answer_block(completion: str) -> str:
 
 
 def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
-                               max_tokens: int = 80) -> dict:
+                               max_tokens: int = 80,
+                               teacher_cache: str | Path = DEFAULT_TEACHER_CACHE) -> dict:
     """Win-rate real do checkpoint contra o professor, no conjunto congelado —
-    mesma medição usada nas rodadas manuais (Pergunta:/Resposta:, motor real)."""
-    from src.nanollm.blind_eval import blind_compare, make_llm_judge
+    mesma medição usada nas rodadas manuais (Pergunta:/Resposta:, motor real).
+
+    Duas garantias do E5 vivem aqui: o professor vem do GABARITO em disco
+    (candidato e titular comparados contra a MESMA referência) e o juiz vota
+    duas vezes com as posições trocadas (`two_pass`)."""
+    from src.nanollm.blind_eval import blind_compare, cached_teacher, make_llm_judge
     from src.nanollm.engine import NanoEngine
 
     engine = NanoEngine(ckpt_dir=ckpt_dir)
@@ -256,9 +264,9 @@ def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
         out = engine.complete(f"Pergunta: {q}\n\nResposta:", max_tokens=max_tokens).get("text", "")
         return first_answer_block(out)
 
-    teacher = make_llm_teacher(max_tokens=max_tokens)
+    teacher = cached_teacher(make_llm_teacher(max_tokens=max_tokens), teacher_cache)
     judge = make_llm_judge()
-    res = blind_compare(questions, nano_fn, teacher, judge, seed=0)
+    res = blind_compare(questions, nano_fn, teacher, judge, seed=0, two_pass=True)
     res["status"] = "ok"
     return res
 
@@ -277,8 +285,8 @@ def run_answer_flywheel(
     lr: float = 2e-4,
     patience: int = 5,
     freeze_blocks: int = 0,
-    margin: float = 5.0,
-    min_questions: int = 15,
+    alpha: float = 0.05,
+    min_questions: int = 60,
     train_fn: Callable[..., dict] | None = None,
     blind_eval_fn: Callable[..., dict] | None = None,
     promote: bool = True,
@@ -289,9 +297,15 @@ def run_answer_flywheel(
     Só treina quando o corpus de destilação (`dataset_dir`) cresceu pelo menos
     `min_growth_pairs` desde a última tentativa AUTOMÁTICA registrada (não
     starta do zero a cada noite — 3 experimentos manuais já mostraram que
-    repetir com pouco dado novo não ajuda). Promove só se o candidato bater o
-    titular no blind-eval real com margem (`margin` pontos percentuais) — cada
-    tentativa (promovida ou não) é registrada no histórico de experimentos."""
+    repetir com pouco dado novo não ajuda).
+
+    Promoção passa por **teste estatístico pareado** (`paired_win_test`), não
+    mais por "ganhou por 5 pontos percentuais": com n=15 o mesmo checkpoint
+    marcou 33,3% e 46,7% em noites diferentes sem mudar um peso, então margem
+    fixa promovia ruído (E5). Agora exige-se que o delta pareado seja
+    improvável ao acaso (p ≤ `alpha`) num conjunto de pelo menos
+    `min_questions` perguntas congeladas. Cada tentativa (promovida ou não) é
+    registrada no histórico de experimentos."""
     from src.nanollm.experiment_log import log_experiment, read_experiment_history
 
     live = Path(live_ckpt) if live_ckpt else _default_live_ckpt()
@@ -320,17 +334,20 @@ def run_answer_flywheel(
                              f"tentativa automática (< {min_growth_pairs}) — esperando mais dado")
         return _log(work_root, summary)
 
-    candidate = work / "candidate"
-    train = train_fn or _default_answer_train
-    train(dataset, live, candidate, steps=steps, lr=lr, patience=patience,
-          freeze_blocks=freeze_blocks)
-
-    from src.nanollm.blind_eval import freeze_questions
+    # O conjunto de perguntas é congelado ANTES do treino: sem ele não há como
+    # medir, e treinar 2000 passos para descobrir isso depois é queimar horas
+    # de CPU toda noite em que a condição persistir (E7).
+    from src.nanollm.blind_eval import freeze_questions, paired_win_test
     try:
         questions = freeze_questions(db, questions_path, min_questions=min_questions)
     except ValueError as e:
         summary["reason"] = str(e)
         return _log(work_root, summary)
+
+    candidate = work / "candidate"
+    train = train_fn or _default_answer_train
+    train(dataset, live, candidate, steps=steps, lr=lr, patience=patience,
+          freeze_blocks=freeze_blocks)
 
     blind_eval = blind_eval_fn or _default_answer_blind_eval
     cand_res = blind_eval(candidate, questions)
@@ -340,17 +357,24 @@ def run_answer_flywheel(
         return _log(work_root, summary)
 
     cand_wr, base_wr = cand_res["nano_win_rate"], base_res["nano_win_rate"]
+    teste = paired_win_test(cand_res.get("rounds", []), base_res.get("rounds", []),
+                            alpha=alpha)
     summary.update({"candidate_win_rate": cand_wr, "incumbent_win_rate": base_wr,
-                    "candidate_dir": str(candidate), "n_questions": len(questions)})
+                    "candidate_dir": str(candidate), "n_questions": len(questions),
+                    "teste_pareado": teste})
     hyperparams = {"lr": lr, "steps_budget": steps, "patience": patience,
                    "freeze_blocks": freeze_blocks, "dataset_pairs": pairs}
-    result = {"candidate_win_rate": cand_wr, "incumbent_win_rate": base_wr}
+    result = {"candidate_win_rate": cand_wr, "incumbent_win_rate": base_wr,
+              "teste_pareado": teste}
 
-    improved = cand_wr > base_wr + margin
+    improved = teste["significativo"]
     if not (improved and promote):
         summary["status"] = "rejected"
-        summary["reason"] = (f"candidato {cand_wr}% não superou titular {base_wr}% "
-                             f"com margem {margin}pp")
+        summary["reason"] = (
+            f"candidato {cand_wr}% vs titular {base_wr}%: delta pareado não é "
+            f"significativo (ganhou {teste['candidato_ganhou']}, perdeu "
+            f"{teste['titular_ganhou']} das {teste['discordantes']} discordantes, "
+            f"p={teste['p_value']} > α={alpha}) — pode ser sorteio")
         result["promoted"] = False
         log_experiment(experiment_log_path, name="answer_auto", base_ckpt=str(live),
                        dataset=str(dataset), hyperparams=hyperparams, result=result,
@@ -366,9 +390,10 @@ def run_answer_flywheel(
     result["promoted"] = True
     log_experiment(experiment_log_path, name="answer_auto", base_ckpt=str(live),
                    dataset=str(dataset), hyperparams=hyperparams, result=result,
-                   notes=f"promovido: {cand_wr}% > {base_wr}% (+{margin}pp)")
-    logger.info(f"[flywheel-resposta] PROMOVIDO: win-rate {base_wr}% → {cand_wr}%; "
-               f"backup em {backup}")
+                   notes=(f"promovido: {cand_wr}% > {base_wr}% com delta pareado "
+                          f"significativo (p={teste['p_value']} ≤ α={alpha})"))
+    logger.info(f"[flywheel-resposta] PROMOVIDO: win-rate {base_wr}% → {cand_wr}% "
+                f"(p={teste['p_value']}); backup em {backup}")
     return _log(work_root, summary)
 
 

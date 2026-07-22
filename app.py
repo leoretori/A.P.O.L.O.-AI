@@ -167,7 +167,12 @@ ANSWER_FLYWHEEL_HOUR = int(os.getenv("ANSWER_FLYWHEEL_HOUR", 3))
 ANSWER_FLYWHEEL_STEPS = int(os.getenv("ANSWER_FLYWHEEL_STEPS", 2000))
 ANSWER_FLYWHEEL_MIN_PAIRS = int(os.getenv("ANSWER_FLYWHEEL_MIN_PAIRS", 50))
 ANSWER_FLYWHEEL_MIN_GROWTH = int(os.getenv("ANSWER_FLYWHEEL_MIN_GROWTH", 200))
-ANSWER_FLYWHEEL_MARGIN = float(os.getenv("ANSWER_FLYWHEEL_MARGIN", 5.0))
+# Portão estatístico (E5): promoção exige delta pareado improvável ao acaso
+# (p ≤ α) num conjunto congelado de pelo menos ANSWER_FLYWHEEL_MIN_QUESTIONS
+# perguntas. A antiga "margem de 5pp com n=15" promovia ruído — o MESMO
+# checkpoint mediu 33,3% e 46,7% em noites diferentes sem mudar um peso.
+ANSWER_FLYWHEEL_ALPHA = float(os.getenv("ANSWER_FLYWHEEL_ALPHA", 0.05))
+ANSWER_FLYWHEEL_MIN_QUESTIONS = int(os.getenv("ANSWER_FLYWHEEL_MIN_QUESTIONS", 60))
 _last_answer_flywheel_date = None
 
 # Dedup automático (P2.4): dedup_exact (RAG) e dedup_learned_topics (log SQLite)
@@ -331,7 +336,7 @@ async def _run_answer_flywheel_cycle() -> None:
         res = await asyncio.to_thread(
             run_answer_flywheel, db, steps=ANSWER_FLYWHEEL_STEPS,
             min_pairs=ANSWER_FLYWHEEL_MIN_PAIRS, min_growth_pairs=ANSWER_FLYWHEEL_MIN_GROWTH,
-            margin=ANSWER_FLYWHEEL_MARGIN)
+            alpha=ANSWER_FLYWHEEL_ALPHA, min_questions=ANSWER_FLYWHEEL_MIN_QUESTIONS)
         st = res.get("status")
         if st == "promoted":
             if rt.nano:

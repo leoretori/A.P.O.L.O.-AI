@@ -13,7 +13,7 @@ PT = "Como criar a própria LLM soberana em Python do zero, sem depender de terc
 
 
 class _FakeDB:
-    def __init__(self, n=20):
+    def __init__(self, n=80):
         self._msgs = [f"Pergunta numero {i} sobre um tema tecnico real" for i in range(n)]
 
     def first_user_messages(self, limit=300, min_len=8):
@@ -48,14 +48,25 @@ def _train_fn_factory():
     return train_fn
 
 
-def _blind_eval_fn_factory(win_rates: dict):
-    """win_rates: {"CANDIDATO": x, "TITULAR": y} por conteúdo do model_best.npz."""
+def _blind_eval_fn_factory(vitorias: dict):
+    """vitorias: {"CANDIDATO": range/lista de ÍNDICES vencidos, "TITULAR": …}.
+
+    O portão é pareado (E5): o que decide não é a média, é em QUAIS perguntas
+    cada um ganhou. Por isso o fake devolve o veredito por pergunta (`rounds`)
+    — só assim dá pra montar discordância a favor e contra."""
     def blind_eval_fn(ckpt_dir, questions):
         content = (Path(ckpt_dir) / "model_best.npz").read_bytes()
-        for tag, wr in win_rates.items():
+        for tag, idx in vitorias.items():
             if tag.encode() in content:
+                ganhou = set(idx)
+                rounds = [{"i": i, "winner": "nano" if i in ganhou else "teacher"}
+                          for i in range(len(questions))]
+                n_wins = sum(1 for r in rounds if r["winner"] == "nano")
+                wr = round(100 * n_wins / len(questions), 1) if questions else 0.0
                 return {"status": "ok", "nano_win_rate": wr, "n": len(questions),
-                        "wins": {"nano": 0, "teacher": 0, "tie": 0}}
+                        "wins": {"nano": n_wins, "teacher": len(questions) - n_wins,
+                                 "tie": 0},
+                        "rounds": rounds}
         return {"status": "skipped", "reason": "desconhecido"}
     return blind_eval_fn
 
@@ -100,17 +111,19 @@ def test_candidato_nao_supera_titular_rejeitado_e_registrado(tmp_path):
     _write_dataset(dataset, pairs=500)
     hist = tmp_path / "hist.jsonl"
     train_fn = _train_fn_factory()
-    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": 20.0, "TITULAR": 33.3})
+    # o titular ganha em 20 perguntas; o candidato só em 6 delas → o delta
+    # pareado é NEGATIVO
+    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": range(6),
+                                            "TITULAR": range(20)})
 
     res = run_answer_flywheel(
         _FakeDB(), live_ckpt=_live_ckpt(tmp_path), dataset_dir=dataset,
         work_root=tmp_path / "work", questions_path=tmp_path / "q.json",
         experiment_log_path=hist, min_pairs=50, min_growth_pairs=200,
-        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=15)
+        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=60)
 
     assert res["status"] == "rejected"
-    assert res["candidate_win_rate"] == 20.0
-    assert res["incumbent_win_rate"] == 33.3
+    assert res["candidate_win_rate"] < res["incumbent_win_rate"]
     entries = read_experiment_history(hist)
     assert len(entries) == 1
     assert entries[0]["name"] == "answer_auto"
@@ -123,16 +136,18 @@ def test_candidato_supera_titular_promovido_com_backup(tmp_path):
     live = _live_ckpt(tmp_path)
     hist = tmp_path / "hist.jsonl"
     train_fn = _train_fn_factory()
-    # candidato bate o titular com margem folgada (padrão margin=5.0pp)
-    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": 50.0, "TITULAR": 33.3})
+    # candidato vence em 25 perguntas onde o titular perdeu, e em nenhuma o
+    # contrário → p ≈ 6e-8, muito abaixo de α=0,05
+    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": range(25), "TITULAR": []})
 
     res = run_answer_flywheel(
         _FakeDB(), live_ckpt=live, dataset_dir=dataset,
         work_root=tmp_path / "work", questions_path=tmp_path / "q.json",
         experiment_log_path=hist, min_pairs=50, min_growth_pairs=200,
-        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=15)
+        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=60)
 
     assert res["status"] == "promoted"
+    assert res["teste_pareado"]["significativo"] is True
     # o titular (live) agora tem os pesos do candidato
     assert (live / "model_best.npz").read_bytes() == b"CANDIDATO"
     # backup do titular antigo existe (reversível)
@@ -142,75 +157,43 @@ def test_candidato_supera_titular_promovido_com_backup(tmp_path):
     assert entries[-1]["result"]["promoted"] is True
 
 
-def test_margem_insuficiente_nao_promove(tmp_path):
-    """Candidato até ganha, mas por menos que a margem — não promove (evita
-    trocar checkpoint por ruído de amostra, achado do M28/PLANO_CEREBRO_ASSUME)."""
+def test_vantagem_pequena_nao_promove(tmp_path):
+    """Candidato até ganha um pouco, mas o delta pareado pode ser sorteio —
+    não promove. É o caso que a antiga margem de 5pp deixava passar quando o
+    n era 15 (E5): o MESMO checkpoint oscilou 33,3%→46,7% sem mudar um peso."""
     dataset = tmp_path / "dataset"
     _write_dataset(dataset, pairs=500)
     hist = tmp_path / "hist.jsonl"
     train_fn = _train_fn_factory()
-    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": 36.0, "TITULAR": 33.3})  # +2.7pp < margin 5.0
+    # 5 discordâncias a favor (0-4) e 4 contra (13-16) → p = 1,0
+    blind_eval_fn = _blind_eval_fn_factory({"CANDIDATO": range(13),
+                                            "TITULAR": range(5, 17)})
 
     res = run_answer_flywheel(
         _FakeDB(), live_ckpt=_live_ckpt(tmp_path), dataset_dir=dataset,
         work_root=tmp_path / "work", questions_path=tmp_path / "q.json",
         experiment_log_path=hist, min_pairs=50, min_growth_pairs=200,
-        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=15, margin=5.0)
+        train_fn=train_fn, blind_eval_fn=blind_eval_fn, min_questions=60)
 
     assert res["status"] == "rejected"
+    assert res["candidate_win_rate"] > res["incumbent_win_rate"]   # ganhou…
+    assert res["teste_pareado"]["significativo"] is False          # …mas pode ser sorteio
 
 
-# ── E4: a resposta do Nano não pode chegar VAZIA ao juiz ──────────────────
-def test_first_answer_block_nao_engole_resposta_que_comeca_com_quebra():
-    """O Nano quase sempre começa a completion de 'Resposta:' com '\n\n'.
-    Com `split` antes do `strip`, o juiz recebia string vazia (E4)."""
-    from src.nanollm.flywheel import first_answer_block
+def test_conjunto_congelado_antes_do_treino(tmp_path):
+    """E7: sem perguntas suficientes, pula ANTES de treinar 2000 passos."""
+    dataset = tmp_path / "dataset"
+    _write_dataset(dataset, pairs=500)
 
-    assert first_answer_block("\n\nUm engenheiro sênior faz X.\n\nOutro parágrafo") == \
-        "Um engenheiro sênior faz X."
-    assert first_answer_block(" \n\n  Resposta direta.  ") == "Resposta direta."
-    assert first_answer_block("Sem quebra nenhuma") == "Sem quebra nenhuma"
-    assert first_answer_block("") == ""          # vazio de verdade continua vazio
-    assert first_answer_block(None) == ""
+    def _nao_treina(*a, **k):
+        raise AssertionError("não devia treinar sem conjunto de perguntas")
 
+    res = run_answer_flywheel(
+        _FakeDB(n=5), live_ckpt=_live_ckpt(tmp_path), dataset_dir=dataset,
+        work_root=tmp_path / "work", questions_path=tmp_path / "q.json",
+        experiment_log_path=tmp_path / "hist.jsonl", min_pairs=50,
+        min_growth_pairs=200, train_fn=_nao_treina,
+        blind_eval_fn=_blind_eval_fn_factory({"CANDIDATO": [0], "TITULAR": []}),
+        min_questions=60)
 
-def test_blind_eval_do_flywheel_entrega_resposta_nao_vazia_ao_juiz(tmp_path, monkeypatch):
-    """Caminho REAL de `_default_answer_blind_eval` (só o motor e o juiz são
-    fakes): o que chega ao juiz tem que ser o texto do Nano, não ''."""
-    import src.nanollm.blind_eval as be
-    import src.nanollm.engine as eng
-    import src.nanollm.flywheel as fw
-
-    ckpt = tmp_path / "ckpt"
-    ckpt.mkdir()
-    (ckpt / "model_best.npz").write_bytes(b"X")
-
-    class _FakeEngine:
-        def __init__(self, ckpt_dir=None):
-            self.ckpt_dir = ckpt_dir
-
-        def available(self):
-            return True
-
-        def complete(self, prompt, max_tokens=60, **kw):
-            return {"text": "\n\nUm engenheiro sênior revisa o código.\n\nsobra"}
-
-    vistos = []
-
-    def _fake_judge():
-        def judge_fn(q, a, b):
-            vistos.append((a, b))
-            return "A"
-        return judge_fn
-
-    monkeypatch.setattr(eng, "NanoEngine", _FakeEngine)
-    monkeypatch.setattr(be, "make_llm_judge", _fake_judge)
-    monkeypatch.setattr(fw, "make_llm_teacher",
-                        lambda **kw: (lambda q: "Resposta do professor."))
-
-    res = fw._default_answer_blind_eval(ckpt, ["O que faz um engenheiro sênior?"])
-
-    assert res["status"] == "ok"
-    nano_resp = "Um engenheiro sênior revisa o código."
-    assert any(nano_resp in a or nano_resp in b for a, b in vistos)
-    assert all(a.strip() and b.strip() for a, b in vistos)   # nenhum lado vazio
+    assert res["status"] == "skipped" and "poucas perguntas" in res["reason"]

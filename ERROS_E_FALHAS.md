@@ -51,7 +51,7 @@
 - **Fix:** `out.strip().split("\n\n")[0]`. Teste: completion iniciando com `\n\n` não pode virar resposta vazia.
 
 ### E5 — Portão do flywheel de resposta decide com **n=15 e margem de 5pp = ruído puro**
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/flywheel.py:248-252](src/nanollm/flywheel.py) (`min_questions=15`, `margin=5.0`) + `data/nano/blind_eval_questions.json` congelado com 15
 - **O quê:** com n=15, o desvio-padrão binomial de um win-rate ~40% é ~12,6pp (IC 95% ≈ ±25pp). **Medido em produção:** o MESMO checkpoint titular marcou 33,3% (17/07) e 46,7% (19/07) sem mudar um peso. Margem de 5pp não distingue nada; promoção/rejeição vira cara-ou-coroa.
 - **Agravantes:** (a) o professor re-gera respostas a cada rodada (temp 0,3) — candidato e titular são comparados contra **gabaritos diferentes**; (b) juiz LLM tem viés de posição não neutralizado.
@@ -68,7 +68,7 @@
 ## 🟠 GRAVES (custo/risco alto, não derrubam sozinhos)
 
 ### E7 — `run_answer_flywheel` treina 2000 passos ANTES de checar se o blind-eval pode rodar
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/flywheel.py:294-304](src/nanollm/flywheel.py)
 - **O quê:** `freeze_questions` (que pode levantar `ValueError` por falta de perguntas) só roda **depois** do treino do candidato. Sem perguntas → horas de CPU jogadas fora, toda noite em que a condição persistir.
 - **Fix:** mover `freeze_questions` para antes do `train(...)`.
