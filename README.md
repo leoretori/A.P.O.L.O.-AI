@@ -430,7 +430,22 @@ python -m src.nanollm.generate --ckpt data/nanollm/ckpt --prompt "O Apolo é"
 
 # 4. Avalie o checkpoint (perplexity determinística + 10 sondas fixas + relatório)
 python -m src.nanollm.eval --ckpt data/nanollm/ckpt --data data/nanollm
+
+# 5. Meça a TAREFA (o que decide promoção): % de mensagens reais que o modelo
+#    consegue titular passando pelo portão de qualidade, num held-out congelado
+python -m src.nanollm.title_eval --ckpt data/nanollm/ckpt
 ```
+
+**Como o Nano é promovido** (`flywheel.py`, revisado em 2026-07-22 pela auditoria
+[`ERROS_E_FALHAS.md`](ERROS_E_FALHAS.md)): o ciclo noturno destila → treina um candidato → e só
+troca o checkpoint vivo se o candidato **vencer na tarefa** — taxa de aceitação do título
+(`title_eval.py`) ou blind-eval contra o professor (`blind_eval.py`), sempre num conjunto
+**congelado e held-out** (excluído do treino). A perplexidade continua sendo medida, mas como
+diagnóstico: o candidato treina na mesma distribuição do val destilado e quase sempre "ganha" no
+ppl mesmo quando piora de verdade (medido em 3 experimentos). E a decisão passa por **teste de
+sinais pareado** (p ≤ α, α=0,05) em vez de margem fixa — com n=15, o mesmo checkpoint media 33,3%
+numa noite e 46,7% na outra sem mudar um peso. O gabarito do professor fica **cacheado em disco**
+e o juiz vota **duas vezes com as posições trocadas** (voto inconsistente = empate).
 
 **Integração ao app** (`src/nanollm/engine.py` + `routers/nano.py`): `GET /api/nano/status` e `POST /api/nano/complete {prompt, max_tokens?}` servem o modelo próprio dentro do Apolo — carregamento lazy, gerações serializadas, atividade marcada no GpuGate (o aprendizado de fundo espera pelo Nano, nunca o contrário). O `/api/health` reporta o bloco `nano` (checkpoint, params, val_ppl). Env: `NANO_CKPT` aponta o checkpoint (padrão `data/nanollm/ckpt_v1`).
 
@@ -479,7 +494,8 @@ Apolo_AI/
 │   │   ├── tasks.py          #    inferência de tarefa (título/setor/binário) com portão de qualidade
 │   │   ├── routing.py        #    takeover progressivo: Nano primeiro, professor no fallback
 │   │   ├── flywheel.py       #    ciclo noturno: destila → treina → promove só se melhorar
-│   │   ├── blind_eval.py     #    Nano vs Qwen às cegas (ordem embaralhada, juiz não sabe quem é quem)
+│   │   ├── blind_eval.py     #    Nano vs Qwen às cegas (ordem embaralhada, juiz 2x, teste pareado)
+│   │   ├── title_eval.py     #    gate_accept da tarefa de título (held-out congelado) — o portão do E6
 │   │   ├── binary_eval.py    #    avalia o gate binário no held-out real
 │   │   ├── sweep.py          #    scaling-law compute-matched entre presets
 │   │   └── quantize.py       #    quantização do checkpoint

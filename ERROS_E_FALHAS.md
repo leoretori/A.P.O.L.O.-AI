@@ -9,6 +9,16 @@
 > Este documento é a lista de trabalho: cada item tem checkbox. Marcar só depois do fix + teste
 > de regressão. Ordenado por gravidade.
 
+## Andamento (2026-07-22)
+
+**Fase 0 do [PLANO_MELHORIA_GIGANTE_LLM.md](PLANO_MELHORIA_GIGANTE_LLM.md) fechada** — os
+críticos E1→E4→E2→E5→E6→E8 corrigidos na ordem sugerida, cada um com teste que exercita o
+caminho REAL (E28), suíte 1731→1765 verde. Foram junto, por dependência direta: **E1b** e
+**E12** (mesma função do E1), **E11** e **E20** (mesma reescrita do E2), **E7** (a ordem do
+`freeze_questions` piorava com o E5).
+
+Ainda abertos: E9, E10, E13–E19, E21–E27.
+
 ---
 
 ## 🔴 CRÍTICOS (quebram o ciclo de evolução da LLM)
