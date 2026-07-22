@@ -17,6 +17,11 @@ import numpy as np
 from src.nanollm.layers import Block, Embedding, LayerNorm, Linear, Module, Param, softmax
 from src.nanollm.quantize import dequantize_int8, quantize_int8
 
+# Teto de contexto do caminho rápido para modelos ALiBi (posição relativa: a
+# matemática não impede passar do block_size de treino — o que limita é a
+# memória do KV cache, O(n_layer · T · n_embd)).
+ALIBI_GEN_CONTEXT = 1024
+
 
 @dataclass
 class GPTConfig:
@@ -158,6 +163,29 @@ class GPT(Module):
             x = block.step(x)
         return self.lm_head.forward(self.ln_f.forward(x))
 
+    def context_limit(self, max_context: int | None = None) -> int:
+        """Tokens que cabem na janela do caminho rápido (prompt + gerados).
+
+        - posição APRENDIDA (`wpe`): teto rígido = `block_size`, o tamanho da
+          tabela de posições.
+        - **ALiBi**: o viés é relativo, então o cache pode passar do
+          `block_size` de treino (é a razão de existir do ALiBi — o caminho
+          lento já extrapolava, o rápido truncava igual ao learned, E11). O
+          teto vira memória, não matemática: `ALIBI_GEN_CONTEXT` por padrão.
+        """
+        if max_context is not None:
+            return max(2, int(max_context))
+        if self.wpe is not None:
+            return self.config.block_size
+        return max(self.config.block_size, ALIBI_GEN_CONTEXT)
+
+    def prompt_tokens_used(self, n_prompt: int, max_context: int | None = None) -> int:
+        """Quantos tokens do prompt o modelo REALMENTE vê (o resto é cortado
+        pela janela). Serve para o chamador reportar truncagem em vez de
+        devolver texto vazio sem avisar (E2/E20)."""
+        limit = self.context_limit(max_context)
+        return min(int(n_prompt), limit - 1)
+
     def generate_fast(
         self,
         idx: np.ndarray,
@@ -166,25 +194,42 @@ class GPT(Module):
         top_k: int = 40,
         rng: np.random.Generator | None = None,
         stop_id: int | None = None,
+        max_context: int | None = None,
     ) -> np.ndarray:
         """Igual a generate(), mas O(T) por token via KV cache.
 
-        Limite: para (sem erro) ao encher o block_size — o cache guarda
-        posições absolutas, então não há janela deslizante no caminho rápido.
+        Devolve **o prompt ORIGINAL inteiro + os tokens gerados** — mesmo
+        quando a janela corta o começo do prompt. Antes, o prompt era truncado
+        e o array devolvido ficava MENOR que o prompt do chamador; quem fatiava
+        `out[0, len(ids):]` (engine, generate.py) recebia lista vazia, sem erro
+        e sem aviso: qualquer prompt acima de ~block_size tokens gerava texto
+        `''` silenciosamente (E2).
+
+        Ao encher a janela, o cache não para mais a geração: re-prefila com a
+        metade recente e segue (janela deslizante de verdade — custo O(T) uma
+        vez a cada `limit/2` tokens).
         """
         rng = rng or np.random.default_rng()
-        if idx.shape[1] >= self.config.block_size:
-            idx = idx[:, -(self.config.block_size - 1):]  # deixa 1 vaga
-        logits = self._prefill(idx)
+        limit = self.context_limit(max_context)
+        prompt = idx
+        window = idx[:, -(limit - 1):] if idx.shape[1] > limit - 1 else idx
+        gerados: list[np.ndarray] = []
+
+        logits = self._prefill(window)
         for _ in range(max_new_tokens):
-            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, idx.dtype)
-            idx = np.concatenate([idx, nxt], axis=1)
+            nxt = self._sample(logits[:, -1, :], temperature, top_k, rng, window.dtype)
+            window = np.concatenate([window, nxt], axis=1)
+            gerados.append(nxt)
             if stop_id is not None and bool((nxt == stop_id).all()):
                 break
-            if idx.shape[1] >= self.config.block_size:
-                break  # cache cheio — contexto máximo atingido
-            logits = self._step(nxt, pos=idx.shape[1] - 1)
-        return idx
+            if window.shape[1] >= limit:
+                window = window[:, -(limit // 2):]   # desliza a janela…
+                logits = self._prefill(window)       # …e reconstrói o cache
+            else:
+                logits = self._step(nxt, pos=window.shape[1] - 1)
+        if not gerados:
+            return prompt
+        return np.concatenate([prompt, *gerados], axis=1)
 
     @staticmethod
     def _sample(logits: np.ndarray, temperature: float, top_k: int,

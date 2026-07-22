@@ -29,7 +29,7 @@
 - **Fix:** `perplexity` aceitar janela menor quando o corpus é curto (janela = min(block, len-1)), ou o flywheel exigir `val_tokens >= block+1` antes de treinar.
 
 ### E2 — Prompt ≥ block_size (256 tokens ≈ ~700 chars) → completion **vazia e silenciosa** ✅ CONFIRMADO NO CHECKPOINT VIVO
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/model.py:176-187](src/nanollm/model.py) (`generate_fast`) + [src/nanollm/engine.py:90](src/nanollm/engine.py) + [src/nanollm/generate.py:45](src/nanollm/generate.py)
 - **O quê:** `generate_fast` trunca o prompt para `block_size-1` e **para no teto do cache** (gera no máx. 1 token). O chamador fatia `out[0, len(ids):]` com o `len` do prompt **original** (maior que o out inteiro) → **lista vazia**. Zero erro, zero aviso.
 - **Prova (checkpoint real):** prompt curto → 50 tokens; prompt de ~1300 chars → **0 tokens, texto `''`**.
@@ -92,7 +92,7 @@
 - **Fix:** dataset **append-only com dedup por pergunta** (cache professor→resposta por hash da síntese); regenerar split só quando treinar.
 
 ### E11 — `generate_fast` desperdiça a razão de existir do ALiBi ✅ CONFIRMADO
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/model.py:176-185](src/nanollm/model.py)
 - **O quê:** o ALiBi foi adicionado exatamente para extrapolar além do `block_size` (P1.5), e o caminho lento (`generate`) extrapola de verdade. O caminho rápido trunca e para no teto igual ao learned. Prova: mesmo modelo ALiBi, `generate` devolveu 60 tokens, `generate_fast` devolveu 32.
 - **Fix:** com ALiBi, deixar o cache crescer além de `block_size` (o viés é relativo, funciona) — só limitar por um teto de memória explícito.
@@ -150,7 +150,7 @@
 - **Fix:** penalidade por MODELO (ex.: 1.3 só p/ o 1.5B; 1.1 p/ o 7B/14B), ou expor por chamada.
 
 ### E20 — `NanoCompleteRequest` promete o que o motor não entrega
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [routers/nano.py:26-31](routers/nano.py) (`max_length=4000`, `max_tokens` até 400) vs block_size=256
 - **O quê:** contrato da API aceita prompt de 4000 chars e 400 tokens de saída; o motor entrega vazio acima de ~700 chars de prompt (E2) e nunca mais que ~255 tokens de saída. Nenhum campo da resposta indica truncagem.
 - **Fix:** após E2, incluir `truncated: true/prompt_tokens_used` na resposta e alinhar os limites do schema.

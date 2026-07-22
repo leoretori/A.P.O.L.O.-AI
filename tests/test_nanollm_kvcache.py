@@ -42,18 +42,51 @@ def test_amostragem_mesma_seed_mesmos_tokens():
     np.testing.assert_array_equal(a, b)  # cache é resetado a cada chamada
 
 
-def test_para_ao_encher_o_contexto():
+def test_janela_desliza_em_vez_de_parar():
+    """E2: encher o contexto NÃO para mais a geração — a janela desliza
+    (re-prefill com a metade recente) e os N tokens pedidos saem."""
     model = _model(block=16)
     prompt = np.ones((1, 10), dtype=np.int64)
     out = model.generate_fast(prompt, 100, top_k=1, rng=np.random.default_rng(0))
-    assert out.shape[1] == 16  # parou no block_size, sem estourar
+    assert out.shape[1] == 10 + 100
 
 
-def test_prompt_maior_que_contexto_e_recortado():
+def test_prompt_maior_que_contexto_devolve_o_prompt_inteiro():
+    """E2: a janela recorta o prompt para o modelo, mas o array devolvido
+    mantém o prompt ORIGINAL — senão `out[0, len(ids):]` do chamador dá vazio."""
     model = _model(block=16)
     prompt = np.arange(40, dtype=np.int64)[None, :] % 64
     out = model.generate_fast(prompt, 5, top_k=1, rng=np.random.default_rng(0))
-    assert out.shape[1] <= 16 + 5  # recorta p/ caber e segue
+    assert out.shape[1] == 40 + 5
+    np.testing.assert_array_equal(out[:, :40], prompt)      # prompt preservado
+    assert len(out[0, 40:]) == 5                            # e 5 tokens NOVOS
+
+
+def test_prompt_longo_nao_gera_texto_vazio():
+    """O modo de falha real do E2, no formato do chamador (engine/generate)."""
+    model = _model(block=16)
+    ids = list(np.arange(200) % 64)
+    out = model.generate_fast(np.array([ids], dtype=np.int64), 20, top_k=1,
+                              rng=np.random.default_rng(0))
+    novos = [int(t) for t in out[0, len(ids):]]
+    assert len(novos) == 20
+
+
+def test_prompt_tokens_used_reporta_a_truncagem():
+    model = _model(block=16)
+    assert model.prompt_tokens_used(5) == 5            # coube inteiro
+    assert model.prompt_tokens_used(200) == 15         # block_size - 1
+
+
+def test_alibi_gera_alem_do_block_size_no_caminho_rapido():
+    """E11: com ALiBi o viés é relativo — o cache pode passar do block_size de
+    treino (o caminho lento já fazia isso; o rápido truncava igual ao learned)."""
+    model = GPT(GPTConfig(vocab_size=64, block_size=16, n_layer=2, n_head=2,
+                          n_embd=32, seed=9, pos_encoding="alibi"))
+    assert model.context_limit() > model.config.block_size
+    prompt = np.ones((1, 4), dtype=np.int64)
+    out = model.generate_fast(prompt, 40, top_k=1, rng=np.random.default_rng(0))
+    assert out.shape[1] == 44          # 44 > block_size 16, sem re-prefill
 
 
 def test_stop_id_respeitado_no_fast():

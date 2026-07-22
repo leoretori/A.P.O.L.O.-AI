@@ -70,7 +70,11 @@ class NanoEngine:
     # ------------------------------------------------------------ geração
     def complete(self, prompt: str, max_tokens: int = 60, temperature: float = 0.8,
                  top_k: int = 40, seed: int | None = None) -> dict:
-        """Completa `prompt`. Thread-safe (serializado); lazy-load na 1ª vez."""
+        """Completa `prompt`. Thread-safe (serializado); lazy-load na 1ª vez.
+
+        Prompt maior que a janela do modelo é atendido pelos tokens FINAIS (o
+        começo não é visto) — e a resposta diz isso em `truncated` /
+        `prompt_tokens_used`, em vez de devolver texto vazio calado (E2/E20)."""
         if not self.available():
             raise FileNotFoundError(f"sem checkpoint em {self.ckpt_dir}")
         prompt = (prompt or "").strip()
@@ -87,10 +91,15 @@ class NanoEngine:
                 idx, max_tokens, temperature=float(temperature), top_k=int(top_k),
                 rng=np.random.default_rng(seed), stop_id=tok.sep_id,
             )
+            usados = model.prompt_tokens_used(len(ids))
         new = [int(t) for t in out[0, len(ids):] if int(t) != tok.sep_id]
         return {
             "text": tok.decode(new),
             "tokens": len(new),
             "ms": int((time.time() - t0) * 1000),
             "params_m": round(model.num_params / 1e6, 3),
+            "prompt_tokens": len(ids),
+            "prompt_tokens_used": usados,
+            "truncated": usados < len(ids),
+            "context_limit": model.context_limit(),
         }

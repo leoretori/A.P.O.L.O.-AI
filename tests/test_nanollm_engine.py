@@ -152,3 +152,36 @@ def test_generate_fast_respeita_dtype_do_idx(ckpt):
     r = e.complete("Apolo aprende", max_tokens=12, seed=2)
     ids = e._tok.encode(r["text"])
     assert all(0 <= i < e._model.config.vocab_size for i in np.array(ids))
+
+
+# ── E2/E20: prompt longo não pode devolver texto vazio e calado ───────────
+def test_engine_prompt_longo_ainda_gera_texto(ckpt):
+    """O bug real: prompt acima do block_size fazia `out[0, len(ids):]` vir
+    vazio → texto '' sem erro nem aviso. Aqui o prompt tem MUITO mais tokens
+    que o contexto (block_size=32) e a completion tem que sair mesmo assim."""
+    e = NanoEngine(ckpt)
+    longo = "O Apolo aprende sozinho todos os dias e melhora. " * 40
+    r = e.complete(longo, max_tokens=10, seed=1)
+    assert r["tokens"] == 10 and r["text"].strip() != ""
+
+
+def test_engine_reporta_truncagem_do_prompt(ckpt):
+    e = NanoEngine(ckpt)
+    curto = e.complete("O Apolo", max_tokens=4, seed=1)
+    assert curto["truncated"] is False
+    assert curto["prompt_tokens_used"] == curto["prompt_tokens"]
+
+    longo = e.complete("O Apolo aprende sozinho. " * 40, max_tokens=4, seed=1)
+    assert longo["truncated"] is True
+    assert longo["prompt_tokens_used"] < longo["prompt_tokens"]
+    assert longo["prompt_tokens_used"] == longo["context_limit"] - 1
+
+
+def test_complete_endpoint_expoe_truncagem(client):
+    r = client.post("/api/nano/complete",
+                    json={"prompt": "O Apolo aprende sozinho. " * 40,
+                          "max_tokens": 6, "seed": 1})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["truncated"] is True and body["tokens"] == 6
+    assert body["text"].strip() != ""
