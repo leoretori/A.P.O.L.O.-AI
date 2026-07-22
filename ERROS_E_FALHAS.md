@@ -44,7 +44,7 @@
 - **Fix:** gravar `freeze_blocks` no `state.json` e usá-lo no resume (com aviso se a flag divergir); `Adam.load` tolerar chaves ausentes (estado zerado) com warning.
 
 ### E4 — Blind-eval do flywheel de resposta compara **respostas vazias** do Nano — `split` antes do `strip` ✅ CONFIRMADO (indireto)
-- [ ] corrigido
+- [x] corrigido
 - **Onde:** [src/nanollm/flywheel.py:228](src/nanollm/flywheel.py) (`_default_answer_blind_eval`): `out.split("\n\n")[0].strip()`
 - **O quê:** o Nano, com prompt `"Pergunta: X\n\nResposta:"`, frequentemente **começa a completion com `\n\n`** (verificado no checkpoint vivo: `'\n\nUm engenheiro sênior…'`). `split("\n\n")[0]` pega o trecho **antes** do primeiro `\n\n` → string vazia → o juiz recebe resposta vazia do Nano.
 - **Impacto:** o portão que decide promoção do flywheel de resposta mede candidato e titular com respostas mutiladas — o win-rate registrado (26,7% / 46,7%) está contaminado.

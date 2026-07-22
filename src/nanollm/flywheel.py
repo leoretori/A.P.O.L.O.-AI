@@ -231,6 +231,16 @@ def _default_answer_train(dataset_dir: Path, init_from: Path, out_dir: Path, *,
     return train(args)
 
 
+def first_answer_block(completion: str) -> str:
+    """Primeiro bloco da completion — a resposta que vai ao juiz.
+
+    O `strip()` vem ANTES do `split`: o Nano quase sempre começa a completion de
+    `"…\\n\\nResposta:"` com uma quebra dupla, e `split("\\n\\n")[0]` pegava o
+    trecho ANTES dela — isto é, string vazia. O juiz recebia uma resposta vazia
+    do Nano e o win-rate registrado ficava contaminado (E4)."""
+    return (completion or "").strip().split("\n\n")[0].strip()
+
+
 def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
                                max_tokens: int = 80) -> dict:
     """Win-rate real do checkpoint contra o professor, no conjunto congelado —
@@ -244,7 +254,7 @@ def _default_answer_blind_eval(ckpt_dir: Path, questions: list[str],
 
     def nano_fn(q: str) -> str:
         out = engine.complete(f"Pergunta: {q}\n\nResposta:", max_tokens=max_tokens).get("text", "")
-        return out.split("\n\n")[0].strip()
+        return first_answer_block(out)
 
     teacher = make_llm_teacher(max_tokens=max_tokens)
     judge = make_llm_judge()
